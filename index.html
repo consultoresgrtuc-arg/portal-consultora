@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consultora Contable y Financiera</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React y Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Recharts (para gráficos interactivos) -->
+    <script src="https://unpkg.com/recharts@2.10.1/umd/Recharts.min.js"></script>
+
+    <!-- Firebase -->
+    <script type="module">
+        const firebaseConfig = {
+            apiKey: "AIzaSyAK3yU78pfmNFAVBojOC7takuDg2NS3i6M",
+            authDomain: "gyrconsultores-82422.firebaseapp.com",
+            projectId: "gyrconsultores-82422",
+            storageBucket: "gyrconsultores-82422.firebasestorage.app",
+            messagingSenderId: "963315189373",
+            appId: "1:963315189373:web:b5f02184412b2e78275314"
+        };
+        window.firebaseConfig = firebaseConfig;
+    </script>
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            max-width: 500px;
+            width: 90%;
+        }
+        /* Ocultar la barra de scroll en el carrusel */
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        // Importar funciones de Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+        import { 
+            getAuth, 
+            onAuthStateChanged,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            signInWithPopup,
+            GoogleAuthProvider,
+            signOut
+        } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            setDoc, 
+            getDoc,
+            collection,
+            addDoc,
+            query,
+            getDocs,
+            updateDoc,
+            orderBy,
+            limit,
+            deleteDoc,
+            where,
+            Timestamp,
+            onSnapshot
+        } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
+        import { 
+            getStorage, 
+            ref, 
+            uploadBytes, 
+            getDownloadURL,
+            listAll,
+            deleteObject
+        } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-storage.js";
+
+        const { useState, useEffect, createContext, useContext, useCallback, useMemo } = React;
+        const { createRoot } = ReactDOM;
+
+        // --- VARIABLES GLOBALES DE FIREBASE ---
+        let app, auth, db, storage, googleProvider;
+        
+        // --- CONTEXTOS ---
+        const AuthContext = createContext();
+        const OperationsContext = createContext();
+
+        const AuthProvider = ({ children }) => {
+            const [user, setUser] = useState(null);
+            const [userData, setUserData] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+                    if (firebaseUser) {
+                        setUser(firebaseUser);
+                        const userDocRef = doc(db, "users", firebaseUser.uid);
+                        const unsubProfile = onSnapshot(userDocRef, (doc) => {
+                            if (doc.exists()) {
+                                setUserData(doc.data());
+                            } else {
+                                const newUserProfile = {
+                                    email: firebaseUser.email,
+                                    nombre: firebaseUser.displayName || '',
+                                    cuit: '',
+                                    actividad: '',
+                                    categoriaTributaria: 'Monotributo',
+                                    telefono: firebaseUser.phoneNumber || '',
+                                    isAdmin: false,
+                                    incomeGoal: 500000,
+                                    expenseBudget: 200000
+                                };
+                                setDoc(userDocRef, newUserProfile);
+                                setUserData(newUserProfile);
+                            }
+                            setLoading(false);
+                        });
+                        return () => unsubProfile();
+                    } else {
+                        setUser(null);
+                        setUserData(null);
+                        setLoading(false);
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            const value = { user, userData, loading };
+            return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
+        };
+        
+        const OperationsProvider = ({ children }) => {
+            const { user } = useAuth();
+            const [operations, setOperations] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                if (!user) {
+                    setOperations([]);
+                    setLoading(false);
+                    return;
+                }
+                setLoading(true);
+                const q = query(collection(db, 'users', user.uid, 'operations'), orderBy("date", "desc"));
+                
+                const unsubscribe = onSnapshot(q, (querySnapshot) => {
+                    const opsFromDb = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setOperations(opsFromDb);
+                    setLoading(false);
+                }, (error) => {
+                    console.error("Error listening to operations:", error);
+                    setLoading(false);
+                });
+
+                return () => unsubscribe();
+            }, [user]);
+
+            const value = { operations, loading };
+            return <OperationsContext.Provider value={value}>{children}</OperationsContext.Provider>;
+        };
+
+        const useAuth = () => useContext(AuthContext);
+        const useOperations = () => useContext(OperationsContext);
+
+        // --- ÍCONOS INTEGRADOS ---
+        const Icons = {
+            BarChart3: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>),
+            Chrome: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>),
+            MessageCircle: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>),
+            LayoutDashboard: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="3" y="15" width="7" height="5"/><rect x="14" y="11" width="7" height="9"/></svg>),
+            PlusCircle: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>),
+            TrendingUp: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>),
+            FolderArchive: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>),
+            Folder: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>),
+            User: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>),
+            Users: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>),
+            Shield: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>),
+            LogOut: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>),
+            Menu: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>),
+            TrendingDown: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>),
+            DollarSign: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>),
+            Calendar: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>),
+            File: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>),
+            AlertTriangle: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>),
+            CheckCircle: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>),
+            Edit: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>),
+            Trash2: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>),
+            ArrowLeft: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>),
+        };
+
+        const Icon = ({ name, ...props }) => {
+            const IconComponent = Icons[name];
+            return IconComponent ? <IconComponent {...props} /> : <svg {...props} />;
+        };
+        
+        // --- COMPONENTES REUTILIZABLES ---
+        const ConfirmModal = ({ message, onConfirm, onCancel }) => {
+            return (
+                <div className="modal-overlay">
+                    <div className="modal-content text-center">
+                        <Icon name="AlertTriangle" className="mx-auto h-12 w-12 text-yellow-500 mb-4"/>
+                        <h3 className="text-lg font-medium text-gray-900 mb-4">{message}</h3>
+                        <div className="flex justify-center gap-4">
+                            <button onClick={onCancel} className="py-2 px-4 bg-gray-200 rounded-md hover:bg-gray-300">
+                                Cancelar
+                            </button>
+                            <button onClick={onConfirm} className="py-2 px-4 bg-red-600 text-white rounded-md hover:bg-red-700">
+                                Eliminar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- PÁGINA DE LOGIN ---
+        const LoginPage = () => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [isRegister, setIsRegister] = useState(false);
+            const [error, setError] = useState('');
+            
+            const handleEmailPassword = async (e) => {
+                e.preventDefault();
+                setError('');
+                try {
+                    if (isRegister) {
+                        await createUserWithEmailAndPassword(auth, email, password);
+                    } else {
+                        await signInWithEmailAndPassword(auth, email, password);
+                    }
+                } catch (err) {
+                    let friendlyMessage = 'Error al autenticar.';
+                    if (err.code === 'auth/email-already-in-use') friendlyMessage = 'Este email ya está registrado. Intenta iniciar sesión.';
+                    else if (err.code === 'auth/weak-password') friendlyMessage = 'La contraseña debe tener al menos 6 caracteres.';
+                    else if (err.code === 'auth/invalid-email') friendlyMessage = 'El formato del email no es válido.';
+                    else if (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') friendlyMessage = 'Email o contraseña incorrectos.';
+                    setError(friendlyMessage);
+                }
+            };
+            
+            const handleGoogleLogin = async () => {
+                setError('');
+                try {
+                    await signInWithPopup(auth, googleProvider);
+                } catch (err) {
+                    setError('Error al iniciar sesión con Google.');
+                }
+            };
+
+            return (
+                 <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                    <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-lg">
+                        <div className="text-center mb-8">
+                           <Icon name="BarChart3" className="mx-auto h-12 w-12 text-blue-600"/>
+                           <h2 className="mt-4 text-3xl font-bold text-gray-900">{isRegister ? 'Crear una cuenta' : 'Iniciar Sesión'}</h2>
+                           <p className="mt-2 text-sm text-gray-600">Bienvenido a tu portal de gestión contable.</p>
+                        </div>
+                        <form onSubmit={handleEmailPassword} className="space-y-6">
+                            <div><label className="text-sm font-medium text-gray-700">Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
+                            <div><label className="text-sm font-medium text-gray-700">Contraseña</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
+                            {error && <p className="text-sm text-red-600">{error}</p>}
+                            <div><button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">{isRegister ? 'Registrarse' : 'Ingresar'}</button></div>
+                        </form>
+                        <div className="mt-6"><div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300"></div></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">O continuar con</span></div></div>
+                            <div className="mt-6 grid grid-cols-1 gap-3">
+                                <button onClick={handleGoogleLogin} className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"><Icon name="Chrome" className="w-5 h-5 mr-2" />Google</button>
+                                <button disabled className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 opacity-50 cursor-not-allowed" title="Próximamente"><Icon name="MessageCircle" className="w-5 h-5 mr-2" />WhatsApp Business</button>
+                            </div>
+                        </div>
+                        <div className="text-center mt-4 text-sm"><a href="#" onClick={(e) => { e.preventDefault(); setIsRegister(!isRegister); setError(''); }} className="font-medium text-blue-600 hover:text-blue-500">{isRegister ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Regístrate'}</a></div>
+                    </div>
+                </div>
+            );
+        };
+        
+        // --- LAYOUT PRINCIPAL ---
+        const AppLayout = ({ children }) => {
+            const [sidebarOpen, setSidebarOpen] = useState(false);
+            const { userData } = useAuth();
+            const { navigate } = useContext(AppContext);
+            const navLinks = [
+                { name: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' }, { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
+                { name: 'Finanzas', icon: 'TrendingUp', path: '/finances' }, { name: 'Cliente', icon: 'FolderArchive', path: '/client-center' },
+                { name: 'Perfil', icon: 'User', path: '/profile' },
+                ...(userData?.isAdmin ? [{ name: 'Admin', icon: 'Shield', path: '/admin' }] : [])
+            ];
+            return (
+                <div className="flex h-screen bg-gray-100">
+                    <div className={`fixed inset-y-0 left-0 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out bg-gray-800 text-white w-64 space-y-6 py-7 px-2 z-30`}>
+                        <a href="#" onClick={() => navigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">Consultora</span></a>
+                        <nav>{navLinks.map(link => (<a key={link.name} href="#" onClick={() => navigate(link.path)} className="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name={link.icon} className="w-5 h-5"/><span>{link.name}</span></a>))}</nav>
+                        <div className="absolute bottom-5 w-full left-0 px-4"><button onClick={() => signOut(auth)} className="w-full text-left py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name="LogOut" className="w-5 h-5"/><span>Cerrar Sesión</span></button></div>
+                    </div>
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                        <header className="flex justify-between items-center p-4 bg-white border-b"><button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 focus:outline-none md:hidden"><Icon name="Menu" className="h-6 w-6"/></button><h1 className="text-2xl font-semibold text-gray-800">Bienvenido, {userData?.nombre || 'Cliente'}!</h1><div></div></header>
+                        <main className="flex-1 overflow-y-auto bg-gray-100 p-6"><div className="fade-in">{children}</div></main>
+                    </div>
+                </div>
+            );
+        };
+        
+        // --- PÁGINAS ---
+        const DashboardPage = () => {
+            const { operations, loading } = useOperations();
+            const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+
+            const summary = useMemo(() => {
+                const now = new Date();
+                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                
+                let sales = 0, purchases = 0;
+                operations.forEach(op => {
+                    const opDate = op.date.toDate();
+                    if (opDate.getMonth() === startOfMonth.getMonth() && opDate.getFullYear() === startOfMonth.getFullYear()) {
+                        if (['venta', 'ingreso'].includes(op.type)) sales += op.amount;
+                        else purchases += op.amount;
+                    }
+                });
+                return { sales, purchases, net: sales - purchases };
+            }, [operations]);
+
+            const recentOps = useMemo(() => operations.slice(0, 5), [operations]);
+
+            const chartData = useMemo(() => {
+                const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+                const data = {};
+                const now = new Date();
+
+                // Cambiado de 6 meses (i=5) a 3 meses (i=2)
+                for (let i = 2; i >= 0; i--) {
+                    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                    const key = `${d.getFullYear()}-${d.getMonth()}`;
+                    data[key] = { name: monthNames[d.getMonth()], ventas: 0, compras: 0 };
+                }
+
+                operations.forEach(op => {
+                    const opDate = op.date.toDate();
+                    const key = `${opDate.getFullYear()}-${opDate.getMonth()}`;
+                    if (data[key]) {
+                        if (['venta', 'ingreso'].includes(op.type)) data[key].ventas += op.amount;
+                        else data[key].compras += op.amount;
+                    }
+                });
+                
+                return Object.values(data);
+            }, [operations]);
+
+            return (
+                <div>
+                    <h2 className="text-3xl font-bold mb-6">Dashboard</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                       <div className="bg-white p-6 rounded-lg shadow-md flex items-center justify-between"><div><p className="text-sm font-medium text-gray-500">Ingresos del Mes</p><p className="text-3xl font-bold">{formatCurrency(summary.sales)}</p></div><div className="bg-green-100 p-3 rounded-full"><Icon name="TrendingUp" className="h-6 w-6 text-green-600"/></div></div>
+                       <div className="bg-white p-6 rounded-lg shadow-md flex items-center justify-between"><div><p className="text-sm font-medium text-gray-500">Gastos del Mes</p><p className="text-3xl font-bold">{formatCurrency(summary.purchases)}</p></div><div className="bg-red-100 p-3 rounded-full"><Icon name="TrendingDown" className="h-6 w-6 text-red-600"/></div></div>
+                       <div className="bg-white p-6 rounded-lg shadow-md flex items-center justify-between"><div><p className="text-sm font-medium text-gray-500">Resultado Neto del Mes</p><p className="text-3xl font-bold">{formatCurrency(summary.net)}</p></div><div className="bg-blue-100 p-3 rounded-full"><Icon name="DollarSign" className="h-6 w-6 text-blue-600"/></div></div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+                        <div className="bg-white p-6 rounded-lg shadow-md">
+                            <h3 className="text-xl font-bold mb-4">Resumen de Actividad (Últimos 3 Meses)</h3>
+                             <div style={{ width: '100%', height: 300 }}>
+                                {window.Recharts ? (
+                                    <window.Recharts.ResponsiveContainer>
+                                        <window.Recharts.BarChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                            <window.Recharts.CartesianGrid strokeDasharray="3 3" />
+                                            <window.Recharts.XAxis dataKey="name" />
+                                            <window.Recharts.YAxis tickFormatter={(value) => `$${value/1000}k`} />
+                                            <window.Recharts.Tooltip formatter={(value) => formatCurrency(value)} />
+                                            <window.Recharts.Legend />
+                                            <window.Recharts.Bar dataKey="ventas" fill="#3b82f6" name="Ventas" />
+                                            <window.Recharts.Bar dataKey="compras" fill="#ef4444" name="Compras" />
+                                        </window.Recharts.BarChart>
+                                    </window.Recharts.ResponsiveContainer>
+                                ) : <p className="text-center text-gray-500 pt-20">Cargando librería de gráficos...</p>}
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-lg shadow-md">
+                            <h3 className="text-xl font-bold mb-4">Últimas Operaciones</h3>
+                            {loading ? <p>Cargando...</p> : recentOps.length > 0 ? (<ul className="divide-y divide-gray-200">{recentOps.map(op => (<li key={op.id} className="py-3 flex justify-between items-center"><div><p className="font-medium capitalize">{op.type}: {op.description}</p><p className="text-sm text-gray-500">{op.date.toDate().toLocaleDateString('es-AR')}</p></div><p className={`font-bold text-lg ${['venta','ingreso'].includes(op.type) ? 'text-green-600' : 'text-red-600'}`}>{['venta','ingreso'].includes(op.type) ? '+' : '-'}{formatCurrency(op.amount)}</p></li>))}</ul>) : (<p className="text-gray-500 text-center mt-10">No has registrado operaciones.</p>)}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const OperationsPage = () => {
+            const { operations, loading } = useOperations();
+            const [showModal, setShowModal] = useState(false);
+            const [editingOp, setEditingOp] = useState(null);
+            const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+            const [operationToDelete, setOperationToDelete] = useState(null);
+            
+            const handleDelete = async () => {
+                if (!operationToDelete) return;
+                await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'operations', operationToDelete));
+                setShowConfirmDelete(false);
+                setOperationToDelete(null);
+            };
+
+            const promptDelete = (id) => {
+                setOperationToDelete(id);
+                setShowConfirmDelete(true);
+            };
+            
+            const handleEdit = (op) => {
+                setEditingOp(op);
+                setShowModal(true);
+            };
+            
+            const handleNewOperation = () => {
+                setEditingOp(null);
+                setShowModal(true);
+            };
+
+            const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+
+            return (
+                <div>
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-3xl font-bold">Operaciones</h2>
+                        <button onClick={handleNewOperation} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"><Icon name="PlusCircle" className="w-5 h-5 mr-2"/>Nueva Operación</button>
+                    </div>
+
+                    {showModal && <OperationModal op={editingOp} onClose={() => setShowModal(false)} />}
+                    {showConfirmDelete && (
+                        <ConfirmModal
+                            message="¿Estás seguro de que quieres eliminar esta operación?"
+                            onConfirm={handleDelete}
+                            onCancel={() => setShowConfirmDelete(false)}
+                        />
+                    )}
+
+                    <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50"><tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Tipo</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Descripción</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Monto</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Acciones</th>
+                            </tr></thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {loading ? (<tr><td colSpan="5" className="text-center py-10">Cargando...</td></tr>) : 
+                                operations.length > 0 ? operations.map(op => (
+                                    <tr key={op.id}>
+                                        <td className="px-6 py-4 whitespace-nowrap">{op.date.toDate().toLocaleDateString('es-AR')}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap capitalize">{op.type}</td>
+                                        <td className="px-6 py-4">{op.description}</td>
+                                        <td className={`px-6 py-4 whitespace-nowrap font-semibold ${['venta','ingreso'].includes(op.type) ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(op.amount)}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                            <button onClick={() => handleEdit(op)} className="text-indigo-600 hover:text-indigo-900 mr-4"><Icon name="Edit" className="w-5 h-5"/></button>
+                                            <button onClick={() => promptDelete(op.id)} className="text-red-600 hover:text-red-900"><Icon name="Trash2" className="w-5 h-5"/></button>
+                                        </td>
+                                    </tr>
+                                )) : (<tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay operaciones registradas.</td></tr>)}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
+        const OperationModal = ({ op, onClose }) => {
+            const { user } = useAuth();
+            const [formData, setFormData] = useState({
+                type: op?.type || 'venta',
+                amount: op?.amount || '',
+                description: op?.description || '',
+                date: op?.date ? op.date.toDate().toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+            });
+            const [message, setMessage] = useState('');
+            
+            const handleChange = e => setFormData({...formData, [e.target.name]: e.target.value});
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!user) return;
+                const dataToSave = {
+                    ...formData,
+                    amount: parseFloat(formData.amount),
+                    date: Timestamp.fromDate(new Date(formData.date))
+                };
+                try {
+                    if (op) { // Editing
+                        await updateDoc(doc(db, 'users', user.uid, 'operations', op.id), dataToSave);
+                    } else { // Creating
+                        await addDoc(collection(db, 'users', user.uid, 'operations'), dataToSave);
+                    }
+                    onClose();
+                } catch (error) {
+                    setMessage('Error al guardar la operación.');
+                    console.error(error);
+                }
+            };
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <h2 className="text-2xl font-bold mb-6">{op ? 'Editar' : 'Nueva'} Operación</h2>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div><label>Fecha</label><input type="date" name="date" value={formData.date} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"/></div>
+                            <div><label>Tipo</label><select name="type" value={formData.type} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"><option value="venta">Venta</option><option value="compra">Compra</option><option value="ingreso">Ingreso</option><option value="gasto">Gasto</option></select></div>
+                            <div><label>Monto</label><input type="number" step="0.01" name="amount" value={formData.amount} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"/></div>
+                            <div><label>Descripción</label><textarea name="description" value={formData.description} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"></textarea></div>
+                            <div className="flex justify-end gap-4 pt-4">
+                                <button type="button" onClick={onClose} className="py-2 px-4 bg-gray-200 rounded-md">Cancelar</button>
+                                <button type="submit" className="py-2 px-4 bg-blue-600 text-white rounded-md">Guardar</button>
+                            </div>
+                             {message && <p className="text-red-500 text-center">{message}</p>}
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const FixedDepositCalculator = () => {
+            const [capital, setCapital] = useState('');
+            const [days, setDays] = useState(30);
+            const [tna, setTna] = useState('');
+            const [result, setResult] = useState({ interest: 0, total: 0 });
+
+            const formatCurrency = (value) => {
+                if (value === null || typeof value === 'undefined' || isNaN(value)) return '$0,00';
+                return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+            };
+
+            useEffect(() => {
+                const numCapital = parseFloat(capital);
+                const numDays = parseInt(days, 10);
+                const numTna = parseFloat(tna);
+
+                if (numCapital > 0 && numDays > 0 && numTna > 0) {
+                    const calculatedInterest = (numCapital * numDays * numTna) / 36500;
+                    setResult({
+                        interest: calculatedInterest,
+                        total: numCapital + calculatedInterest
+                    });
+                } else {
+                    setResult({ interest: 0, total: numCapital > 0 ? numCapital : 0 });
+                }
+            }, [capital, days, tna]);
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-xl font-bold mb-4 text-center">Calculadora de Plazo Fijo</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Capital a Invertir ($)</label>
+                            <input type="number" value={capital} onChange={e => setCapital(e.target.value)} placeholder="Ej: 100000" className="mt-1 w-full p-2 border rounded-md"/>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Cantidad de Días</label>
+                            <input type="number" value={days} onChange={e => setDays(e.target.value)} placeholder="Ej: 30" className="mt-1 w-full p-2 border rounded-md"/>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">T.N.A. (%)</label>
+                            <input type="number" step="0.01" value={tna} onChange={e => setTna(e.target.value)} placeholder="Ej: 75" className="mt-1 w-full p-2 border rounded-md"/>
+                        </div>
+                    </div>
+                    <div className="bg-gray-50 p-6 rounded-lg text-center">
+                        <h4 className="text-lg font-semibold text-gray-800">Resultado</h4>
+                        <div className="mt-4 space-y-2">
+                            <p className="text-gray-600">Intereses Ganados:</p>
+                            <p className="text-3xl font-bold text-green-600">{formatCurrency(result.interest)}</p>
+                            <p className="text-gray-600 mt-2">Monto Total al Finalizar:</p>
+                            <p className="text-3xl font-bold text-blue-600">{formatCurrency(result.total)}</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const FinancesPage = () => {
+            const { operations } = useOperations();
+            const { user, userData } = useAuth();
+            const [dollarRates, setDollarRates] = useState([]);
+            const [loadingRates, setLoadingRates] = useState(true);
+            const [isEditingBudget, setIsEditingBudget] = useState(false);
+            const [budget, setBudget] = useState({ incomeGoal: 0, expenseBudget: 0 });
+
+            useEffect(() => {
+                if (userData) {
+                    setBudget({
+                        incomeGoal: userData.incomeGoal || 0,
+                        expenseBudget: userData.expenseBudget || 0,
+                    });
+                }
+            }, [userData]);
+
+            const monthlyMetrics = useMemo(() => {
+                const now = new Date();
+                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                
+                let income = 0, expense = 0;
+                operations.forEach(op => {
+                    const opDate = op.date.toDate();
+                    if(opDate.getMonth() === startOfMonth.getMonth() && opDate.getFullYear() === startOfMonth.getFullYear()) {
+                        if (['venta', 'ingreso'].includes(op.type)) income += op.amount;
+                        else expense += op.amount;
+                    }
+                });
+                
+                const cashFlow = income - expense;
+                const profitability = income > 0 ? (cashFlow / income) * 100 : 0;
+                const expenseRatio = income > 0 ? (expense / income) * 100 : 0;
+
+                return { cashFlow, profitability, expenseRatio, income, expense };
+            }, [operations]);
+
+            const handleSaveBudget = async () => {
+                if (!user) return;
+                const userDocRef = doc(db, 'users', user.uid);
+                try {
+                    await updateDoc(userDocRef, {
+                        incomeGoal: parseFloat(budget.incomeGoal) || 0,
+                        expenseBudget: parseFloat(budget.expenseBudget) || 0
+                    });
+                    setIsEditingBudget(false);
+                } catch (error) {
+                    console.error("Error updating budget:", error);
+                }
+            };
+            
+            const formatCurrency = (value) => {
+                if (value === null || typeof value === 'undefined') return '$--';
+                return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value)
+            };
+
+            useEffect(() => {
+                const fetchFinancialData = async () => {
+                    setLoadingRates(true);
+                    try {
+                        const response = await fetch('https://dolarapi.com/v1/dolares');
+                        if (!response.ok) throw new Error('Network response was not ok');
+                        const data = await response.json();
+                        setDollarRates(data);
+                    } catch (error) { 
+                        console.error("Failed to fetch dollar data:", error);
+                        setDollarRates([]);
+                    } finally {
+                        setLoadingRates(false);
+                    }
+                };
+                fetchFinancialData();
+            }, []);
+            
+            return (
+                 <div>
+                    <h2 className="text-3xl font-bold mb-6">Finanzas</h2>
+                    
+                    <h3 className="text-2xl font-bold mb-4">Presupuesto Mensual</h3>
+                    <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                        {isEditingBudget ? (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div><label className="block text-sm font-medium text-gray-700">Meta de Ingresos ($)</label><input type="number" value={budget.incomeGoal} onChange={e => setBudget({...budget, incomeGoal: e.target.value})} className="mt-1 w-full p-2 border rounded-md"/></div>
+                                    <div><label className="block text-sm font-medium text-gray-700">Presupuesto de Gastos ($)</label><input type="number" value={budget.expenseBudget} onChange={e => setBudget({...budget, expenseBudget: e.target.value})} className="mt-1 w-full p-2 border rounded-md"/></div>
+                                </div>
+                                <div className="flex justify-end gap-2"><button onClick={() => setIsEditingBudget(false)} className="py-2 px-4 bg-gray-200 rounded-md">Cancelar</button><button onClick={handleSaveBudget} className="py-2 px-4 bg-blue-600 text-white rounded-md">Guardar</button></div>
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                <div className="flex justify-between items-center"><h4 className="font-bold text-xl">Progreso del Mes</h4><button onClick={() => setIsEditingBudget(true)} className="text-sm text-blue-600 hover:underline">Editar Presupuesto</button></div>
+                                <div>
+                                    <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Ingresos</span><span>{formatCurrency(monthlyMetrics.income)} / <span className="text-gray-500">{formatCurrency(budget.incomeGoal)}</span></span></div>
+                                    <div className="w-full bg-gray-200 rounded-full h-4"><div className="bg-green-500 h-4 rounded-full" style={{ width: `${Math.min((monthlyMetrics.income / (budget.incomeGoal || 1)) * 100, 100)}%` }}></div></div>
+                                </div>
+                                 <div>
+                                    <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Gastos</span><span>{formatCurrency(monthlyMetrics.expense)} / <span className="text-gray-500">{formatCurrency(budget.expenseBudget)}</span></span></div>
+                                    <div className="w-full bg-gray-200 rounded-full h-4"><div className={`h-4 rounded-full ${monthlyMetrics.expense > budget.expenseBudget ? 'bg-red-600' : 'bg-red-400'}`} style={{ width: `${Math.min((monthlyMetrics.expense / (budget.expenseBudget || 1)) * 100, 100)}%` }}></div></div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                        <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Flujo de Caja (Mensual)</h3><p className={`text-3xl font-bold ${monthlyMetrics.cashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(monthlyMetrics.cashFlow)}</p></div>
+                        <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Rentabilidad Neta</h3><p className="text-3xl font-bold text-blue-600">{monthlyMetrics.profitability.toFixed(2)}%</p></div>
+                        <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Gastos vs Ingresos</h3><p className="text-3xl font-bold text-purple-600">{monthlyMetrics.expenseRatio.toFixed(2)}%</p></div>
+                    </div>
+                    
+                    <h3 className="text-2xl font-bold my-8">Indicadores en Tiempo Real</h3>
+                    <div className="relative">
+                        <div className="flex space-x-4 overflow-x-auto pb-4 scrollbar-hide" style={{ scrollSnapType: 'x mandatory' }}>
+                            {loadingRates ? <p>Cargando cotizaciones...</p> : 
+                             dollarRates.length > 0 ? dollarRates.map(rate => (
+                               <div key={rate.casa} className="flex-shrink-0 w-11/12 sm:w-1/2 md:w-1/3 bg-white p-6 rounded-lg shadow-md" style={{ scrollSnapAlign: 'center' }}>
+                                   <h4 className="font-bold text-xl mb-4 text-center capitalize">{rate.nombre}</h4>
+                                   <div className="flex flex-col items-center space-y-4">
+                                       <div className="text-center">
+                                           <p className="text-sm text-gray-500">Compra</p>
+                                           <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.compra)}</p>
+                                       </div>
+                                       <div className="text-center">
+                                           <p className="text-sm text-gray-500">Venta</p>
+                                           <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.venta)}</p>
+                                       </div>
+                                   </div>
+                               </div>
+                            )) : <p>No se pudieron cargar las cotizaciones.</p>
+                            }
+                        </div>
+                    </div>
+
+                    <h3 className="text-2xl font-bold my-8">Herramientas de Simulación</h3>
+                    <FixedDepositCalculator />
+                </div>
+            );
+        };
+        
+        const ClientCenterPage = ({ isManagedView = false, managedUserId = null }) => {
+            const { user, userData } = useAuth();
+            const currentUserId = isManagedView ? managedUserId : user?.uid;
+            
+            const [file, setFile] = useState(null);
+            const [uploading, setUploading] = useState(false);
+            const [message, setMessage] = useState('');
+            const [files, setFiles] = useState({});
+            const [currentFolder, setCurrentFolder] = useState(null);
+            const [loadingFiles, setLoadingFiles] = useState(true);
+            const [storageError, setStorageError] = useState('');
+            const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+            const [fileToDelete, setFileToDelete] = useState(null);
+            
+            const folders = [
+                { id: 'comprobantes', name: 'Comprobantes', acl: 'client' },
+                { id: 'contratos', name: 'Contratos', acl: 'client' },
+                { id: 'balances', name: 'Balances', acl: 'client' },
+                { id: 'documentos_contador', name: 'Documentos del Contador', acl: 'accountant' },
+            ];
+
+            const handleFirebaseError = (error) => {
+                console.error("Firebase Storage Error:", error);
+                if (error.code === 'storage/unauthorized') {
+                    setStorageError('Error de permisos. Las reglas de seguridad de Storage necesitan un ajuste. Por favor, ve a tu Consola de Firebase -> Storage -> Reglas y actualízalas.');
+                } else {
+                    setStorageError('Ocurrió un error inesperado al operar con los archivos.');
+                }
+            };
+            
+            const fetchFiles = useCallback(async () => {
+                if (!currentUserId) return;
+                setLoadingFiles(true);
+                setStorageError('');
+                try {
+                    const listRef = ref(storage, `user_documents/${currentUserId}`);
+                    const res = await listAll(listRef);
+                    
+                    const filesByFolder = {};
+                    folders.forEach(f => filesByFolder[f.id] = []);
+
+                    for (const folderRef of res.prefixes) {
+                        const folderName = folderRef.name;
+                        if (filesByFolder.hasOwnProperty(folderName)) {
+                            const folderFiles = await listAll(folderRef);
+                            filesByFolder[folderName] = await Promise.all(
+                                folderFiles.items.map(async (itemRef) => ({
+                                    name: itemRef.name,
+                                    url: await getDownloadURL(itemRef),
+                                    fullPath: itemRef.fullPath
+                                }))
+                            );
+                        }
+                    }
+                    setFiles(filesByFolder);
+                } catch (error) {
+                    handleFirebaseError(error);
+                } finally {
+                    setLoadingFiles(false);
+                }
+            }, [currentUserId]);
+
+            useEffect(() => { fetchFiles(); }, [fetchFiles]);
+            
+            const [uploadFolder, setUploadFolder] = useState(isManagedView ? 'documentos_contador' : 'comprobantes');
+
+            const handleUpload = async () => {
+                if (!file || !currentUserId) return;
+                setUploading(true);
+                setStorageError('');
+                setMessage('');
+                const storageRef = ref(storage, `user_documents/${currentUserId}/${uploadFolder}/${file.name}`);
+                try {
+                    await uploadBytes(storageRef, file);
+                    setMessage({ type: 'success', text: 'Archivo subido.' }); 
+                    setFile(null); 
+                    fetchFiles();
+                } catch (error) { 
+                    setMessage({ type: 'error', text: 'Error al subir.' }); 
+                    handleFirebaseError(error);
+                } finally { 
+                    setUploading(false); 
+                    setTimeout(() => setMessage(''), 3000); 
+                }
+            };
+            
+            const promptDelete = (filePath) => {
+                setFileToDelete(filePath);
+                setShowConfirmDelete(true);
+            };
+
+            const confirmDeleteFile = async () => {
+                if (!fileToDelete) return;
+                setStorageError('');
+                const fileRef = ref(storage, fileToDelete);
+                try {
+                    await deleteObject(fileRef);
+                    fetchFiles();
+                } catch (error) {
+                    handleFirebaseError(error);
+                } finally {
+                    setShowConfirmDelete(false);
+                    setFileToDelete(null);
+                }
+            };
+            
+            const canDelete = (folderId) => {
+                const folder = folders.find(f => f.id === folderId);
+                if (userData?.isAdmin) return true; // Admin can delete from any folder.
+                if (folder?.acl === 'client') return true; // Client can delete from their own folders.
+                return false;
+            };
+
+            const FolderView = () => (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {folders.map(folder => (
+                        <button key={folder.id} onClick={() => setCurrentFolder(folder.id)} className="p-6 bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow text-center">
+                            <Icon name="Folder" className="mx-auto h-12 w-12 text-blue-500 mb-2"/>
+                            <p className="font-semibold">{folder.name}</p>
+                        </button>
+                    ))}
+                </div>
+            );
+
+            const FileView = () => (
+                <div>
+                    <button onClick={() => setCurrentFolder(null)} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
+                        <Icon name="ArrowLeft" className="w-5 h-5 mr-2"/> Volver a Carpetas
+                    </button>
+                    <h3 className="text-2xl font-bold mb-4">Carpeta: {folders.find(f => f.id === currentFolder)?.name}</h3>
+                    <ul className="bg-white p-4 rounded-lg shadow-md divide-y divide-gray-200">
+                        {loadingFiles ? <p>Cargando...</p> : files[currentFolder]?.length > 0 ? (
+                            files[currentFolder].map((f) => (
+                                <li key={f.name} className="py-3 flex justify-between items-center">
+                                    <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center">
+                                        <Icon name="File" className="w-5 h-5 mr-3 text-gray-500"/> {f.name}
+                                    </a>
+                                     {canDelete(currentFolder) && (
+                                        <button onClick={() => promptDelete(f.fullPath)} className="text-red-500 hover:text-red-700">
+                                            <Icon name="Trash2" className="w-5 h-5" />
+                                        </button>
+                                    )}
+                                </li>
+                            ))
+                        ) : <p className="text-gray-500 text-center py-4">Esta carpeta está vacía.</p>}
+                    </ul>
+                </div>
+            );
+            
+            const fileInputAccept = "image/*,application/pdf,.doc,.docx,.xls,.xlsx";
+
+            return (
+                <div>
+                    <h2 className="text-3xl font-bold mb-6">{isManagedView ? "Gestionando Documentos del Cliente" : "Centro del Cliente"}</h2>
+                    {showConfirmDelete && ( <ConfirmModal message="¿Estás seguro de que quieres eliminar este archivo? Esta acción no se puede deshacer." onConfirm={confirmDeleteFile} onCancel={() => setShowConfirmDelete(false)}/> )}
+                    {storageError && (<div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6" role="alert"><p className="font-bold">Error de Almacenamiento</p><p>{storageError}</p></div>)}
+                    
+                    <div className="bg-white p-8 rounded-lg shadow-md mb-8">
+                        <h3 className="text-xl font-bold mb-4">Subir un Documento</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <input type="file" accept={fileInputAccept} onChange={(e) => setFile(e.target.files[0])} className="md:col-span-1" />
+                            <select value={uploadFolder} onChange={(e) => setUploadFolder(e.target.value)} className="p-2 border rounded-md md:col-span-1">
+                                {(isManagedView ? folders.filter(f => f.acl === 'accountant') : folders.filter(f => f.acl === 'client')).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                            </select>
+                            <button onClick={handleUpload} disabled={!file || uploading} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 md:col-span-1">
+                                {uploading ? 'Subiendo...' : 'Subir Archivo'}
+                            </button>
+                        </div>
+                        {message && <p className={`mt-4 text-sm text-center ${message.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{message.text}</p>}
+                    </div>
+
+                    <div className="bg-white p-8 rounded-lg shadow-md mb-8">
+                        <h3 className="text-xl font-bold mb-4">Mis Documentos</h3>
+                        {currentFolder ? <FileView /> : <FolderView />}
+                    </div>
+
+                    {!isManagedView && <div className="bg-white p-8 rounded-lg shadow-md">
+                        <h3 className="text-xl font-bold mb-4">Notificaciones</h3>
+                        <div className="space-y-4">
+                           <div className="flex items-start p-4 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg"><Icon name="File" className="h-6 w-6 text-blue-600 mr-3 shrink-0"/><div><p className="font-bold">Nuevo Documento del Contador</p><p className="text-sm">Se ha subido "Balance Anual 2024.pdf" a tu carpeta.</p></div></div>
+                           <div className="flex items-start p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg"><Icon name="AlertTriangle" className="h-6 w-6 text-yellow-600 mr-3 shrink-0"/><div><p className="font-bold">Vencimiento Monotributo</p><p className="text-sm">Vence en 5 días (20/10/2025).</p></div></div>
+                           <div className="flex items-start p-4 bg-green-50 border-l-4 border-green-400 rounded-r-lg"><Icon name="CheckCircle" className="h-6 w-6 text-green-600 mr-3 shrink-0"/><div><p className="font-bold">DDJJ Anual</p><p className="text-sm">Recibida y procesada.</p></div></div>
+                        </div>
+                    </div>}
+                </div>
+            );
+        };
+        const ProfilePage = () => {
+            const { user, userData } = useAuth();
+            const [profile, setProfile] = useState({ nombre: '', cuit: '', actividad: '', categoriaTributaria: '', telefono: '' });
+            const [message, setMessage] = useState('');
+
+            useEffect(() => { if (userData) setProfile(prev => ({...prev, ...userData})); }, [userData]);
+            
+            const handleChange = (e) => setProfile(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!user) return;
+                try {
+                    await updateDoc(doc(db, 'users', user.uid), profile);
+                    setMessage({ type: 'success', text: 'Perfil actualizado.'});
+                } catch (error) { setMessage({ type: 'error', text: 'Error al actualizar.' }); }
+                finally { setTimeout(() => setMessage(''), 3000); }
+            };
+            
+            return (
+                <div>
+                    <h2 className="text-3xl font-bold mb-6">Mi Perfil</h2>
+                    <div className="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-md">
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div><label className="font-medium">Nombre Completo</label><input name="nombre" value={profile.nombre} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"/></div>
+                            <div><label className="font-medium">CUIT/CUIL</label><input name="cuit" value={profile.cuit} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"/></div>
+                            <div><label className="font-medium">Actividad Principal</label><input name="actividad" value={profile.actividad} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"/></div>
+                             <div><label className="font-medium">Categoría Tributaria</label><select name="categoriaTributaria" value={profile.categoriaTributaria} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"><option>Monotributo</option><option>Responsable Inscripto</option></select></div>
+                            <div><label className="font-medium">Teléfono de Contacto</label><input name="telefono" value={profile.telefono} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"/></div>
+                            <button type="submit" className="w-full py-2 bg-blue-600 text-white rounded-md">Guardar Cambios</button>
+                            {message && <p className={`text-center mt-2 ${message.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{message.text}</p>}
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+        const AdminPage = () => {
+            const { userData } = useAuth();
+            const [users, setUsers] = useState([]);
+            const [error, setError] = useState('');
+            const { navigate } = useContext(AppContext);
+            
+            useEffect(() => {
+                const fetchUsers = async () => {
+                    setError('');
+                    try {
+                        const q = query(collection(db, "users"));
+                        const querySnapshot = await getDocs(q);
+                        setUsers(querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+                    } catch (err) {
+                        console.error("Error fetching users:", err);
+                        setError("No se pudieron cargar los clientes. Es probable que las reglas de seguridad de Firestore no permitan listar usuarios. Asegúrate de que un administrador tenga permiso de 'list' sobre la colección 'users'.");
+                    }
+                };
+                if(userData?.isAdmin) {
+                    fetchUsers();
+                }
+            }, [userData]);
+
+            if (!userData?.isAdmin) return <div><h2 className="text-3xl font-bold text-red-600">Acceso Denegado</h2><p>Esta sección es solo para administradores.</p></div>;
+
+            return (
+                <div>
+                    <h2 className="text-3xl font-bold mb-6">Panel de Administración</h2>
+                    
+                    {error && (
+                        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6" role="alert">
+                            <p className="font-bold">Error de Permisos</p>
+                            <p>{error}</p>
+                        </div>
+                    )}
+
+                    <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
+                        <h3 className="text-xl font-bold mb-4 flex items-center"><Icon name="Users" className="w-6 h-6 mr-2"/> Lista de Clientes</h3>
+                        <table className="min-w-full divide-y">
+                            <thead className="bg-gray-50"><tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Nombre</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Email</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">CUIT</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Acciones</th>
+                            </tr></thead>
+                            <tbody className="bg-white divide-y">{users.map(user => (<tr key={user.id}><td className="px-6 py-4 whitespace-nowrap">{user.nombre || '-'}</td><td className="px-6 py-4 whitespace-nowrap">{user.email}</td><td className="px-6 py-4 whitespace-nowrap">{user.cuit || '-'}</td><td className="px-6 py-4"><button onClick={() => navigate(`/admin/manage/${user.id}`)} className="bg-blue-500 text-white px-3 py-1 rounded-md hover:bg-blue-600 text-sm">Gestionar</button></td></tr>))}</tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminClientManagementPage = ({ userId }) => {
+             const { navigate } = useContext(AppContext);
+             return (
+                <div>
+                    <button onClick={() => navigate('/admin')} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
+                        <Icon name="ArrowLeft" className="w-5 h-5 mr-2"/> Volver al Panel de Admin
+                    </button>
+                    <ClientCenterPage isManagedView={true} managedUserId={userId} />
+                </div>
+             )
+        };
+        
+        // --- ROUTER Y APP PRINCIPAL ---
+        const AppContext = createContext();
+
+        const App = () => {
+            const { user, userData } = useAuth();
+            const [route, setRoute] = useState('/');
+            
+            const navigate = useCallback((path) => {
+                setRoute(path);
+            }, []);
+
+            useEffect(() => {
+                if(user && route === '/') {
+                    navigate('/dashboard');
+                }
+            }, [user, route, navigate]);
+
+            const renderPage = () => {
+                if (route.startsWith('/admin/manage/')) {
+                    const userId = route.split('/').pop();
+                    return userData?.isAdmin ? <AdminClientManagementPage userId={userId} /> : <div>Acceso denegado</div>;
+                }
+
+                switch (route) {
+                    case '/dashboard': return <DashboardPage />;
+                    case '/operations': return <OperationsPage />;
+                    case '/finances': return <FinancesPage />;
+                    case '/client-center': return <ClientCenterPage />;
+                    case '/profile': return <ProfilePage />;
+                    case '/admin': return <AdminPage />;
+                    default: return user ? <DashboardPage /> : <LoginPage />;
+                }
+            };
+
+            return (
+                <AppContext.Provider value={{ navigate }}>
+                    <div className="App">
+                        {!user ? <LoginPage /> : <AppLayout>{renderPage()}</AppLayout>}
+                    </div>
+                </AppContext.Provider>
+            );
+        };
+        
+        // --- INICIALIZADOR ---
+        const FirebaseErrorScreen = () => (<div className="min-h-screen flex items-center justify-center bg-red-50 p-4"><div className="max-w-2xl w-full bg-white p-8 rounded-lg shadow-lg border-2 border-red-500 text-center"><h1 className="text-2xl md:text-3xl font-bold text-red-700 mb-4">Error de Configuración</h1><p className="text-gray-700 mb-2">No se pudo inicializar la aplicación. La causa más probable es que la configuración de Firebase no se ha establecido correctamente o los servicios (Authentication, Firestore) no están habilitados.</p></div></div>);
+        const AppInitializer = () => {
+            const [isInitialized, setIsInitialized] = useState(false);
+            const [initError, setInitError] = useState(null);
+            useEffect(() => {
+                try {
+                    if (!window.firebaseConfig || window.firebaseConfig.apiKey === "TU_API_KEY") throw new Error("Configuración de Firebase incompleta.");
+                    app = initializeApp(window.firebaseConfig);
+                    auth = getAuth(app); db = getFirestore(app); storage = getStorage(app); googleProvider = new GoogleAuthProvider();
+                    setIsInitialized(true);
+                } catch (error) { setInitError(error); }
+            }, []);
+            if (initError) return <FirebaseErrorScreen />;
+            if (!isInitialized) return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
+            return <AuthProvider><OperationsProvider><App /></OperationsProvider></AuthProvider>;
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<AppInitializer />);
+    </script>
+</body>
+</html>
+
