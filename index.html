@@ -84,7 +84,8 @@
             signInWithEmailAndPassword,
             signInWithPopup,
             GoogleAuthProvider,
-            signOut
+            signOut,
+            sendPasswordResetEmail
         } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
         import { 
             getFirestore, 
@@ -201,6 +202,7 @@
 
         // --- ÍCONOS INTEGRADOS ---
         const Icons = {
+            Sparkles: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L14.39 8.36L21 9.61L16.33 14.77L17.18 21.9L12 18.5L6.82 21.9L7.67 14.77L3 9.61L9.61 8.36L12 2z"/></svg>),
             BarChart3: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>),
             Chrome: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>),
             MessageCircle: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>),
@@ -254,14 +256,16 @@
         const LoginPage = () => {
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
-            const [isRegister, setIsRegister] = useState(false);
+            const [view, setView] = useState('login'); // 'login', 'register', 'reset'
             const [error, setError] = useState('');
+            const [message, setMessage] = useState('');
             
             const handleEmailPassword = async (e) => {
                 e.preventDefault();
                 setError('');
+                setMessage('');
                 try {
-                    if (isRegister) {
+                    if (view === 'register') {
                         await createUserWithEmailAndPassword(auth, email, password);
                     } else {
                         await signInWithEmailAndPassword(auth, email, password);
@@ -275,6 +279,18 @@
                     setError(friendlyMessage);
                 }
             };
+
+            const handlePasswordReset = async (e) => {
+                e.preventDefault();
+                setError('');
+                setMessage('');
+                try {
+                    await sendPasswordResetEmail(auth, email);
+                    setMessage('Correo de recuperación enviado. Revisa tu bandeja de entrada.');
+                } catch (err) {
+                    setError('No se pudo enviar el correo. Verifica que el email sea correcto.');
+                }
+            };
             
             const handleGoogleLogin = async () => {
                 setError('');
@@ -285,27 +301,57 @@
                 }
             };
 
+            const switchView = (newView) => {
+                setView(newView);
+                setError('');
+                setMessage('');
+            };
+
             return (
                  <div className="min-h-screen flex items-center justify-center bg-gray-100">
                     <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-lg">
                         <div className="text-center mb-8">
                            <Icon name="BarChart3" className="mx-auto h-12 w-12 text-blue-600"/>
-                           <h2 className="mt-4 text-3xl font-bold text-gray-900">{isRegister ? 'Crear una cuenta' : 'Iniciar Sesión'}</h2>
-                           <p className="mt-2 text-sm text-gray-600">Bienvenido a tu portal de gestión contable.</p>
+                           <h2 className="mt-4 text-3xl font-bold text-gray-900">
+                               {view === 'login' && 'Iniciar Sesión'}
+                               {view === 'register' && 'Crear una cuenta'}
+                               {view === 'reset' && 'Recuperar Contraseña'}
+                           </h2>
+                           <p className="mt-2 text-sm text-gray-600">
+                               {view === 'reset' ? 'Ingresa tu email para recibir un enlace de recuperación.' : 'Bienvenido a tu portal de gestión contable.'}
+                           </p>
                         </div>
-                        <form onSubmit={handleEmailPassword} className="space-y-6">
-                            <div><label className="text-sm font-medium text-gray-700">Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
-                            <div><label className="text-sm font-medium text-gray-700">Contraseña</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
-                            {error && <p className="text-sm text-red-600">{error}</p>}
-                            <div><button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">{isRegister ? 'Registrarse' : 'Ingresar'}</button></div>
-                        </form>
-                        <div className="mt-6"><div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300"></div></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">O continuar con</span></div></div>
-                            <div className="mt-6 grid grid-cols-1 gap-3">
-                                <button onClick={handleGoogleLogin} className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"><Icon name="Chrome" className="w-5 h-5 mr-2" />Google</button>
-                                <button disabled className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 opacity-50 cursor-not-allowed" title="Próximamente"><Icon name="MessageCircle" className="w-5 h-5 mr-2" />WhatsApp Business</button>
+
+                        {view === 'reset' ? (
+                            <form onSubmit={handlePasswordReset} className="space-y-6">
+                                <div><label className="text-sm font-medium text-gray-700">Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
+                                {error && <p className="text-sm text-red-600">{error}</p>}
+                                {message && <p className="text-sm text-green-600">{message}</p>}
+                                <div><button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">Enviar correo</button></div>
+                            </form>
+                        ) : (
+                            <form onSubmit={handleEmailPassword} className="space-y-6">
+                                <div><label className="text-sm font-medium text-gray-700">Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
+                                <div><label className="text-sm font-medium text-gray-700">Contraseña</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
+                                {view === 'login' && <div className="text-right text-sm"><a href="#" onClick={(e) => { e.preventDefault(); switchView('reset'); }} className="font-medium text-blue-600 hover:text-blue-500">¿Olvidaste tu contraseña?</a></div>}
+                                {error && <p className="text-sm text-red-600">{error}</p>}
+                                <div><button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">{view === 'register' ? 'Registrarse' : 'Ingresar'}</button></div>
+                            </form>
+                        )}
+                        
+                        {view !== 'reset' && (
+                            <div className="mt-6"><div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300"></div></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">O continuar con</span></div></div>
+                                <div className="mt-6 grid grid-cols-1 gap-3">
+                                    <button onClick={handleGoogleLogin} className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"><Icon name="Chrome" className="w-5 h-5 mr-2" />Google</button>
+                                    <button disabled className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 opacity-50 cursor-not-allowed" title="Próximamente"><Icon name="MessageCircle" className="w-5 h-5 mr-2" />WhatsApp Business</button>
+                                </div>
                             </div>
+                        )}
+                        <div className="text-center mt-4 text-sm">
+                            {view === 'login' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('register'); }} className="font-medium text-blue-600 hover:text-blue-500">¿No tienes cuenta? Regístrate</a>}
+                            {view === 'register' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('login'); }} className="font-medium text-blue-600 hover:text-blue-500">¿Ya tienes cuenta? Inicia sesión</a>}
+                            {view === 'reset' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('login'); }} className="font-medium text-blue-600 hover:text-blue-500">Volver a Iniciar Sesión</a>}
                         </div>
-                        <div className="text-center mt-4 text-sm"><a href="#" onClick={(e) => { e.preventDefault(); setIsRegister(!isRegister); setError(''); }} className="font-medium text-blue-600 hover:text-blue-500">{isRegister ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Regístrate'}</a></div>
                     </div>
                 </div>
             );
@@ -322,11 +368,20 @@
                 { name: 'Perfil', icon: 'User', path: '/profile' },
                 ...(userData?.isAdmin ? [{ name: 'Admin', icon: 'Shield', path: '/admin' }] : [])
             ];
+            
+            const handleNavigate = (path) => {
+                navigate(path);
+                setSidebarOpen(false); // Cierra el menú al navegar
+            };
+
             return (
                 <div className="flex h-screen bg-gray-100">
+                    {/* Overlay para cerrar el menú en móvil */}
+                    {sidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setSidebarOpen(false)}></div>}
+
                     <div className={`fixed inset-y-0 left-0 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out bg-gray-800 text-white w-64 space-y-6 py-7 px-2 z-30`}>
-                        <a href="#" onClick={() => navigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">Consultora</span></a>
-                        <nav>{navLinks.map(link => (<a key={link.name} href="#" onClick={() => navigate(link.path)} className="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name={link.icon} className="w-5 h-5"/><span>{link.name}</span></a>))}</nav>
+                        <a href="#" onClick={() => handleNavigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">Consultora</span></a>
+                        <nav>{navLinks.map(link => (<a key={link.name} href="#" onClick={() => handleNavigate(link.path)} className="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name={link.icon} className="w-5 h-5"/><span>{link.name}</span></a>))}</nav>
                         <div className="absolute bottom-5 w-full left-0 px-4"><button onClick={() => signOut(auth)} className="w-full text-left py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name="LogOut" className="w-5 h-5"/><span>Cerrar Sesión</span></button></div>
                     </div>
                     <div className="flex-1 flex flex-col overflow-hidden">
@@ -337,6 +392,108 @@
             );
         };
         
+        // --- COMPONENTE DE IA ---
+        const AIAnalyzer = () => {
+            const { operations } = useOperations();
+            const [prompt, setPrompt] = useState('');
+            const [result, setResult] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+
+            const handleAnalysis = async () => {
+                if (!prompt.trim()) {
+                    setError('Por favor, escribe una pregunta.');
+                    return;
+                }
+                 if (operations.length === 0) {
+                    setError('No tienes operaciones registradas para analizar.');
+                    return;
+                }
+
+                setLoading(true);
+                setResult('');
+                setError('');
+
+                const apiKey = ""; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                const operationsContext = operations.slice(0, 50).map(op => 
+                    `- ${op.date.toDate().toLocaleDateString('es-AR')}: ${op.type} de ${op.amount.toFixed(2)} ARS (${op.description})`
+                ).join('\n');
+
+                const systemPrompt = "Actúa como un asistente financiero experto y conciso. Analiza los datos de operaciones proporcionados y responde la pregunta del usuario en español. Basa tu respuesta únicamente en los datos. Si la pregunta no se puede responder con los datos, indícalo. Formatea tu respuesta de forma clara y amigable.";
+                
+                const fullPrompt = `Basado en las siguientes operaciones financieras:\n\n${operationsContext}\n\nPor favor, responde a la siguiente pregunta: "${prompt}"`;
+
+                const payload = {
+                    contents: [{ parts: [{ text: fullPrompt }] }],
+                    systemInstruction: {
+                        parts: [{ text: systemPrompt }]
+                    },
+                };
+
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errorBody = await response.json();
+                        console.error("API Error Body:", errorBody);
+                        throw new Error(`Error de API: ${errorBody.error?.message || response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                    if (text) {
+                        setResult(text);
+                    } else {
+                        throw new Error("No se recibió una respuesta válida de la IA.");
+                    }
+                } catch (err) {
+                    console.error("Error calling Gemini API:", err);
+                    setError("Hubo un error al contactar al asistente de IA. Por favor, intenta de nuevo más tarde.");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-xl font-bold mb-4 flex items-center">
+                        <Icon name="Sparkles" className="w-6 h-6 mr-2 text-yellow-500" />
+                        Análisis con IA
+                    </h3>
+                    <div className="space-y-4">
+                        <textarea
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            placeholder="Ej: ¿Cuál fue mi mayor gasto este mes? o Dame consejos para reducir mis compras."
+                            className="w-full p-2 border rounded-md"
+                            rows="3"
+                        />
+                        <button
+                            onClick={handleAnalysis}
+                            disabled={loading}
+                            className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400"
+                        >
+                            {loading ? 'Analizando...' : 'Analizar mis Finanzas'}
+                        </button>
+                        {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+                        {loading && <div className="text-center text-gray-500"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto"></div><p>El asistente está pensando...</p></div>}
+                        {result && (
+                            <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
+                                <p className="text-gray-800 whitespace-pre-wrap">{result}</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
         // --- PÁGINAS ---
         const DashboardPage = () => {
             const { operations, loading } = useOperations();
@@ -346,76 +503,50 @@
                 const now = new Date();
                 const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
                 
-                let sales = 0, purchases = 0;
+                let ventas = 0, compras = 0, ingresos = 0, gastos = 0;
                 operations.forEach(op => {
                     const opDate = op.date.toDate();
                     if (opDate.getMonth() === startOfMonth.getMonth() && opDate.getFullYear() === startOfMonth.getFullYear()) {
-                        if (['venta', 'ingreso'].includes(op.type)) sales += op.amount;
-                        else purchases += op.amount;
+                        switch (op.type) {
+                            case 'venta': ventas += op.amount; break;
+                            case 'compra': compras += op.amount; break;
+                            case 'ingreso': ingresos += op.amount; break;
+                            case 'gasto': gastos += op.amount; break;
+                        }
                     }
                 });
-                return { sales, purchases, net: sales - purchases };
+                return { ventas, compras, ingresos, gastos };
             }, [operations]);
 
             const recentOps = useMemo(() => operations.slice(0, 5), [operations]);
 
-            const chartData = useMemo(() => {
-                const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-                const data = {};
-                const now = new Date();
-
-                // Cambiado de 6 meses (i=5) a 3 meses (i=2)
-                for (let i = 2; i >= 0; i--) {
-                    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                    const key = `${d.getFullYear()}-${d.getMonth()}`;
-                    data[key] = { name: monthNames[d.getMonth()], ventas: 0, compras: 0 };
-                }
-
-                operations.forEach(op => {
-                    const opDate = op.date.toDate();
-                    const key = `${opDate.getFullYear()}-${opDate.getMonth()}`;
-                    if (data[key]) {
-                        if (['venta', 'ingreso'].includes(op.type)) data[key].ventas += op.amount;
-                        else data[key].compras += op.amount;
-                    }
-                });
-                
-                return Object.values(data);
-            }, [operations]);
-
             return (
                 <div>
                     <h2 className="text-3xl font-bold mb-6">Dashboard</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                       <div className="bg-white p-6 rounded-lg shadow-md flex items-center justify-between"><div><p className="text-sm font-medium text-gray-500">Ingresos del Mes</p><p className="text-3xl font-bold">{formatCurrency(summary.sales)}</p></div><div className="bg-green-100 p-3 rounded-full"><Icon name="TrendingUp" className="h-6 w-6 text-green-600"/></div></div>
-                       <div className="bg-white p-6 rounded-lg shadow-md flex items-center justify-between"><div><p className="text-sm font-medium text-gray-500">Gastos del Mes</p><p className="text-3xl font-bold">{formatCurrency(summary.purchases)}</p></div><div className="bg-red-100 p-3 rounded-full"><Icon name="TrendingDown" className="h-6 w-6 text-red-600"/></div></div>
-                       <div className="bg-white p-6 rounded-lg shadow-md flex items-center justify-between"><div><p className="text-sm font-medium text-gray-500">Resultado Neto del Mes</p><p className="text-3xl font-bold">{formatCurrency(summary.net)}</p></div><div className="bg-blue-100 p-3 rounded-full"><Icon name="DollarSign" className="h-6 w-6 text-blue-600"/></div></div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                       <div className="bg-white p-6 rounded-lg shadow-md">
+                           <h3 className="font-bold text-lg mb-4">Ventas vs. Compras (Mes)</h3>
+                           <div className="flex justify-between items-center">
+                               <div><p className="text-sm font-medium text-gray-500">Ventas</p><p className="text-2xl font-bold text-green-600">{formatCurrency(summary.ventas)}</p></div>
+                               <div><p className="text-sm font-medium text-gray-500">Compras</p><p className="text-2xl font-bold text-red-600">{formatCurrency(summary.compras)}</p></div>
+                           </div>
+                       </div>
+                       <div className="bg-white p-6 rounded-lg shadow-md">
+                           <h3 className="font-bold text-lg mb-4">Ingresos vs. Gastos (Mes)</h3>
+                            <div className="flex justify-between items-center">
+                               <div><p className="text-sm font-medium text-gray-500">Ingresos</p><p className="text-2xl font-bold text-green-600">{formatCurrency(summary.ingresos)}</p></div>
+                               <div><p className="text-sm font-medium text-gray-500">Gastos</p><p className="text-2xl font-bold text-red-600">{formatCurrency(summary.gastos)}</p></div>
+                           </div>
+                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
-                        <div className="bg-white p-6 rounded-lg shadow-md">
-                            <h3 className="text-xl font-bold mb-4">Resumen de Actividad (Últimos 3 Meses)</h3>
-                             <div style={{ width: '100%', height: 300 }}>
-                                {window.Recharts ? (
-                                    <window.Recharts.ResponsiveContainer>
-                                        <window.Recharts.BarChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                            <window.Recharts.CartesianGrid strokeDasharray="3 3" />
-                                            <window.Recharts.XAxis dataKey="name" />
-                                            <window.Recharts.YAxis tickFormatter={(value) => `$${value/1000}k`} />
-                                            <window.Recharts.Tooltip formatter={(value) => formatCurrency(value)} />
-                                            <window.Recharts.Legend />
-                                            <window.Recharts.Bar dataKey="ventas" fill="#3b82f6" name="Ventas" />
-                                            <window.Recharts.Bar dataKey="compras" fill="#ef4444" name="Compras" />
-                                        </window.Recharts.BarChart>
-                                    </window.Recharts.ResponsiveContainer>
-                                ) : <p className="text-center text-gray-500 pt-20">Cargando librería de gráficos...</p>}
-                            </div>
-                        </div>
+                    <div className="grid grid-cols-1 gap-8 mt-8">
                         <div className="bg-white p-6 rounded-lg shadow-md">
                             <h3 className="text-xl font-bold mb-4">Últimas Operaciones</h3>
                             {loading ? <p>Cargando...</p> : recentOps.length > 0 ? (<ul className="divide-y divide-gray-200">{recentOps.map(op => (<li key={op.id} className="py-3 flex justify-between items-center"><div><p className="font-medium capitalize">{op.type}: {op.description}</p><p className="text-sm text-gray-500">{op.date.toDate().toLocaleDateString('es-AR')}</p></div><p className={`font-bold text-lg ${['venta','ingreso'].includes(op.type) ? 'text-green-600' : 'text-red-600'}`}>{['venta','ingreso'].includes(op.type) ? '+' : '-'}{formatCurrency(op.amount)}</p></li>))}</ul>) : (<p className="text-gray-500 text-center mt-10">No has registrado operaciones.</p>)}
                         </div>
                     </div>
+                    <AIAnalyzer />
                 </div>
             );
         };
@@ -505,18 +636,25 @@
                 description: op?.description || '',
                 date: op?.date ? op.date.toDate().toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
             });
+            const [isSubmitting, setIsSubmitting] = useState(false);
             const [message, setMessage] = useState('');
             
             const handleChange = e => setFormData({...formData, [e.target.name]: e.target.value});
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!user) return;
+                if (!user || isSubmitting) return;
+
+                setIsSubmitting(true);
+                // Fix for timezone issue: parse date string in local timezone
+                const localDate = new Date(formData.date + 'T00:00:00');
+                
                 const dataToSave = {
                     ...formData,
                     amount: parseFloat(formData.amount),
-                    date: Timestamp.fromDate(new Date(formData.date))
+                    date: Timestamp.fromDate(localDate)
                 };
+
                 try {
                     if (op) { // Editing
                         await updateDoc(doc(db, 'users', user.uid, 'operations', op.id), dataToSave);
@@ -527,6 +665,8 @@
                 } catch (error) {
                     setMessage('Error al guardar la operación.');
                     console.error(error);
+                } finally {
+                    setIsSubmitting(false);
                 }
             };
 
@@ -541,7 +681,7 @@
                             <div><label>Descripción</label><textarea name="description" value={formData.description} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"></textarea></div>
                             <div className="flex justify-end gap-4 pt-4">
                                 <button type="button" onClick={onClose} className="py-2 px-4 bg-gray-200 rounded-md">Cancelar</button>
-                                <button type="submit" className="py-2 px-4 bg-blue-600 text-white rounded-md">Guardar</button>
+                                <button type="submit" disabled={isSubmitting} className="py-2 px-4 bg-blue-600 text-white rounded-md disabled:bg-gray-400">{isSubmitting ? 'Guardando...' : 'Guardar'}</button>
                             </div>
                              {message && <p className="text-red-500 text-center">{message}</p>}
                         </form>
@@ -745,7 +885,7 @@
             );
         };
         
-        const ClientCenterPage = ({ isManagedView = false, managedUserId = null }) => {
+        const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managedClientName = '' }) => {
             const { user, userData } = useAuth();
             const currentUserId = isManagedView ? managedUserId : user?.uid;
             
@@ -758,6 +898,8 @@
             const [storageError, setStorageError] = useState('');
             const [showConfirmDelete, setShowConfirmDelete] = useState(false);
             const [fileToDelete, setFileToDelete] = useState(null);
+            const [notifications, setNotifications] = useState([]);
+            const [loadingNotifications, setLoadingNotifications] = useState(true);
             
             const folders = [
                 { id: 'comprobantes', name: 'Comprobantes', acl: 'client' },
@@ -765,6 +907,58 @@
                 { id: 'balances', name: 'Balances', acl: 'client' },
                 { id: 'documentos_contador', name: 'Documentos del Contador', acl: 'accountant' },
             ];
+
+            // AI Logic for notifications
+            useEffect(() => {
+                if (isManagedView) return; // No ejecutar para admin
+
+                const fetchVencimientos = async () => {
+                    setLoadingNotifications(true);
+                    const apiKey = "";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                    const systemPrompt = "Actúa como un asistente contable. Busca los vencimientos impositivos de AFIP para el mes actual en Argentina. Enfócate en Monotributo e IVA. Formatea la respuesta como una lista corta y clara. Si no encuentras información, indícalo. La fecha de hoy es Octubre 2025.";
+                    const userQuery = "Vencimientos de Monotributo e IVA para Octubre 2025 en Argentina según AFIP.";
+
+                    const payload = {
+                        contents: [{ parts: [{ text: userQuery }] }],
+                        tools: [{ "google_search": {} }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                    };
+                    
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (!response.ok) throw new Error('API response not OK');
+                        const data = await response.json();
+                        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                        if (text) {
+                            // Parse the text to create notification objects
+                            const lines = text.split('\n').filter(line => line.startsWith('*') || line.startsWith('-'));
+                            const parsedNotifications = lines.map((line, index) => ({
+                                id: `vencimiento-${index}`,
+                                title: line.replace(/[\*\-]/g, '').split(':')[0].trim(),
+                                body: line.replace(/[\*\-]/g, '').split(':')[1]?.trim() || 'Verificar fecha en AFIP.',
+                                type: 'warning'
+                            }));
+                            setNotifications(parsedNotifications);
+                        } else {
+                            setNotifications([{ id: 'error', title: 'Vencimientos', body: 'No se pudo obtener la información de vencimientos.', type: 'error' }]);
+                        }
+                    } catch (error) {
+                        console.error("Error fetching vencimientos:", error);
+                        setNotifications([{ id: 'error', title: 'Vencimientos', body: 'Error al consultar vencimientos.', type: 'error' }]);
+                    } finally {
+                        setLoadingNotifications(false);
+                    }
+                };
+
+                fetchVencimientos();
+            }, [isManagedView]);
 
             const handleFirebaseError = (error) => {
                 console.error("Firebase Storage Error:", error);
@@ -898,7 +1092,7 @@
 
             return (
                 <div>
-                    <h2 className="text-3xl font-bold mb-6">{isManagedView ? "Gestionando Documentos del Cliente" : "Centro del Cliente"}</h2>
+                    <h2 className="text-3xl font-bold mb-6">{isManagedView ? `Gestionando Documentos de ${managedClientName || 'Cliente'}` : "Centro del Cliente"}</h2>
                     {showConfirmDelete && ( <ConfirmModal message="¿Estás seguro de que quieres eliminar este archivo? Esta acción no se puede deshacer." onConfirm={confirmDeleteFile} onCancel={() => setShowConfirmDelete(false)}/> )}
                     {storageError && (<div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6" role="alert"><p className="font-bold">Error de Almacenamiento</p><p>{storageError}</p></div>)}
                     
@@ -923,11 +1117,20 @@
 
                     {!isManagedView && <div className="bg-white p-8 rounded-lg shadow-md">
                         <h3 className="text-xl font-bold mb-4">Notificaciones</h3>
-                        <div className="space-y-4">
-                           <div className="flex items-start p-4 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg"><Icon name="File" className="h-6 w-6 text-blue-600 mr-3 shrink-0"/><div><p className="font-bold">Nuevo Documento del Contador</p><p className="text-sm">Se ha subido "Balance Anual 2024.pdf" a tu carpeta.</p></div></div>
-                           <div className="flex items-start p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg"><Icon name="AlertTriangle" className="h-6 w-6 text-yellow-600 mr-3 shrink-0"/><div><p className="font-bold">Vencimiento Monotributo</p><p className="text-sm">Vence en 5 días (20/10/2025).</p></div></div>
-                           <div className="flex items-start p-4 bg-green-50 border-l-4 border-green-400 rounded-r-lg"><Icon name="CheckCircle" className="h-6 w-6 text-green-600 mr-3 shrink-0"/><div><p className="font-bold">DDJJ Anual</p><p className="text-sm">Recibida y procesada.</p></div></div>
-                        </div>
+                         {loadingNotifications ? <p>Buscando vencimientos...</p> : 
+                            <div className="space-y-4">
+                                {notifications.map(notif => (
+                                   <div key={notif.id} className={`flex items-start p-4 border-l-4 rounded-r-lg ${notif.type === 'warning' ? 'bg-yellow-50 border-yellow-400' : 'bg-green-50 border-green-400'}`}>
+                                       <Icon name={notif.type === 'warning' ? 'AlertTriangle' : 'CheckCircle'} className={`h-6 w-6 mr-3 shrink-0 ${notif.type === 'warning' ? 'text-yellow-600' : 'text-green-600'}`}/>
+                                       <div>
+                                           <p className="font-bold">{notif.title}</p>
+                                           <p className="text-sm">{notif.body}</p>
+                                       </div>
+                                   </div>
+                                ))}
+                                <div className="flex items-start p-4 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg"><Icon name="File" className="h-6 w-6 text-blue-600 mr-3 shrink-0"/><div><p className="font-bold">Nuevo Documento del Contador</p><p className="text-sm">Se ha subido "Balance Anual 2024.pdf" (Ejemplo).</p></div></div>
+                            </div>
+                        }
                     </div>}
                 </div>
             );
@@ -1021,12 +1224,29 @@
 
         const AdminClientManagementPage = ({ userId }) => {
              const { navigate } = useContext(AppContext);
+             const [clientData, setClientData] = useState(null);
+
+             useEffect(() => {
+                const fetchClientData = async () => {
+                    const clientDocRef = doc(db, "users", userId);
+                    const clientDoc = await getDoc(clientDocRef);
+                    if (clientDoc.exists()) {
+                        setClientData(clientDoc.data());
+                    }
+                };
+                fetchClientData();
+            }, [userId]);
+
              return (
                 <div>
                     <button onClick={() => navigate('/admin')} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
                         <Icon name="ArrowLeft" className="w-5 h-5 mr-2"/> Volver al Panel de Admin
                     </button>
-                    <ClientCenterPage isManagedView={true} managedUserId={userId} />
+                    <ClientCenterPage 
+                        isManagedView={true} 
+                        managedUserId={userId} 
+                        managedClientName={clientData?.nombre} 
+                    />
                 </div>
              )
         };
