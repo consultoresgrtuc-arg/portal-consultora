@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Consultora Contable y Financiera</title>
+    <title>G&R Consultores</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -309,51 +309,51 @@
 
             return (
                  <div className="min-h-screen flex items-center justify-center bg-gray-100">
-                    <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-lg">
-                        <div className="text-center mb-8">
-                           <Icon name="BarChart3" className="mx-auto h-12 w-12 text-blue-600"/>
-                           <h2 className="mt-4 text-3xl font-bold text-gray-900">
-                               {view === 'login' && 'Iniciar Sesión'}
-                               {view === 'register' && 'Crear una cuenta'}
-                               {view === 'reset' && 'Recuperar Contraseña'}
-                           </h2>
-                           <p className="mt-2 text-sm text-gray-600">
-                               {view === 'reset' ? 'Ingresa tu email para recibir un enlace de recuperación.' : 'Bienvenido a tu portal de gestión contable.'}
-                           </p>
-                        </div>
+                     <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-lg">
+                         <div className="text-center mb-8">
+                            <Icon name="BarChart3" className="mx-auto h-12 w-12 text-blue-600"/>
+                            <h2 className="mt-4 text-3xl font-bold text-gray-900">
+                                {view === 'login' && 'Iniciar Sesión'}
+                                {view === 'register' && 'Crear una cuenta'}
+                                {view === 'reset' && 'Recuperar Contraseña'}
+                            </h2>
+                            <p className="mt-2 text-sm text-gray-600">
+                                {view === 'reset' ? 'Ingresa tu email para recibir un enlace de recuperación.' : 'Bienvenido a tu portal de gestión contable.'}
+                            </p>
+                         </div>
 
-                        {view === 'reset' ? (
-                            <form onSubmit={handlePasswordReset} className="space-y-6">
-                                <div><label className="text-sm font-medium text-gray-700">Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
-                                {error && <p className="text-sm text-red-600">{error}</p>}
-                                {message && <p className="text-sm text-green-600">{message}</p>}
-                                <div><button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">Enviar correo</button></div>
-                            </form>
-                        ) : (
-                            <form onSubmit={handleEmailPassword} className="space-y-6">
-                                <div><label className="text-sm font-medium text-gray-700">Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
-                                <div><label className="text-sm font-medium text-gray-700">Contraseña</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
-                                {view === 'login' && <div className="text-right text-sm"><a href="#" onClick={(e) => { e.preventDefault(); switchView('reset'); }} className="font-medium text-blue-600 hover:text-blue-500">¿Olvidaste tu contraseña?</a></div>}
-                                {error && <p className="text-sm text-red-600">{error}</p>}
-                                <div><button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">{view === 'register' ? 'Registrarse' : 'Ingresar'}</button></div>
-                            </form>
-                        )}
-                        
-                        {view !== 'reset' && (
-                            <div className="mt-6"><div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300"></div></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">O continuar con</span></div></div>
-                                <div className="mt-6 grid grid-cols-1 gap-3">
-                                    <button onClick={handleGoogleLogin} className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"><Icon name="Chrome" className="w-5 h-5 mr-2" />Google</button>
-                                    <button disabled className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 opacity-50 cursor-not-allowed" title="Próximamente"><Icon name="MessageCircle" className="w-5 h-5 mr-2" />WhatsApp Business</button>
-                                </div>
-                            </div>
-                        )}
-                        <div className="text-center mt-4 text-sm">
-                            {view === 'login' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('register'); }} className="font-medium text-blue-600 hover:text-blue-500">¿No tienes cuenta? Regístrate</a>}
-                            {view === 'register' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('login'); }} className="font-medium text-blue-600 hover:text-blue-500">¿Ya tienes cuenta? Inicia sesión</a>}
-                            {view === 'reset' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('login'); }} className="font-medium text-blue-600 hover:text-blue-500">Volver a Iniciar Sesión</a>}
-                        </div>
-                    </div>
-                </div>
+                         {view === 'reset' ? (
+                             <form onSubmit={handlePasswordReset} className="space-y-6">
+                                 <div><label className="text-sm font-medium text-gray-700">Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
+                                 {error && <p className="text-sm text-red-600">{error}</p>}
+                                 {message && <p className="text-sm text-green-600">{message}</p>}
+                                 <div><button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">Enviar correo</button></div>
+                             </form>
+                         ) : (
+                             <form onSubmit={handleEmailPassword} className="space-y-6">
+                                 <div><label className="text-sm font-medium text-gray-700">Email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
+                                 <div><label className="text-sm font-medium text-gray-700">Contraseña</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"/></div>
+                                 {view === 'login' && <div className="text-right text-sm"><a href="#" onClick={(e) => { e.preventDefault(); switchView('reset'); }} className="font-medium text-blue-600 hover:text-blue-500">¿Olvidaste tu contraseña?</a></div>}
+                                 {error && <p className="text-sm text-red-600">{error}</p>}
+                                 <div><button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">{view === 'register' ? 'Registrarse' : 'Ingresar'}</button></div>
+                             </form>
+                         )}
+                         
+                         {view !== 'reset' && (
+                             <div className="mt-6"><div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300"></div></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">O continuar con</span></div></div>
+                                 <div className="mt-6 grid grid-cols-1 gap-3">
+                                     <button onClick={handleGoogleLogin} className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"><Icon name="Chrome" className="w-5 h-5 mr-2" />Google</button>
+                                     <button disabled className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 opacity-50 cursor-not-allowed" title="Próximamente"><Icon name="MessageCircle" className="w-5 h-5 mr-2" />WhatsApp Business</button>
+                                 </div>
+                             </div>
+                         )}
+                         <div className="text-center mt-4 text-sm">
+                             {view === 'login' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('register'); }} className="font-medium text-blue-600 hover:text-blue-500">¿No tienes cuenta? Regístrate</a>}
+                             {view === 'register' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('login'); }} className="font-medium text-blue-600 hover:text-blue-500">¿Ya tienes cuenta? Inicia sesión</a>}
+                             {view === 'reset' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('login'); }} className="font-medium text-blue-600 hover:text-blue-500">Volver a Iniciar Sesión</a>}
+                         </div>
+                     </div>
+                 </div>
             );
         };
         
@@ -363,8 +363,10 @@
             const { userData } = useAuth();
             const { navigate } = useContext(AppContext);
             const navLinks = [
-                { name: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' }, { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
-                { name: 'Finanzas', icon: 'TrendingUp', path: '/finances' }, { name: 'Cliente', icon: 'FolderArchive', path: '/client-center' },
+                { name: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' }, 
+                { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
+                { name: 'Finanzas', icon: 'TrendingUp', path: '/finances' }, 
+                { name: 'Cliente', icon: 'FolderArchive', path: '/client-center' },
                 { name: 'Perfil', icon: 'User', path: '/profile' },
                 ...(userData?.isAdmin ? [{ name: 'Admin', icon: 'Shield', path: '/admin' }] : [])
             ];
@@ -380,7 +382,7 @@
                     {sidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setSidebarOpen(false)}></div>}
 
                     <div className={`fixed inset-y-0 left-0 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out bg-gray-800 text-white w-64 space-y-6 py-7 px-2 z-30`}>
-                        <a href="#" onClick={() => handleNavigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">Consultora</span></a>
+                        <a href="#" onClick={() => handleNavigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">G&R Consultores</span></a>
                         <nav>{navLinks.map(link => (<a key={link.name} href="#" onClick={() => handleNavigate(link.path)} className="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name={link.icon} className="w-5 h-5"/><span>{link.name}</span></a>))}</nav>
                         <div className="absolute bottom-5 w-full left-0 px-4"><button onClick={() => signOut(auth)} className="w-full text-left py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name="LogOut" className="w-5 h-5"/><span>Cerrar Sesión</span></button></div>
                     </div>
@@ -823,65 +825,65 @@
             
             return (
                  <div>
-                    <h2 className="text-3xl font-bold mb-6">Finanzas</h2>
-                    
-                    <h3 className="text-2xl font-bold mb-4">Presupuesto Mensual</h3>
-                    <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-                        {isEditingBudget ? (
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div><label className="block text-sm font-medium text-gray-700">Meta de Ingresos ($)</label><input type="number" value={budget.incomeGoal} onChange={e => setBudget({...budget, incomeGoal: e.target.value})} className="mt-1 w-full p-2 border rounded-md"/></div>
-                                    <div><label className="block text-sm font-medium text-gray-700">Presupuesto de Gastos ($)</label><input type="number" value={budget.expenseBudget} onChange={e => setBudget({...budget, expenseBudget: e.target.value})} className="mt-1 w-full p-2 border rounded-md"/></div>
-                                </div>
-                                <div className="flex justify-end gap-2"><button onClick={() => setIsEditingBudget(false)} className="py-2 px-4 bg-gray-200 rounded-md">Cancelar</button><button onClick={handleSaveBudget} className="py-2 px-4 bg-blue-600 text-white rounded-md">Guardar</button></div>
-                            </div>
-                        ) : (
-                            <div className="space-y-6">
-                                <div className="flex justify-between items-center"><h4 className="font-bold text-xl">Progreso del Mes</h4><button onClick={() => setIsEditingBudget(true)} className="text-sm text-blue-600 hover:underline">Editar Presupuesto</button></div>
-                                <div>
-                                    <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Ingresos</span><span>{formatCurrency(monthlyMetrics.income)} / <span className="text-gray-500">{formatCurrency(budget.incomeGoal)}</span></span></div>
-                                    <div className="w-full bg-gray-200 rounded-full h-4"><div className="bg-green-500 h-4 rounded-full" style={{ width: `${Math.min((monthlyMetrics.income / (budget.incomeGoal || 1)) * 100, 100)}%` }}></div></div>
-                                </div>
+                     <h2 className="text-3xl font-bold mb-6">Finanzas</h2>
+                     
+                     <h3 className="text-2xl font-bold mb-4">Presupuesto Mensual</h3>
+                     <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                         {isEditingBudget ? (
+                             <div className="space-y-4">
+                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     <div><label className="block text-sm font-medium text-gray-700">Meta de Ingresos ($)</label><input type="number" value={budget.incomeGoal} onChange={e => setBudget({...budget, incomeGoal: e.target.value})} className="mt-1 w-full p-2 border rounded-md"/></div>
+                                     <div><label className="block text-sm font-medium text-gray-700">Presupuesto de Gastos ($)</label><input type="number" value={budget.expenseBudget} onChange={e => setBudget({...budget, expenseBudget: e.target.value})} className="mt-1 w-full p-2 border rounded-md"/></div>
+                                 </div>
+                                 <div className="flex justify-end gap-2"><button onClick={() => setIsEditingBudget(false)} className="py-2 px-4 bg-gray-200 rounded-md">Cancelar</button><button onClick={handleSaveBudget} className="py-2 px-4 bg-blue-600 text-white rounded-md">Guardar</button></div>
+                             </div>
+                         ) : (
+                             <div className="space-y-6">
+                                 <div className="flex justify-between items-center"><h4 className="font-bold text-xl">Progreso del Mes</h4><button onClick={() => setIsEditingBudget(true)} className="text-sm text-blue-600 hover:underline">Editar Presupuesto</button></div>
                                  <div>
-                                    <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Gastos</span><span>{formatCurrency(monthlyMetrics.expense)} / <span className="text-gray-500">{formatCurrency(budget.expenseBudget)}</span></span></div>
-                                    <div className="w-full bg-gray-200 rounded-full h-4"><div className={`h-4 rounded-full ${monthlyMetrics.expense > budget.expenseBudget ? 'bg-red-600' : 'bg-red-400'}`} style={{ width: `${Math.min((monthlyMetrics.expense / (budget.expenseBudget || 1)) * 100, 100)}%` }}></div></div>
+                                     <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Ingresos</span><span>{formatCurrency(monthlyMetrics.income)} / <span className="text-gray-500">{formatCurrency(budget.incomeGoal)}</span></span></div>
+                                     <div className="w-full bg-gray-200 rounded-full h-4"><div className="bg-green-500 h-4 rounded-full" style={{ width: `${Math.min((monthlyMetrics.income / (budget.incomeGoal || 1)) * 100, 100)}%` }}></div></div>
+                                 </div>
+                                  <div>
+                                     <div className="flex justify-between mb-1 text-sm"><span className="font-medium">Gastos</span><span>{formatCurrency(monthlyMetrics.expense)} / <span className="text-gray-500">{formatCurrency(budget.expenseBudget)}</span></span></div>
+                                     <div className="w-full bg-gray-200 rounded-full h-4"><div className={`h-4 rounded-full ${monthlyMetrics.expense > budget.expenseBudget ? 'bg-red-600' : 'bg-red-400'}`} style={{ width: `${Math.min((monthlyMetrics.expense / (budget.expenseBudget || 1)) * 100, 100)}%` }}></div></div>
+                                 </div>
+                             </div>
+                         )}
+                     </div>
+
+                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                         <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Flujo de Caja (Mensual)</h3><p className={`text-3xl font-bold ${monthlyMetrics.cashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(monthlyMetrics.cashFlow)}</p></div>
+                         <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Rentabilidad Neta</h3><p className="text-3xl font-bold text-blue-600">{monthlyMetrics.profitability.toFixed(2)}%</p></div>
+                         <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Gastos vs Ingresos</h3><p className="text-3xl font-bold text-purple-600">{monthlyMetrics.expenseRatio.toFixed(2)}%</p></div>
+                     </div>
+                     
+                     <h3 className="text-2xl font-bold my-8">Indicadores en Tiempo Real</h3>
+                     <div className="relative">
+                         <div className="flex space-x-4 overflow-x-auto pb-4 scrollbar-hide" style={{ scrollSnapType: 'x mandatory' }}>
+                             {loadingRates ? <p>Cargando cotizaciones...</p> : 
+                              dollarRates.length > 0 ? dollarRates.map(rate => (
+                                <div key={rate.casa} className="flex-shrink-0 w-11/12 sm:w-1/2 md:w-1/3 bg-white p-6 rounded-lg shadow-md" style={{ scrollSnapAlign: 'center' }}>
+                                    <h4 className="font-bold text-xl mb-4 text-center capitalize">{rate.nombre}</h4>
+                                    <div className="flex flex-col items-center space-y-4">
+                                        <div className="text-center">
+                                            <p className="text-sm text-gray-500">Compra</p>
+                                            <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.compra)}</p>
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-sm text-gray-500">Venta</p>
+                                            <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.venta)}</p>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                        <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Flujo de Caja (Mensual)</h3><p className={`text-3xl font-bold ${monthlyMetrics.cashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(monthlyMetrics.cashFlow)}</p></div>
-                        <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Rentabilidad Neta</h3><p className="text-3xl font-bold text-blue-600">{monthlyMetrics.profitability.toFixed(2)}%</p></div>
-                        <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Gastos vs Ingresos</h3><p className="text-3xl font-bold text-purple-600">{monthlyMetrics.expenseRatio.toFixed(2)}%</p></div>
-                    </div>
-                    
-                    <h3 className="text-2xl font-bold my-8">Indicadores en Tiempo Real</h3>
-                    <div className="relative">
-                        <div className="flex space-x-4 overflow-x-auto pb-4 scrollbar-hide" style={{ scrollSnapType: 'x mandatory' }}>
-                            {loadingRates ? <p>Cargando cotizaciones...</p> : 
-                             dollarRates.length > 0 ? dollarRates.map(rate => (
-                               <div key={rate.casa} className="flex-shrink-0 w-11/12 sm:w-1/2 md:w-1/3 bg-white p-6 rounded-lg shadow-md" style={{ scrollSnapAlign: 'center' }}>
-                                   <h4 className="font-bold text-xl mb-4 text-center capitalize">{rate.nombre}</h4>
-                                   <div className="flex flex-col items-center space-y-4">
-                                       <div className="text-center">
-                                           <p className="text-sm text-gray-500">Compra</p>
-                                           <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.compra)}</p>
-                                       </div>
-                                       <div className="text-center">
-                                           <p className="text-sm text-gray-500">Venta</p>
-                                           <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.venta)}</p>
-                                       </div>
-                                   </div>
-                               </div>
                             )) : <p>No se pudieron cargar las cotizaciones.</p>
-                            }
-                        </div>
-                    </div>
+                             }
+                         </div>
+                     </div>
 
-                    <h3 className="text-2xl font-bold my-8">Herramientas de Simulación</h3>
-                    <FixedDepositCalculator />
-                </div>
+                     <h3 className="text-2xl font-bold my-8">Herramientas de Simulación</h3>
+                     <FixedDepositCalculator />
+                 </div>
             );
         };
         
@@ -910,16 +912,25 @@
 
             // AI Logic for notifications
             useEffect(() => {
-                if (isManagedView) return; // No ejecutar para admin
+                if (isManagedView || !userData) return;
 
                 const fetchVencimientos = async () => {
                     setLoadingNotifications(true);
                     const apiKey = "";
                     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
-                    const systemPrompt = "Actúa como un asistente contable. Busca los vencimientos impositivos de AFIP para el mes actual en Argentina. Enfócate en Monotributo e IVA. Formatea la respuesta como una lista corta y clara. Si no encuentras información, indícalo. La fecha de hoy es Octubre 2025.";
-                    const userQuery = "Vencimientos de Monotributo e IVA para Octubre 2025 en Argentina según AFIP.";
+                    let userQuery = "";
+                    if (userData.categoriaTributaria === 'Monotributo') {
+                        userQuery = "Vencimientos de Monotributo para el mes actual en Argentina según AFIP.";
+                    } else if (userData.categoriaTributaria === 'Responsable Inscripto') {
+                        userQuery = "Vencimientos de IVA y Ganancias para el mes actual en Argentina según AFIP.";
+                    } else {
+                        setLoadingNotifications(false);
+                        return; 
+                    }
 
+                    const systemPrompt = "Actúa como un asistente contable. Busca los vencimientos impositivos de AFIP para el mes actual en Argentina para un contribuyente. Formatea la respuesta como una lista corta y clara. Si no encuentras información, indícalo. La fecha de hoy es Octubre 2025.";
+                    
                     const payload = {
                         contents: [{ parts: [{ text: userQuery }] }],
                         tools: [{ "google_search": {} }],
@@ -937,8 +948,7 @@
                         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
                         if (text) {
-                            // Parse the text to create notification objects
-                            const lines = text.split('\n').filter(line => line.startsWith('*') || line.startsWith('-'));
+                            const lines = text.split('\n').filter(line => line.trim().startsWith('*') || line.trim().startsWith('-'));
                             const parsedNotifications = lines.map((line, index) => ({
                                 id: `vencimiento-${index}`,
                                 title: line.replace(/[\*\-]/g, '').split(':')[0].trim(),
@@ -958,12 +968,12 @@
                 };
 
                 fetchVencimientos();
-            }, [isManagedView]);
+            }, [isManagedView, userData]);
 
             const handleFirebaseError = (error) => {
                 console.error("Firebase Storage Error:", error);
                 if (error.code === 'storage/unauthorized') {
-                    setStorageError('Error de permisos. Las reglas de seguridad de Storage necesitan un ajuste. Por favor, ve a tu Consola de Firebase -> Storage -> Reglas y actualízalas.');
+                    setStorageError('Error de permisos. Verifica que las Reglas de Seguridad de Firebase Storage estén configuradas correctamente para permitir la lectura y escritura.');
                 } else {
                     setStorageError('Ocurrió un error inesperado al operar con los archivos.');
                 }
@@ -1118,18 +1128,18 @@
                     {!isManagedView && <div className="bg-white p-8 rounded-lg shadow-md">
                         <h3 className="text-xl font-bold mb-4">Notificaciones</h3>
                          {loadingNotifications ? <p>Buscando vencimientos...</p> : 
-                            <div className="space-y-4">
-                                {notifications.map(notif => (
-                                   <div key={notif.id} className={`flex items-start p-4 border-l-4 rounded-r-lg ${notif.type === 'warning' ? 'bg-yellow-50 border-yellow-400' : 'bg-green-50 border-green-400'}`}>
-                                       <Icon name={notif.type === 'warning' ? 'AlertTriangle' : 'CheckCircle'} className={`h-6 w-6 mr-3 shrink-0 ${notif.type === 'warning' ? 'text-yellow-600' : 'text-green-600'}`}/>
-                                       <div>
-                                           <p className="font-bold">{notif.title}</p>
-                                           <p className="text-sm">{notif.body}</p>
-                                       </div>
-                                   </div>
-                                ))}
-                                <div className="flex items-start p-4 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg"><Icon name="File" className="h-6 w-6 text-blue-600 mr-3 shrink-0"/><div><p className="font-bold">Nuevo Documento del Contador</p><p className="text-sm">Se ha subido "Balance Anual 2024.pdf" (Ejemplo).</p></div></div>
-                            </div>
+                             <div className="space-y-4">
+                                 {notifications.length > 0 ? notifications.map(notif => (
+                                    <div key={notif.id} className={`flex items-start p-4 border-l-4 rounded-r-lg ${notif.type === 'warning' ? 'bg-yellow-50 border-yellow-400' : 'bg-green-50 border-green-400'}`}>
+                                        <Icon name={notif.type === 'warning' ? 'AlertTriangle' : 'CheckCircle'} className={`h-6 w-6 mr-3 shrink-0 ${notif.type === 'warning' ? 'text-yellow-600' : 'text-green-600'}`}/>
+                                        <div>
+                                            <p className="font-bold">{notif.title}</p>
+                                            <p className="text-sm">{notif.body}</p>
+                                        </div>
+                                    </div>
+                                 )) : <p className="text-gray-500">No hay vencimientos para mostrar según tu categoría fiscal.</p>}
+                                 <div className="flex items-start p-4 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg"><Icon name="File" className="h-6 w-6 text-blue-600 mr-3 shrink-0"/><div><p className="font-bold">Nuevo Documento del Contador</p><p className="text-sm">Se ha subido "Balance Anual 2024.pdf" (Ejemplo).</p></div></div>
+                             </div>
                         }
                     </div>}
                 </div>
@@ -1227,27 +1237,27 @@
              const [clientData, setClientData] = useState(null);
 
              useEffect(() => {
-                const fetchClientData = async () => {
-                    const clientDocRef = doc(db, "users", userId);
-                    const clientDoc = await getDoc(clientDocRef);
-                    if (clientDoc.exists()) {
-                        setClientData(clientDoc.data());
-                    }
-                };
-                fetchClientData();
-            }, [userId]);
+                 const fetchClientData = async () => {
+                     const clientDocRef = doc(db, "users", userId);
+                     const clientDoc = await getDoc(clientDocRef);
+                     if (clientDoc.exists()) {
+                         setClientData(clientDoc.data());
+                     }
+                 };
+                 fetchClientData();
+             }, [userId]);
 
              return (
-                <div>
-                    <button onClick={() => navigate('/admin')} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
-                        <Icon name="ArrowLeft" className="w-5 h-5 mr-2"/> Volver al Panel de Admin
-                    </button>
-                    <ClientCenterPage 
-                        isManagedView={true} 
-                        managedUserId={userId} 
-                        managedClientName={clientData?.nombre} 
-                    />
-                </div>
+                 <div>
+                     <button onClick={() => navigate('/admin')} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
+                         <Icon name="ArrowLeft" className="w-5 h-5 mr-2"/> Volver al Panel de Admin
+                     </button>
+                     <ClientCenterPage 
+                         isManagedView={true} 
+                         managedUserId={userId} 
+                         managedClientName={clientData?.nombre} 
+                     />
+                 </div>
              )
         };
         
