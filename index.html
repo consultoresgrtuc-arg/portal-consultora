@@ -13,9 +13,6 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Recharts (para gráficos interactivos) - Eliminado para simplificar -->
-    <!-- <script src="https://unpkg.com/recharts@2.10.1/umd/Recharts.min.js"></script> -->
-
     <!-- Firebase -->
     <script type="module">
         const firebaseConfig = {
@@ -59,6 +56,8 @@
             border-radius: 0.5rem;
             max-width: 500px;
             width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
         }
         /* Ocultar la barra de scroll en el carrusel */
         .scrollbar-hide::-webkit-scrollbar {
@@ -121,7 +120,6 @@
         
         // --- CONTEXTOS ---
         const AuthContext = createContext();
-        const OperationsContext = createContext();
 
         const AuthProvider = ({ children }) => {
             const [user, setUser] = useState(null);
@@ -167,41 +165,52 @@
             return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
         };
         
-        const OperationsProvider = ({ children }) => {
+        const useAuth = () => useContext(AuthContext);
+        
+        // --- CUSTOM HOOK PARA COLECCIONES ---
+        const useCollection = (collectionName, filters) => {
             const { user } = useAuth();
-            const [operations, setOperations] = useState([]);
+            const [data, setData] = useState([]);
             const [loading, setLoading] = useState(true);
 
             useEffect(() => {
-                if (!user) {
-                    setOperations([]);
+                if (!user || !filters?.year || !filters?.month) {
+                    setData([]);
                     setLoading(false);
                     return;
                 }
                 setLoading(true);
-                const q = query(collection(db, 'users', user.uid, 'operations'), orderBy("date", "desc"));
+
+                const constraints = [
+                    where("year", "==", filters.year),
+                    where("month", "==", filters.month),
+                    orderBy("fechaEmision", "desc")
+                ];
                 
-                const unsubscribe = onSnapshot(q, (querySnapshot) => {
-                    const opsFromDb = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setOperations(opsFromDb);
+                const q = query(collection(db, 'users', user.uid, collectionName), ...constraints);
+                
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setData(items);
                     setLoading(false);
                 }, (error) => {
-                    console.error("Error listening to operations:", error);
+                    console.error(`Error fetching ${collectionName}:`, error);
                     setLoading(false);
                 });
 
                 return () => unsubscribe();
-            }, [user]);
+            }, [user, collectionName, filters?.year, filters?.month]);
 
-            const value = { operations, loading };
-            return <OperationsContext.Provider value={value}>{children}</OperationsContext.Provider>;
+            return { data, loading };
         };
 
-        const useAuth = () => useContext(AuthContext);
-        const useOperations = () => useContext(OperationsContext);
 
         // --- ÍCONOS INTEGRADOS ---
         const Icons = {
+            ClipboardList: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M12 11h4"></path><path d="M12 16h4"></path><path d="M8 11h.01"></path><path d="M8 16h.01"></path></svg>),
+            Landmark: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="22" x2="21" y2="22"></line><line x1="6" y1="18" x2="6" y2="11"></line><line x1="10" y1="18" x2="10" y2="11"></line><line x1="14" y1="18" x2="14" y2="11"></line><line x1="18" y1="18" x2="18" y2="11"></line><polygon points="12 2 20 7 4 7"></polygon></svg>),
+            CreditCard: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>),
+            Wallet: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"></path><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"></path><path d="M18 12a2 2 0 0 0 0 4h4v-4h-4z"></path></svg>),
             Sparkles: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L14.39 8.36L21 9.61L16.33 14.77L17.18 21.9L12 18.5L6.82 21.9L7.67 14.77L3 9.61L9.61 8.36L12 2z"/></svg>),
             BarChart3: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>),
             Chrome: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>),
@@ -253,6 +262,45 @@
                 </div>
             );
         };
+        
+        const DateFilter = ({ date, setDate }) => {
+            const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
+            const months = [
+                "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+            ];
+
+            const handleYearChange = (e) => {
+                const newYear = parseInt(e.target.value);
+                const newDate = new Date(date);
+                newDate.setFullYear(newYear);
+                setDate(newDate);
+            };
+
+            const handleMonthChange = (e) => {
+                const newMonth = parseInt(e.target.value);
+                const newDate = new Date(date);
+                newDate.setMonth(newMonth);
+                setDate(newDate);
+            };
+
+            return (
+                <div className="flex items-center gap-4 mb-6 bg-white p-4 rounded-lg shadow-sm">
+                    <h3 className="text-lg font-semibold">Consultar Período:</h3>
+                    <select value={date.getMonth()} onChange={handleMonthChange} className="p-2 border rounded-md">
+                        {months.map((month, index) => (
+                            <option key={index} value={index}>{month}</option>
+                        ))}
+                    </select>
+                    <select value={date.getFullYear()} onChange={handleYearChange} className="p-2 border rounded-md">
+                        {years.map(year => (
+                            <option key={year} value={year}>{year}</option>
+                        ))}
+                    </select>
+                </div>
+            );
+        };
+
 
         // --- PÁGINA DE LOGIN ---
         const LoginPage = () => {
@@ -367,6 +415,7 @@
             const navLinks = [
                 { name: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' }, 
                 { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
+                { name: 'Gestión', icon: 'ClipboardList', path: '/gestion'},
                 { name: 'Finanzas', icon: 'TrendingUp', path: '/finances' }, 
                 { name: 'Cliente', icon: 'FolderArchive', path: '/client-center' },
                 { name: 'Perfil', icon: 'User', path: '/profile' },
@@ -398,7 +447,18 @@
         
         // --- COMPONENTE DE IA ---
         const AIAnalyzer = () => {
-            const { operations } = useOperations();
+            const [operations, setOperations] = useState([]);
+            const { user } = useAuth();
+            
+            useEffect(() => {
+                if (!user) return;
+                const q = query(collection(db, 'users', user.uid, 'operations'), orderBy("fechaEmision", "desc"), limit(50));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    setOperations(snapshot.docs.map(doc => doc.data()));
+                });
+                return () => unsubscribe();
+            }, [user]);
+
             const [prompt, setPrompt] = useState('');
             const [result, setResult] = useState('');
             const [loading, setLoading] = useState(false);
@@ -421,8 +481,8 @@
                 const apiKey = ""; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
-                const operationsContext = operations.slice(0, 50).map(op => 
-                    `- ${op.date.toDate().toLocaleDateString('es-AR')}: ${op.type} de ${op.amount.toFixed(2)} ARS (${op.description})`
+                const operationsContext = operations.map(op => 
+                    `- ${op.fechaEmision.toDate().toLocaleDateString('es-AR')}: ${op.type} de ${op.amount.toFixed(2)} ARS (${op.description})`
                 ).join('\n');
 
                 const systemPrompt = "Actúa como un asistente financiero experto y conciso. Analiza los datos de operaciones proporcionados y responde la pregunta del usuario en español. Basa tu respuesta únicamente en los datos. Si la pregunta no se puede responder con los datos, indícalo. Formatea tu respuesta de forma clara y amigable.";
@@ -500,23 +560,37 @@
 
         // --- PÁGINAS ---
         const DashboardPage = () => {
-            const { operations } = useOperations();
+            const [operations, setOperations] = useState([]);
+            const { user } = useAuth();
+            
+            useEffect(() => {
+                if (!user) return;
+                const now = new Date();
+                const year = now.getFullYear();
+                const month = now.getMonth() + 1;
+
+                const q = query(
+                    collection(db, 'users', user.uid, 'operations'),
+                    where("year", "==", year),
+                    where("month", "==", month)
+                );
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    setOperations(snapshot.docs.map(doc => doc.data()));
+                });
+                return () => unsubscribe();
+            }, [user]);
+
+
             const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
 
             const metrics = useMemo(() => {
-                const now = new Date();
-                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-                
                 let ventas = 0, compras = 0, ingresos = 0, gastos = 0;
                 operations.forEach(op => {
-                    const opDate = op.date.toDate();
-                    if (opDate.getMonth() === startOfMonth.getMonth() && opDate.getFullYear() === startOfMonth.getFullYear()) {
-                        switch (op.type) {
-                            case 'venta': ventas += op.amount; break;
-                            case 'compra': compras += op.amount; break;
-                            case 'ingreso': ingresos += op.amount; break;
-                            case 'gasto': gastos += op.amount; break;
-                        }
+                    switch (op.type) {
+                        case 'venta': ventas += op.amount; break;
+                        case 'compra': compras += op.amount; break;
+                        case 'ingreso': ingresos += op.amount; break;
+                        case 'gasto': gastos += op.amount; break;
                     }
                 });
 
@@ -574,7 +648,23 @@
         };
         
         const OperationsPage = () => {
-            const { operations, loading } = useOperations();
+            const { user } = useAuth();
+            const [filterDate, setFilterDate] = useState(new Date());
+            const { data: operations, loading } = useCollection('operations', {
+                year: filterDate.getFullYear(),
+                month: filterDate.getMonth() + 1
+            });
+            const [recentOperations, setRecentOperations] = useState([]);
+            
+            useEffect(() => {
+                if (!user) return;
+                const q = query(collection(db, 'users', user.uid, 'operations'), orderBy("fechaEmision", "desc"), limit(5));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    setRecentOperations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
+                return () => unsubscribe();
+            }, [user]);
+
             const [showModal, setShowModal] = useState(false);
             const [editingOp, setEditingOp] = useState(null);
             const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -611,6 +701,29 @@
                         <button onClick={handleNewOperation} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"><Icon name="PlusCircle" className="w-5 h-5 mr-2"/>Nueva Operación</button>
                     </div>
 
+                    <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+                        <h3 className="text-xl font-bold mb-4">Últimas Operaciones Agregadas</h3>
+                        {recentOperations.length > 0 ? (
+                            <ul className="divide-y divide-gray-200">
+                                {recentOperations.map(op => (
+                                    <li key={op.id} className="py-3 flex justify-between items-center">
+                                        <div>
+                                            <p className="font-medium capitalize">{op.type}: {op.description}</p>
+                                            <p className="text-sm text-gray-500">{op.fechaEmision.toDate().toLocaleDateString('es-AR')}</p>
+                                        </div>
+                                        <p className={`font-bold text-lg ${['venta','ingreso'].includes(op.type) ? 'text-green-600' : 'text-red-600'}`}>
+                                            {formatCurrency(op.amount)}
+                                        </p>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p className="text-gray-500 text-center">No hay operaciones recientes.</p>
+                        )}
+                    </div>
+
+                    <DateFilter date={filterDate} setDate={setFilterDate} />
+
                     {showModal && <OperationModal op={editingOp} onClose={() => setShowModal(false)} />}
                     {showConfirmDelete && (
                         <ConfirmModal
@@ -621,6 +734,7 @@
                     )}
 
                     <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
+                        <h3 className="text-xl font-bold mb-4">Operaciones del Período</h3>
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50"><tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha</th>
@@ -633,7 +747,7 @@
                                 {loading ? (<tr><td colSpan="5" className="text-center py-10">Cargando...</td></tr>) : 
                                 operations.length > 0 ? operations.map(op => (
                                     <tr key={op.id}>
-                                        <td className="px-6 py-4 whitespace-nowrap">{op.date.toDate().toLocaleDateString('es-AR')}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap">{op.fechaEmision.toDate().toLocaleDateString('es-AR')}</td>
                                         <td className="px-6 py-4 whitespace-nowrap capitalize">{op.type}</td>
                                         <td className="px-6 py-4">{op.description}</td>
                                         <td className={`px-6 py-4 whitespace-nowrap font-semibold ${['venta','ingreso'].includes(op.type) ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(op.amount)}</td>
@@ -642,7 +756,7 @@
                                             <button onClick={() => promptDelete(op.id)} className="text-red-600 hover:text-red-900"><Icon name="Trash2" className="w-5 h-5"/></button>
                                         </td>
                                     </tr>
-                                )) : (<tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay operaciones registradas.</td></tr>)}
+                                )) : (<tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay operaciones para el período seleccionado.</td></tr>)}
                             </tbody>
                         </table>
                     </div>
@@ -656,7 +770,7 @@
                 type: op?.type || 'venta',
                 amount: op?.amount || '',
                 description: op?.description || '',
-                date: op?.date ? op.date.toDate().toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+                fechaEmision: op?.fechaEmision ? op.fechaEmision.toDate().toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
             });
             const [isSubmitting, setIsSubmitting] = useState(false);
             const [message, setMessage] = useState('');
@@ -668,13 +782,16 @@
                 if (!user || isSubmitting) return;
 
                 setIsSubmitting(true);
-                // Fix for timezone issue: parse date string in local timezone
-                const localDate = new Date(formData.date + 'T00:00:00');
+                const localDate = new Date(formData.fechaEmision + 'T00:00:00');
                 
                 const dataToSave = {
-                    ...formData,
+                    type: formData.type,
                     amount: parseFloat(formData.amount),
-                    date: Timestamp.fromDate(localDate)
+                    description: formData.description,
+                    fechaEmision: Timestamp.fromDate(localDate),
+                    year: localDate.getFullYear(),
+                    month: localDate.getMonth() + 1, // JS months are 0-indexed
+                    day: localDate.getDate()
                 };
 
                 try {
@@ -697,7 +814,7 @@
                     <div className="modal-content">
                         <h2 className="text-2xl font-bold mb-6">{op ? 'Editar' : 'Nueva'} Operación</h2>
                         <form onSubmit={handleSubmit} className="space-y-4">
-                            <div><label>Fecha</label><input type="date" name="date" value={formData.date} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"/></div>
+                            <div><label>Fecha</label><input type="date" name="fechaEmision" value={formData.fechaEmision} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"/></div>
                             <div><label>Tipo</label><select name="type" value={formData.type} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"><option value="venta">Venta</option><option value="compra">Compra</option><option value="ingreso">Ingreso</option><option value="gasto">Gasto</option></select></div>
                             <div><label>Monto</label><input type="number" step="0.01" name="amount" value={formData.amount} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"/></div>
                             <div><label>Descripción</label><textarea name="description" value={formData.description} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"></textarea></div>
@@ -775,7 +892,21 @@
             const [loadingRates, setLoadingRates] = useState(true);
             const [isEditingBudget, setIsEditingBudget] = useState(false);
             const [budget, setBudget] = useState({ incomeGoal: 0, expenseBudget: 0 });
-            const { operations } = useOperations(); // Get operations here as well
+            
+            const [operations, setOperations] = useState([]);
+            useEffect(() => {
+                if (!user) return;
+                const now = new Date();
+                const q = query(
+                    collection(db, 'users', user.uid, 'operations'),
+                    where("year", "==", now.getFullYear()),
+                    where("month", "==", now.getMonth() + 1)
+                );
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    setOperations(snapshot.docs.map(doc => doc.data()));
+                });
+                return () => unsubscribe();
+            }, [user]);
 
             useEffect(() => {
                 if (userData) {
@@ -786,18 +917,11 @@
                 }
             }, [userData]);
             
-            // Re-calculate metrics here for the budget progress
             const monthlyMetrics = useMemo(() => {
-                const now = new Date();
-                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-                
                 let income = 0, expense = 0;
                 operations.forEach(op => {
-                    const opDate = op.date.toDate();
-                    if(opDate.getMonth() === startOfMonth.getMonth() && opDate.getFullYear() === startOfMonth.getFullYear()) {
-                        if (['venta', 'ingreso'].includes(op.type)) income += op.amount;
-                        else expense += op.amount;
-                    }
+                    if (['venta', 'ingreso'].includes(op.type)) income += op.amount;
+                    else expense += op.amount;
                 });
                 return { income, expense };
             }, [operations]);
@@ -1272,6 +1396,48 @@
                  </div>
              )
         };
+
+        const GestionPage = () => {
+            const { navigate } = useContext(AppContext);
+            return (
+                <div>
+                    <h2 className="text-3xl font-bold mb-6">Panel de Gestión</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/gestion/deudores')}>
+                            <h3 className="text-xl font-bold text-blue-600 mb-2">Deudores por Venta</h3>
+                            <p className="text-gray-600">Administra tus cuentas por cobrar, registra pagos y controla los saldos de tus clientes.</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/gestion/proveedores')}>
+                            <h3 className="text-xl font-bold text-purple-600 mb-2">Proveedores</h3>
+                            <p className="text-gray-600">Lleva un registro de tus cuentas por pagar, gestiona vencimientos y organiza tus pagos.</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/gestion/cheques')}>
+                            <h3 className="text-xl font-bold text-green-600 mb-2">Gestión de Cheques</h3>
+                            <p className="text-gray-600">Controla los cheques emitidos y recibidos, sus fechas de vencimiento y estados.</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const DeudoresPage = () => {
+            return <div className="text-center p-8 bg-white rounded-lg shadow-md">
+                <h2 className="text-2xl font-bold mb-4">Módulo de Deudores por Venta</h2>
+                <p className="text-gray-600">Esta funcionalidad se encuentra en desarrollo y estará disponible próximamente.</p>
+            </div>;
+        };
+        const ProveedoresPage = () => {
+            return <div className="text-center p-8 bg-white rounded-lg shadow-md">
+                <h2 className="text-2xl font-bold mb-4">Módulo de Proveedores</h2>
+                <p className="text-gray-600">Esta funcionalidad se encuentra en desarrollo y estará disponible próximamente.</p>
+            </div>;
+        };
+        const ChequesPage = () => {
+            return <div className="text-center p-8 bg-white rounded-lg shadow-md">
+                <h2 className="text-2xl font-bold mb-4">Módulo de Gestión de Cheques</h2>
+                <p className="text-gray-600">Esta funcionalidad se encuentra en desarrollo y estará disponible próximamente.</p>
+            </div>;
+        };
         
         // --- ROUTER Y APP PRINCIPAL ---
         const AppContext = createContext();
@@ -1295,6 +1461,14 @@
                     const userId = route.split('/').pop();
                     return userData?.isAdmin ? <AdminClientManagementPage userId={userId} /> : <div>Acceso denegado</div>;
                 }
+                
+                if (route.startsWith('/gestion')) {
+                    if (route === '/gestion') return <GestionPage/>;
+                    if (route === '/gestion/deudores') return <DeudoresPage/>;
+                    if (route === '/gestion/proveedores') return <ProveedoresPage/>;
+                    if (route === '/gestion/cheques') return <ChequesPage/>;
+                }
+
 
                 switch (route) {
                     case '/dashboard': return <DashboardPage />;
@@ -1331,7 +1505,11 @@
             }, []);
             if (initError) return <FirebaseErrorScreen />;
             if (!isInitialized) return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
-            return <AuthProvider><OperationsProvider><App /></OperationsProvider></AuthProvider>;
+            return (
+                <AuthProvider>
+                    <App />
+                </AuthProvider>
+            );
         };
 
         const root = createRoot(document.getElementById('root'));
