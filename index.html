@@ -19,7 +19,7 @@
             apiKey: "AIzaSyAK3yU78pfmNFAVBojOC7takuDg2NS3i6M",
             authDomain: "gyrconsultores-82422.firebaseapp.com",
             projectId: "gyrconsultores-82422",
-            storageBucket: "gyrconsultores-82422.firebasestorage.app",
+            storageBucket: "gyrconsultores-82422.appspot.com",
             messagingSenderId: "963315189373",
             appId: "1:963315189373:web:b5f02184412b2e78275314"
         };
@@ -388,7 +388,7 @@
                                  <div><button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">{view === 'register' ? 'Registrarse' : 'Ingresar'}</button></div>
                              </form>
                          )}
-                         
+                        
                          {view !== 'reset' && (
                              <div className="mt-6"><div className="relative"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300"></div></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">O continuar con</span></div></div>
                                  <div className="mt-6 grid grid-cols-1 gap-3">
@@ -478,15 +478,13 @@
                 setResult('');
                 setError('');
 
-                const apiKey = ""; 
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                const apiUrl = 'https://us-central1-gyrconsultores-82422.cloudfunctions.net/secureGeminiCall';
 
                 const operationsContext = operations.map(op => 
                     `- ${op.fechaEmision.toDate().toLocaleDateString('es-AR')}: ${op.type} de ${op.amount.toFixed(2)} ARS (${op.description})`
                 ).join('\n');
 
                 const systemPrompt = "Actúa como un asistente financiero experto y conciso. Analiza los datos de operaciones proporcionados y responde la pregunta del usuario en español. Basa tu respuesta únicamente en los datos. Si la pregunta no se puede responder con los datos, indícalo. Formatea tu respuesta de forma clara y amigable.";
-                
                 const fullPrompt = `Basado en las siguientes operaciones financieras:\n\n${operationsContext}\n\nPor favor, responde a la siguiente pregunta: "${prompt}"`;
 
                 const payload = {
@@ -504,13 +502,14 @@
                     });
 
                     if (!response.ok) {
-                        const errorBody = await response.json();
-                        console.error("API Error Body:", errorBody);
-                        throw new Error(`Error de API: ${errorBody.error?.message || response.status}`);
+                         const errorBody = await response.json();
+                         console.error("Error response from backend:", errorBody);
+                         throw new Error(`Error del servidor: ${response.status}`);
                     }
 
                     const data = await response.json();
-                    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    
+                    const text = data.text;
 
                     if (text) {
                         setResult(text);
@@ -518,7 +517,7 @@
                         throw new Error("No se recibió una respuesta válida de la IA.");
                     }
                 } catch (err) {
-                    console.error("Error calling Gemini API:", err);
+                    console.error("Error calling the secure backend:", err);
                     setError("Hubo un error al contactar al asistente de IA. Por favor, intenta de nuevo más tarde.");
                 } finally {
                     setLoading(false);
@@ -1011,7 +1010,7 @@
                                         </div>
                                     </div>
                                 </div>
-                            )) : <p>No se pudieron cargar las cotizaciones.</p>
+                             )) : <p>No se pudieron cargar las cotizaciones.</p>
                              }
                          </div>
                      </div>
@@ -1047,14 +1046,12 @@
 
             // AI Logic for notifications
             useEffect(() => {
-                if (isManagedView || !userData) return; // No ejecutar para admin o si no hay datos del usuario
+                if (isManagedView || !userData) return;
 
                 const fetchVencimientos = async () => {
                     setLoadingNotifications(true);
-                    const apiKey = "";
-                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                    const apiUrl = `https://us-central1-gyrconsultores-82422.cloudfunctions.net/secureGeminiCall`;
                     
-                    // Determinar qué vencimientos buscar según la categoría del usuario
                     let userQuery = "";
                     if (userData.categoriaTributaria === 'Monotributo') {
                         userQuery = "Vencimientos de Monotributo para el mes actual en Argentina según AFIP.";
@@ -1062,11 +1059,11 @@
                         userQuery = "Vencimientos de IVA y Ganancias para el mes actual en Argentina según AFIP.";
                     } else {
                         setLoadingNotifications(false);
-                        return; // Si no es ninguna de las dos, no hacer nada
+                        return;
                     }
-
-                    const systemPrompt = "Actúa como un asistente contable. Busca los vencimientos impositivos de AFIP para el mes actual en Argentina para un contribuyente. Formatea la respuesta como una lista corta y clara. Si no encuentras información, indícalo. La fecha de hoy es Octubre 2025.";
                     
+                    const systemPrompt = "Actúa como un asistente contable. Busca los vencimientos impositivos de AFIP para el mes actual en Argentina para un contribuyente. Formatea la respuesta como una lista corta y clara. Si no encuentras información, indícalo. La fecha de hoy es Octubre 2025.";
+
                     const payload = {
                         contents: [{ parts: [{ text: userQuery }] }],
                         tools: [{ "google_search": {} }],
@@ -1079,9 +1076,13 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         });
-                        if (!response.ok) throw new Error('API response not OK');
+                        if (!response.ok) {
+                            const errorBody = await response.json();
+                            console.error("Error response from backend for notifications:", errorBody);
+                            throw new Error('API response not OK');
+                        }
                         const data = await response.json();
-                        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        const text = data.text;
 
                         if (text) {
                             const lines = text.split('\n').filter(line => line.trim().startsWith('*') || line.trim().startsWith('-'));
@@ -1104,7 +1105,7 @@
                 };
 
                 fetchVencimientos();
-            }, [isManagedView, userData]); // Depende de userData para re-evaluar
+            }, [isManagedView, userData]);
 
             const handleFirebaseError = (error) => {
                 console.error("Firebase Storage Error:", error);
@@ -1266,17 +1267,17 @@
                          {loadingNotifications ? <p>Buscando vencimientos...</p> : 
                              <div className="space-y-4">
                                  {notifications.length > 0 ? notifications.map(notif => (
-                                    <div key={notif.id} className={`flex items-start p-4 border-l-4 rounded-r-lg ${notif.type === 'warning' ? 'bg-yellow-50 border-yellow-400' : 'bg-green-50 border-green-400'}`}>
-                                        <Icon name={notif.type === 'warning' ? 'AlertTriangle' : 'CheckCircle'} className={`h-6 w-6 mr-3 shrink-0 ${notif.type === 'warning' ? 'text-yellow-600' : 'text-green-600'}`}/>
-                                        <div>
-                                            <p className="font-bold">{notif.title}</p>
-                                            <p className="text-sm">{notif.body}</p>
-                                        </div>
-                                    </div>
+                                     <div key={notif.id} className={`flex items-start p-4 border-l-4 rounded-r-lg ${notif.type === 'warning' ? 'bg-yellow-50 border-yellow-400' : 'bg-green-50 border-green-400'}`}>
+                                         <Icon name={notif.type === 'warning' ? 'AlertTriangle' : 'CheckCircle'} className={`h-6 w-6 mr-3 shrink-0 ${notif.type === 'warning' ? 'text-yellow-600' : 'text-green-600'}`}/>
+                                         <div>
+                                             <p className="font-bold">{notif.title}</p>
+                                             <p className="text-sm">{notif.body}</p>
+                                         </div>
+                                     </div>
                                  )) : <p className="text-gray-500">No hay vencimientos para mostrar según tu categoría fiscal.</p>}
                                  <div className="flex items-start p-4 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg"><Icon name="File" className="h-6 w-6 text-blue-600 mr-3 shrink-0"/><div><p className="font-bold">Nuevo Documento del Contador</p><p className="text-sm">Se ha subido "Balance Anual 2024.pdf" (Ejemplo).</p></div></div>
                              </div>
-                        }
+                         }
                     </div>}
                 </div>
             );
