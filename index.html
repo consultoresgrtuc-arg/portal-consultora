@@ -1235,7 +1235,8 @@
                 </div>
             );
             
-            const fileInputAccept = "image/*,application/pdf,.doc,.docx,.xls,.xlsx";
+            // He añadido más tipos de archivo aquí para asegurar que se puedan seleccionar.
+            const fileInputAccept = "image/*,application/pdf,.doc,.docx,.xls,.xlsx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
             return (
                 <div>
@@ -1500,7 +1501,11 @@
                 try {
                     if (!window.firebaseConfig || window.firebaseConfig.apiKey === "TU_API_KEY") throw new Error("Configuración de Firebase incompleta.");
                     app = initializeApp(window.firebaseConfig);
-                    auth = getAuth(app); db = getFirestore(app); storage = getStorage(app); googleProvider = new GoogleAuthProvider();
+                    auth = getAuth(app); 
+                    db = getFirestore(app); 
+                    // Inicialización explícita del Storage con la URL del bucket.
+                    storage = getStorage(app, "gs://gyrconsultores-82422.firebasestorage.app"); 
+                    googleProvider = new GoogleAuthProvider();
                     setIsInitialized(true);
                 } catch (error) { setInitError(error); }
             }, []);
