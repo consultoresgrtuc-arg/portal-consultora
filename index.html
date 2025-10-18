@@ -13,8 +13,12 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
+    <!-- Chart.js for reports -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <!-- Firebase -->
     <script type="module">
+        // IMPORTANTE: Reemplaza esto con tu propia configuración de Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyAK3yU78pfmNFAVBojOC7takuDg2NS3i6M",
             authDomain: "gyrconsultores-82422.firebaseapp.com",
@@ -66,6 +70,26 @@
         .scrollbar-hide {
             -ms-overflow-style: none;  /* IE and Edge */
             scrollbar-width: none;  /* Firefox */
+        }
+        @media print {
+            body {
+                background-color: white;
+            }
+            .no-print {
+                display: none !important;
+            }
+            main {
+                padding: 0;
+                overflow: visible;
+            }
+            .print-container {
+                box-shadow: none;
+                border: 1px solid #e5e7eb;
+                margin: 0;
+            }
+            .page-break {
+                page-break-after: always;
+            }
         }
     </style>
 </head>
@@ -204,6 +228,62 @@
             return { data, loading };
         };
 
+        const useYearlyCollection = (collectionName, year) => {
+            const { user } = useAuth();
+            const [data, setData] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                if (!user || !year) {
+                    setData([]);
+                    setLoading(false);
+                    return;
+                }
+                setLoading(true);
+
+                const q = query(collection(db, 'users', user.uid, collectionName), where("year", "==", year), orderBy("fechaEmision", "asc"));
+                
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setData(items);
+                    setLoading(false);
+                }, (error) => {
+                    console.error(`Error fetching yearly ${collectionName}:`, error);
+                    setLoading(false);
+                });
+
+                return () => unsubscribe();
+            }, [user, collectionName, year]);
+
+            return { data, loading };
+        };
+
+        const useSimpleCollection = (collectionName) => {
+            const { user } = useAuth();
+            const [data, setData] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                if (!user) {
+                    setData([]);
+                    setLoading(false);
+                    return;
+                }
+                setLoading(true);
+                const q = query(collection(db, 'users', user.uid, collectionName), orderBy("fechaEmision", "desc"));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setData(items);
+                    setLoading(false);
+                }, (error) => {
+                    console.error(`Error fetching simple ${collectionName}:`, error);
+                    setLoading(false);
+                });
+                return () => unsubscribe();
+            }, [user, collectionName]);
+            return { data, loading };
+        };
+
 
         // --- ÍCONOS INTEGRADOS ---
         const Icons = {
@@ -229,6 +309,7 @@
             DollarSign: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>),
             Calendar: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>),
             File: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>),
+            Download: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>),
             AlertTriangle: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>),
             CheckCircle: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>),
             Edit: (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>),
@@ -361,15 +442,15 @@
                  <div className="min-h-screen flex items-center justify-center bg-gray-100">
                      <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-lg">
                          <div className="text-center mb-8">
-                            <Icon name="BarChart3" className="mx-auto h-12 w-12 text-blue-600"/>
-                            <h2 className="mt-4 text-3xl font-bold text-gray-900">
-                                {view === 'login' && 'Iniciar Sesión'}
-                                {view === 'register' && 'Crear una cuenta'}
-                                {view === 'reset' && 'Recuperar Contraseña'}
-                            </h2>
-                            <p className="mt-2 text-sm text-gray-600">
-                                {view === 'reset' ? 'Ingresa tu email para recibir un enlace de recuperación.' : 'Bienvenido a tu portal de gestión contable.'}
-                            </p>
+                             <Icon name="BarChart3" className="mx-auto h-12 w-12 text-blue-600"/>
+                             <h2 className="mt-4 text-3xl font-bold text-gray-900">
+                                 {view === 'login' && 'Iniciar Sesión'}
+                                 {view === 'register' && 'Crear una cuenta'}
+                                 {view === 'reset' && 'Recuperar Contraseña'}
+                             </h2>
+                             <p className="mt-2 text-sm text-gray-600">
+                                 {view === 'reset' ? 'Ingresa tu email para recibir un enlace de recuperación.' : 'Bienvenido a tu portal de gestión contable.'}
+                             </p>
                          </div>
 
                          {view === 'reset' ? (
@@ -417,6 +498,7 @@
                 { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
                 { name: 'Gestión', icon: 'ClipboardList', path: '/gestion'},
                 { name: 'Finanzas', icon: 'TrendingUp', path: '/finances' }, 
+                { name: 'Reportes', icon: 'BarChart3', path: '/reports' },
                 { name: 'Cliente', icon: 'FolderArchive', path: '/client-center' },
                 { name: 'Perfil', icon: 'User', path: '/profile' },
                 ...(userData?.isAdmin ? [{ name: 'Admin', icon: 'Shield', path: '/admin' }] : [])
@@ -432,13 +514,13 @@
                     {/* Overlay para cerrar el menú en móvil */}
                     {sidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setSidebarOpen(false)}></div>}
 
-                    <div className={`fixed inset-y-0 left-0 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out bg-gray-800 text-white w-64 space-y-6 py-7 px-2 z-30`}>
+                    <div className={`fixed inset-y-0 left-0 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out bg-gray-800 text-white w-64 space-y-6 py-7 px-2 z-30 no-print`}>
                         <a href="#" onClick={() => handleNavigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">G&R Consultores</span></a>
                         <nav>{navLinks.map(link => (<a key={link.name} href="#" onClick={() => handleNavigate(link.path)} className="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name={link.icon} className="w-5 h-5"/><span>{link.name}</span></a>))}</nav>
                         <div className="absolute bottom-5 w-full left-0 px-4"><button onClick={() => signOut(auth)} className="w-full text-left py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name="LogOut" className="w-5 h-5"/><span>Cerrar Sesión</span></button></div>
                     </div>
                     <div className="flex-1 flex flex-col overflow-hidden">
-                        <header className="flex justify-between items-center p-4 bg-white border-b"><button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 focus:outline-none md:hidden"><Icon name="Menu" className="h-6 w-6"/></button><h1 className="text-2xl font-semibold text-gray-800">Bienvenido, {userData?.nombre || 'Cliente'}!</h1><div></div></header>
+                        <header className="flex justify-between items-center p-4 bg-white border-b no-print"><button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 focus:outline-none md:hidden"><Icon name="Menu" className="h-6 w-6"/></button><h1 className="text-2xl font-semibold text-gray-800">Bienvenido, {userData?.nombre || 'Cliente'}!</h1><div></div></header>
                         <main className="flex-1 overflow-y-auto bg-gray-100 p-6"><div className="fade-in">{children}</div></main>
                     </div>
                 </div>
@@ -997,19 +1079,19 @@
                          <div className="flex space-x-4 overflow-x-auto pb-4 scrollbar-hide" style={{ scrollSnapType: 'x mandatory' }}>
                              {loadingRates ? <p>Cargando cotizaciones...</p> : 
                               dollarRates.length > 0 ? dollarRates.map(rate => (
-                                <div key={rate.casa} className="flex-shrink-0 w-11/12 sm:w-1/2 md:w-1/3 bg-white p-6 rounded-lg shadow-md" style={{ scrollSnapAlign: 'center' }}>
-                                    <h4 className="font-bold text-xl mb-4 text-center capitalize">{rate.nombre}</h4>
-                                    <div className="flex flex-col items-center space-y-4">
-                                        <div className="text-center">
-                                            <p className="text-sm text-gray-500">Compra</p>
-                                            <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.compra)}</p>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-sm text-gray-500">Venta</p>
-                                            <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.venta)}</p>
-                                        </div>
-                                    </div>
-                                </div>
+                                 <div key={rate.casa} className="flex-shrink-0 w-11/12 sm:w-1/2 md:w-1/3 bg-white p-6 rounded-lg shadow-md" style={{ scrollSnapAlign: 'center' }}>
+                                     <h4 className="font-bold text-xl mb-4 text-center capitalize">{rate.nombre}</h4>
+                                     <div className="flex flex-col items-center space-y-4">
+                                         <div className="text-center">
+                                             <p className="text-sm text-gray-500">Compra</p>
+                                             <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.compra)}</p>
+                                         </div>
+                                         <div className="text-center">
+                                             <p className="text-sm text-gray-500">Venta</p>
+                                             <p className="text-2xl font-bold text-gray-800">{formatCurrency(rate.venta)}</p>
+                                         </div>
+                                     </div>
+                                 </div>
                              )) : <p>No se pudieron cargar las cotizaciones.</p>
                              }
                          </div>
@@ -1441,6 +1523,234 @@
             </div>;
         };
         
+        const ReportsPage = () => {
+            const { userData } = useAuth();
+            const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+            const { data: operations, loading } = useYearlyCollection('operations', selectedYear);
+
+            const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
+            const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+
+            const annualMetrics = useMemo(() => {
+                let totalIncome = 0;
+                let totalExpense = 0;
+                let totalVentas = 0;
+                let totalCompras = 0;
+                operations.forEach(op => {
+                    if (['venta', 'ingreso'].includes(op.type)) {
+                        totalIncome += op.amount;
+                        if (op.type === 'venta') {
+                            totalVentas += op.amount;
+                        }
+                    } else {
+                        totalExpense += op.amount;
+                        if (op.type === 'compra') {
+                            totalCompras += op.amount;
+                        }
+                    }
+                });
+                const cashFlow = totalIncome - totalExpense;
+                return { totalIncome, totalExpense, cashFlow, totalVentas, totalCompras };
+            }, [operations]);
+
+            const monthlyBreakdown = useMemo(() => {
+                const months = Array.from({ length: 12 }, () => ({ income: 0, expense: 0, ventas: 0, compras: 0 }));
+                operations.forEach(op => {
+                    const monthIndex = op.month - 1;
+                    if (['venta', 'ingreso'].includes(op.type)) {
+                        months[monthIndex].income += op.amount;
+                        if (op.type === 'venta') {
+                            months[monthIndex].ventas += op.amount;
+                        }
+                    } else { // 'compra' or 'gasto'
+                        months[monthIndex].expense += op.amount;
+                        if (op.type === 'compra') {
+                            months[monthIndex].compras += op.amount;
+                        }
+                    }
+                });
+                return months;
+            }, [operations]);
+
+            const chartRef = React.useRef(null);
+            const chartInstanceRef = React.useRef(null);
+
+            useEffect(() => {
+                if (chartRef.current) {
+                    if (chartInstanceRef.current) {
+                        chartInstanceRef.current.destroy();
+                    }
+                    const ctx = chartRef.current.getContext('2d');
+                    chartInstanceRef.current = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
+                            datasets: [
+                                {
+                                    label: 'Ingresos',
+                                    data: monthlyBreakdown.map(m => m.income),
+                                    backgroundColor: 'rgba(34, 197, 94, 0.6)',
+                                    borderColor: 'rgba(34, 197, 94, 1)',
+                                    borderWidth: 1
+                                },
+                                {
+                                    label: 'Gastos',
+                                    data: monthlyBreakdown.map(m => m.expense),
+                                    backgroundColor: 'rgba(239, 68, 68, 0.6)',
+                                    borderColor: 'rgba(239, 68, 68, 1)',
+                                    borderWidth: 1
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        callback: function(value) {
+                                            return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', notation: 'compact' }).format(value);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }, [monthlyBreakdown]);
+
+            const handlePrint = () => {
+                window.print();
+            };
+
+            const handleDownloadCSV = () => {
+                const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                
+                // BOM for UTF-8 Excel compatibility
+                let csvContent = "\uFEFF";
+
+                // Header - Using semicolon as separator for regional compatibility
+                const headers = ["Mes", "Ingresos Totales", "Ventas", "Gastos Totales", "Compras", "Resultado Mensual"];
+                csvContent += headers.join(";") + "\n";
+
+                // Rows
+                monthlyBreakdown.forEach((monthData, index) => {
+                    const result = monthData.income - monthData.expense;
+                    const row = [
+                        monthNames[index],
+                        monthData.income,
+                        monthData.ventas,
+                        monthData.expense,
+                        monthData.compras,
+                        result
+                    ].join(";");
+                    csvContent += row + "\n";
+                });
+                
+                // Totals Row
+                const totalsRow = [
+                    "TOTAL ANUAL",
+                    annualMetrics.totalIncome,
+                    annualMetrics.totalVentas,
+                    annualMetrics.totalExpense,
+                    annualMetrics.totalCompras,
+                    annualMetrics.cashFlow
+                ].join(";");
+                csvContent += totalsRow + "\n";
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                if (link.download !== undefined) {
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute("href", url);
+                    link.setAttribute("download", `reporte_anual_${selectedYear}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+            };
+
+            return (
+                <div>
+                    <div className="flex flex-wrap justify-between items-center gap-4 mb-6 no-print">
+                        <h2 className="text-3xl font-bold">Reporte Anual</h2>
+                        <div className="flex items-center gap-2 sm:gap-4">
+                             <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="p-2 border rounded-md bg-white">
+                                {years.map(year => (
+                                    <option key={year} value={year}>{year}</option>
+                                ))}
+                            </select>
+                            <button onClick={handleDownloadCSV} className="bg-green-600 text-white px-3 py-2 rounded-md hover:bg-green-700 flex items-center">
+                                <Icon name="Download" className="w-5 h-5 mr-2"/> CSV
+                            </button>
+                            <button onClick={handlePrint} className="bg-blue-600 text-white px-3 py-2 rounded-md hover:bg-blue-700 flex items-center">
+                                <Icon name="File" className="w-5 h-5 mr-2"/> Imprimir
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="bg-white p-8 rounded-lg shadow-md print-container">
+                        <div className="text-center mb-8">
+                            <h3 className="text-2xl font-bold">Reporte Financiero Anual {selectedYear}</h3>
+                            <p className="text-gray-600">Cliente: {userData?.nombre || 'N/A'}</p>
+                        </div>
+
+                        {loading ? (
+                            <p className="text-center py-10">Cargando datos del reporte...</p>
+                        ) : (
+                            <>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8 text-center">
+                                    <div className="bg-green-50 p-4 rounded-lg"><h4 className="font-bold">Ingresos Totales</h4><p className="text-2xl font-bold text-green-600">{formatCurrency(annualMetrics.totalIncome)}</p></div>
+                                    <div className="bg-green-50 p-4 rounded-lg"><h4 className="font-bold">Ventas Totales</h4><p className="text-2xl font-bold text-green-700">{formatCurrency(annualMetrics.totalVentas)}</p></div>
+                                    <div className="bg-red-50 p-4 rounded-lg"><h4 className="font-bold">Gastos Totales</h4><p className="text-2xl font-bold text-red-600">{formatCurrency(annualMetrics.totalExpense)}</p></div>
+                                    <div className="bg-red-50 p-4 rounded-lg"><h4 className="font-bold">Compras Totales</h4><p className="text-2xl font-bold text-red-700">{formatCurrency(annualMetrics.totalCompras)}</p></div>
+                                    <div className="bg-blue-50 p-4 rounded-lg sm:col-span-2 lg:col-span-1"><h4 className="font-bold">Flujo de Caja</h4><p className={`text-2xl font-bold ${annualMetrics.cashFlow >= 0 ? 'text-blue-600' : 'text-red-600'}`}>{formatCurrency(annualMetrics.cashFlow)}</p></div>
+                                </div>
+
+
+                                <div className="mb-8">
+                                    <h4 className="text-xl font-bold text-center mb-4">Evolución Mensual</h4>
+                                    <div style={{ position: 'relative', height: '400px' }}>
+                                        <canvas ref={chartRef}></canvas>
+                                    </div>
+                                </div>
+                                
+                                <div className="overflow-x-auto">
+                                    <h4 className="text-xl font-bold text-center mb-4">Datos Mensuales</h4>
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Mes</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Ingresos</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Ventas</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Gastos</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Compras</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Resultado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                            {monthlyBreakdown.map((monthData, index) => (
+                                                <tr key={index}>
+                                                    <td className="px-6 py-4">{new Date(0, index).toLocaleString('es-AR', { month: 'long' }).replace(/^\w/, c => c.toUpperCase())}</td>
+                                                    <td className="px-6 py-4 text-green-600">{formatCurrency(monthData.income)}</td>
+                                                    <td className="px-6 py-4 text-green-700">{formatCurrency(monthData.ventas)}</td>
+                                                    <td className="px-6 py-4 text-red-600">{formatCurrency(monthData.expense)}</td>
+                                                    <td className="px-6 py-4 text-red-700">{formatCurrency(monthData.compras)}</td>
+                                                    <td className={`px-6 py-4 font-semibold ${monthData.income - monthData.expense >= 0 ? 'text-gray-800' : 'text-red-600'}`}>{formatCurrency(monthData.income - monthData.expense)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
         // --- ROUTER Y APP PRINCIPAL ---
         const AppContext = createContext();
 
@@ -1476,6 +1786,7 @@
                     case '/dashboard': return <DashboardPage />;
                     case '/operations': return <OperationsPage />;
                     case '/finances': return <FinancesPage />;
+                    case '/reports': return <ReportsPage />;
                     case '/client-center': return <ClientCenterPage />;
                     case '/profile': return <ProfilePage />;
                     case '/admin': return <AdminPage />;
@@ -1499,12 +1810,13 @@
             const [initError, setInitError] = useState(null);
             useEffect(() => {
                 try {
-                    if (!window.firebaseConfig || window.firebaseConfig.apiKey === "TU_API_KEY") throw new Error("Configuración de Firebase incompleta.");
+                    if (!window.firebaseConfig || !window.firebaseConfig.apiKey || window.firebaseConfig.apiKey.startsWith("AIzaSy")) {
+                        console.warn("La configuración de Firebase parece ser de ejemplo. Asegúrate de usar tus propias credenciales.");
+                    }
                     app = initializeApp(window.firebaseConfig);
                     auth = getAuth(app); 
                     db = getFirestore(app); 
-                    // Inicialización explícita del Storage con la URL del bucket.
-                    storage = getStorage(app, "gs://gyrconsultores-82422.firebasestorage.app"); 
+                    storage = getStorage(app, "gs://gyrconsultores-82422.appspot.com"); 
                     googleProvider = new GoogleAuthProvider();
                     setIsInitialized(true);
                 } catch (error) { setInitError(error); }
