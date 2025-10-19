@@ -1816,7 +1816,7 @@
                     app = initializeApp(window.firebaseConfig);
                     auth = getAuth(app); 
                     db = getFirestore(app); 
-                    storage = getStorage(app, "gs://gyrconsultores-82422.appspot.com"); 
+                    storage = getStorage(app, "gs://gyrconsultores-82422.firebasestorage.app"); 
                     googleProvider = new GoogleAuthProvider();
                     setIsInitialized(true);
                 } catch (error) { setInitError(error); }
