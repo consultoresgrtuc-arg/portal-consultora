@@ -1123,7 +1123,7 @@
                 { id: 'comprobantes', name: 'Comprobantes', acl: 'client' },
                 { id: 'contratos', name: 'Contratos', acl: 'client' },
                 { id: 'balances', name: 'Balances', acl: 'client' },
-                { id: 'documentos_contador', name: 'Documentos del Contador', acl: 'accountant' },
+                { id: 'documentos_del_contador', name: 'Documentos del Contador', acl: 'accountant' },
             ];
 
             // AI Logic for notifications
@@ -1232,7 +1232,7 @@
 
             useEffect(() => { fetchFiles(); }, [fetchFiles]);
             
-            const [uploadFolder, setUploadFolder] = useState(isManagedView ? 'documentos_contador' : 'comprobantes');
+            const [uploadFolder, setUploadFolder] = useState(isManagedView ? 'documentos_del_contador' : 'comprobantes');
 
             const handleUpload = async () => {
                 if (!file || !currentUserId) return;
