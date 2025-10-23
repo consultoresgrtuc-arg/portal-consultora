@@ -1377,11 +1377,18 @@
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 if (!user) return;
+                setSaving(true);
+                setMessage(null);
                 try {
-                    await updateDoc(doc(db, 'users', user.uid), profile);
-                    setMessage({ type: 'success', text: 'Perfil actualizado.'});
-                } catch (error) { setMessage({ type: 'error', text: 'Error al actualizar.' }); }
-                finally { setTimeout(() => setMessage(''), 3000); }
+                  await updateDoc(doc(db, 'users', user.uid), profile);
+                  setMessage({ type: 'success', text: 'Perfil actualizado.'});
+                } catch (error) {
+                  console.error("Perfil update error:", error);
+                  setMessage({ type: 'error', text: 'Error al actualizar. Revisa la consola.' });
+                } finally {
+                  setSaving(false);
+                  setTimeout(() => setMessage(null), 3000);
+                }
             };
             
             return (
