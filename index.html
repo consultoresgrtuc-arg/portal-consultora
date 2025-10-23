@@ -1401,7 +1401,9 @@
                             <div><label className="font-medium">Actividad Principal</label><input name="actividad" value={profile.actividad} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"/></div>
                              <div><label className="font-medium">Categoría Tributaria</label><select name="categoriaTributaria" value={profile.categoriaTributaria} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"><option>Monotributo</option><option>Responsable Inscripto</option></select></div>
                             <div><label className="font-medium">Teléfono de Contacto</label><input name="telefono" value={profile.telefono} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"/></div>
-                            <button type="submit" className="w-full py-2 bg-blue-600 text-white rounded-md">Guardar Cambios</button>
+                            <button type="submit" disabled={saving} className={`w-full py-2 rounded-md ${saving ? 'bg-gray-400' : 'bg-blue-600 text-white'}`}>
+                              {saving ? 'Guardando...' : 'Guardar Cambios'}
+                            </button>
                             {message && <p className={`text-center mt-2 ${message.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{message.text}</p>}
                         </form>
                     </div>
