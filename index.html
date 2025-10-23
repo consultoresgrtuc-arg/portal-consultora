@@ -1368,7 +1368,8 @@
         const ProfilePage = () => {
             const { user, userData } = useAuth();
             const [profile, setProfile] = useState({ nombre: '', cuit: '', actividad: '', categoriaTributaria: '', telefono: '' });
-            const [message, setMessage] = useState('');
+            const [message, setMessage] = useState(null); // { type: 'success'|'error', text: '...' } o null
+            const [saving, setSaving] = useState(false);
 
             useEffect(() => { if (userData) setProfile(prev => ({...prev, ...userData})); }, [userData]);
             
