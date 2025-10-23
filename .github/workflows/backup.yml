@@ -1,0 +1,30 @@
+name: Backup automático de index.html
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v3
+
+      - name: Crear carpeta de backups
+        run: mkdir -p backups
+
+      - name: Copiar index.html con fecha
+        run: cp index.html "backups/index_$(date +'%Y-%m-%d_%H-%M-%S').html"
+
+      - name: Configurar Git y subir a rama backups
+        run: |
+          git config --global user.name "Gustavo Gramajo (GitHub Actions)"
+          git config --global user.email "consultoresgrtuc@gmail.com"
+          git fetch origin
+          git checkout -B backups
+          git add backups/
+          git commit -m "Backup automático de index.html [$(date +'%Y-%m-%d %H:%M:%S')]"
+          git push origin backups --force
