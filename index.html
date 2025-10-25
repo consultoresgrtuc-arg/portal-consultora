@@ -1524,55 +1524,83 @@
 
         const DeudoresPage = () => {
           const { user } = useAuth();
-          const { navigate } = useContext(AppContext); // Para el botón futuro
-          const [terceros, setTerceros] = useState([]);
+          const { navigate } = useContext(AppContext);
           const [loading, setLoading] = useState(true);
           const [error, setError] = useState('');
+          const [saldosData, setSaldosData] = useState({ deudores: [], totalCobrar: 0 });
 
-          // 1. Leer solo Clientes y Ambos
+          // 1. Hook para leer TODOS los datos y calcular saldos
           useEffect(() => {
               if (!user) return;
-              setLoading(true);
-              setError('');
-              const q = query(
-                  collection(db, 'users', user.uid, 'terceros'),
-                  where("tipo", "in", ["Cliente", "Ambos"]),
-                  orderBy("nombre", "asc")
-              );
-              const unsubscribe = onSnapshot(q, (snapshot) => {
-                  const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                  setTerceros(items);
-                  setLoading(false);
-              }, (err) => {
-                  console.error("Error al leer clientes:", err);
-                  setError('Error al cargar los clientes.');
-                  setLoading(false);
-              });
-              return () => unsubscribe();
+
+              const fetchSaldos = async () => {
+                  setLoading(true);
+                  setError('');
+                  try {
+                      // Definimos las 3 consultas que necesitamos
+                      const qTerceros = query(
+                          collection(db, 'users', user.uid, 'terceros'),
+                          where("tipo", "in", ["Cliente", "Ambos"]),
+                          orderBy("nombre", "asc")
+                      );
+                      const qFacturas = collection(db, 'users', user.uid, 'facturasVenta');
+                      const qPagos = collection(db, 'users', user.uid, 'pagosRecibidos');
+
+                      // Ejecutamos las 3 consultas en paralelo
+                      const [tercerosSnap, facturasSnap, pagosSnap] = await Promise.all([
+                          getDocs(qTerceros),
+                          getDocs(qFacturas),
+                          getDocs(qPagos)
+                      ]);
+
+                      // Procesamos los resultados
+                      const terceros = tercerosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                      const facturas = facturasSnap.docs.map(d => d.data());
+                      const pagos = pagosSnap.docs.map(d => d.data());
+
+                      // 2. Calculamos los saldos por cliente
+                      const saldosPorCliente = {};
+
+                      // Sumamos todas las facturas
+                      facturas.forEach(f => {
+                          saldosPorCliente[f.terceroId] = (saldosPorCliente[f.terceroId] || 0) + f.montoTotal;
+                      });
+
+                      // Restamos todos los pagos
+                      pagos.forEach(p => {
+                          saldosPorCliente[p.terceroId] = (saldosPorCliente[p.terceroId] || 0) - p.montoPagado;
+                      });
+
+                      // 3. Unimos los saldos con la info de los clientes
+                      // Filtramos solo los que tienen saldo > 0
+                      const deudores = terceros
+                          .map(t => ({
+                              ...t,
+                              saldo: saldosPorCliente[t.id] || 0
+                          }))
+                          .filter(t => t.saldo > 0)
+                          .sort((a, b) => b.saldo - a.saldo); // Opcional: ordenar por mayor saldo
+
+                      // 4. Calculamos el total general
+                      const totalCobrar = deudores.reduce((sum, d) => sum + d.saldo, 0);
+
+                      // 5. Guardamos todo en el estado
+                      setSaldosData({ deudores, totalCobrar });
+
+                  } catch (err) {
+                      console.error("Error al calcular saldos:", err);
+                      setError('Error al calcular los saldos. ' + (err.message.includes('index') ? 'Podría faltar un índice en Firestore.' : ''));
+                  } finally {
+                      setLoading(false);
+                  }
+              };
+
+              fetchSaldos();
+              
+              // NOTA: Para tiempo real, deberíamos usar 'onSnapshot' en las 3 colecciones,
+              // pero para empezar, 'getDocs' (leer una vez) es más simple.
+
           }, [user]);
-
-          // 2. SIMULACIÓN de saldos (¡Esto lo reemplazaremos después!)
-          const saldosCalculados = useMemo(() => {
-              // En el futuro, aquí leeremos facturasVenta y pagosRecibidos
-              // Por ahora, asignamos saldos de ejemplo
-              const saldos = {};
-              terceros.forEach((t, index) => {
-                  // Ejemplo: alterna saldos entre 0, 15000 y 35000
-                  saldos[t.id] = (index % 3 === 1) ? 15000.75 : (index % 3 === 2) ? 35000.50 : 0;
-              });
-
-              // Filtramos solo los que tienen saldo
-              const deudores = terceros.filter(t => saldos[t.id] > 0).map(t => ({
-                  ...t,
-                  saldo: saldos[t.id]
-              }));
-
-              // Calculamos totales (también de ejemplo)
-              const totalCobrar = deudores.reduce((sum, d) => sum + d.saldo, 0);
-              const totalVencido = totalCobrar * 0.3; // Ejemplo: 30% vencido
-
-              return { deudores, totalCobrar, totalVencido };
-          }, [terceros]);
 
           const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
 
@@ -1584,15 +1612,11 @@
 
                   {/* Tarjetas de Métricas */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                      <div className="bg-white p-6 rounded-lg shadow-md">
+                      <div className="bg-white p-6 rounded-lg shadow-md md:col-span-2">
                           <h3 className="text-lg font-semibold text-gray-600 mb-2">Total a Cobrar</h3>
-                          <p className="text-3xl font-bold text-blue-600">{formatCurrency(saldosCalculados.totalCobrar)}</p>
+                          <p className="text-3xl font-bold text-blue-600">{formatCurrency(saldosData.totalCobrar)}</p>
                       </div>
-                      <div className="bg-white p-6 rounded-lg shadow-md">
-                          <h3 className="text-lg font-semibold text-gray-600 mb-2">Total Vencido</h3>
-                          <p className="text-3xl font-bold text-red-600">{formatCurrency(saldosCalculados.totalVencido)}</p>
-                          {/* Podríamos agregar un % del total si quisiéramos */}
-                      </div>
+                      {/* NOTA: Tarjeta "Total Vencido" quitada temporalmente por complejidad */}
                   </div>
 
                   {/* Tabla de Deudores */}
@@ -1609,20 +1633,20 @@
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                               {loading ? (
-                                  <tr><td colSpan="4" className="text-center py-10 text-gray-500">Cargando...</td></tr>
-                              ) : saldosCalculados.deudores.length > 0 ? (
-                                  saldosCalculados.deudores.map(cliente => (
+                                  <tr><td colSpan="4" className="text-center py-10 text-gray-500">Calculando saldos...</td></tr>
+                              ) : saldosData.deudores.length > 0 ? (
+                                  saldosData.deudores.map(cliente => (
                                       <tr key={cliente.id}>
                                           <td className="px-6 py-4 whitespace-nowrap font-medium">{cliente.nombre}</td>
                                           <td className="px-6 py-4 whitespace-nowrap">{cliente.cuit || '-'}</td>
                                           <td className="px-6 py-4 whitespace-nowrap text-right font-semibold text-gray-800">{formatCurrency(cliente.saldo)}</td>
                                           <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                                               <button
-                                                  onClick={() => navigate(`/gestion/deudores/${cliente.id}`)} // Acción temporal
+                                                  onClick={() => navigate(`/gestion/deudores/${cliente.id}`)}
                                                   className="text-indigo-600 hover:text-indigo-900"
                                               >
                                                   Ver Cta. Cte.
-                                              </button>
+                                              </tbutton>
                                           </td>
                                       </tr>
                                   ))
@@ -1634,7 +1658,7 @@
                   </div>
               </div>
           );
-        };
+      };
         const ProveedoresPage = () => {
             return <div className="text-center p-8 bg-white rounded-lg shadow-md">
                 <h2 className="text-2xl font-bold mb-4">Módulo de Proveedores</h2>
