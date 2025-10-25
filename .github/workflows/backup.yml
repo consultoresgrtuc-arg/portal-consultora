@@ -3,29 +3,56 @@ name: Backup automático de index.html
 on:
   push:
     branches:
-      - main
+      - main  # Se activa solo cuando actualizas 'main'
 
 jobs:
   backup:
     runs-on: ubuntu-latest
+    
+    # --- ARREGLO 1: Dar permisos de escritura ---
+    permissions:
+      contents: write
 
     steps:
       - name: Clonar repositorio
         uses: actions/checkout@v3
+        with:
+          # Traemos todo el historial para poder movernos entre ramas
+          fetch-depth: 0 
 
-      - name: Crear carpeta de backups
-        run: mkdir -p backups
-
-      - name: Copiar index.html con fecha
-        run: cp index.html backups/index_$(date +'%Y-%m-%d_%H-%M-%S').html
-
-      - name: Configurar Git y subir a rama backups
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      - name: Configurar Git
         run: |
           git config --global user.name "Gustavo Gramajo (GitHub Actions)"
-          git config --global user.email "consultoresgrtuc@gmail.com"
-          git checkout -B backups
+          git config --global user.email "consultoresgrtec@gmail.com"
+
+      - name: Cambiar a la rama de backups (o crearla)
+        run: |
+          # --- ARREGLO 2: Lógica de ramas ---
+          # Intenta cambiar a la rama 'backups' que ya existe en el remoto (origin)
+          # Si falla (porque no existe), la crea localmente
+          git checkout -b backups origin/backups || git checkout -b backups
+
+      - name: Traer el ultimo index.html desde 'main'
+        run: |
+          # Este es el comando clave:
+          # Trae *solo* el archivo 'index.html' desde la rama 'origin/main'
+          # y lo sobreescribe en nuestro directorio de trabajo actual (que es la rama 'backups')
+          git checkout origin/main -- index.html
+
+      - name: Crear el backup con fecha
+        run: |
+          mkdir -p backups
+          cp index.html backups/index-$(date +'%Y-%m-%d-%H-%M-%S').html
+          # Limpiamos el index.html del root de la rama 'backups'
+          # para que no se acumule en la raíz
+          rm index.html
+
+      - name: Confirmar y subir el backup
+        run: |
           git add backups/
-          git commit -m "Backup automático de index.html [$(date)]" || echo "Sin cambios para confirmar"
-          git push https://x-access-token:${GH_TOKEN}@github.com/consultoresgrtuc-arg/portal-consultora.git backups --force
+          
+          # ARREGLO 3: Corregir el mensaje de commit
+          git commit -m "Backup automático de index.html $(date +'%Y-%m-%d %H:%M')"
+          
+          # Hacemos push a la rama 'backups'. No se necesita '--force'
+          git push origin backups
