@@ -1523,10 +1523,117 @@
         };
 
         const DeudoresPage = () => {
-            return <div className="text-center p-8 bg-white rounded-lg shadow-md">
-                <h2 className="text-2xl font-bold mb-4">Módulo de Deudores por Venta</h2>
-                <p className="text-gray-600">Esta funcionalidad se encuentra en desarrollo y estará disponible próximamente.</p>
-            </div>;
+          const { user } = useAuth();
+          const { navigate } = useContext(AppContext); // Para el botón futuro
+          const [terceros, setTerceros] = useState([]);
+          const [loading, setLoading] = useState(true);
+          const [error, setError] = useState('');
+
+          // 1. Leer solo Clientes y Ambos
+          useEffect(() => {
+              if (!user) return;
+              setLoading(true);
+              setError('');
+              const q = query(
+                  collection(db, 'users', user.uid, 'terceros'),
+                  where("tipo", "in", ["Cliente", "Ambos"]),
+                  orderBy("nombre", "asc")
+              );
+              const unsubscribe = onSnapshot(q, (snapshot) => {
+                  const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                  setTerceros(items);
+                  setLoading(false);
+              }, (err) => {
+                  console.error("Error al leer clientes:", err);
+                  setError('Error al cargar los clientes.');
+                  setLoading(false);
+              });
+              return () => unsubscribe();
+          }, [user]);
+
+          // 2. SIMULACIÓN de saldos (¡Esto lo reemplazaremos después!)
+          const saldosCalculados = useMemo(() => {
+              // En el futuro, aquí leeremos facturasVenta y pagosRecibidos
+              // Por ahora, asignamos saldos de ejemplo
+              const saldos = {};
+              terceros.forEach((t, index) => {
+                  // Ejemplo: alterna saldos entre 0, 15000 y 35000
+                  saldos[t.id] = (index % 3 === 1) ? 15000.75 : (index % 3 === 2) ? 35000.50 : 0;
+              });
+
+              // Filtramos solo los que tienen saldo
+              const deudores = terceros.filter(t => saldos[t.id] > 0).map(t => ({
+                  ...t,
+                  saldo: saldos[t.id]
+              }));
+
+              // Calculamos totales (también de ejemplo)
+              const totalCobrar = deudores.reduce((sum, d) => sum + d.saldo, 0);
+              const totalVencido = totalCobrar * 0.3; // Ejemplo: 30% vencido
+
+              return { deudores, totalCobrar, totalVencido };
+          }, [terceros]);
+
+          const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+
+          // 3. Renderizar la página
+          return (
+              <div>
+                  <h2 className="text-3xl font-bold mb-6">Deudores por Venta</h2>
+                  {error && <p className="text-red-600 bg-red-100 p-3 rounded mb-4">{error}</p>}
+
+                  {/* Tarjetas de Métricas */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                      <div className="bg-white p-6 rounded-lg shadow-md">
+                          <h3 className="text-lg font-semibold text-gray-600 mb-2">Total a Cobrar</h3>
+                          <p className="text-3xl font-bold text-blue-600">{formatCurrency(saldosCalculados.totalCobrar)}</p>
+                      </div>
+                      <div className="bg-white p-6 rounded-lg shadow-md">
+                          <h3 className="text-lg font-semibold text-gray-600 mb-2">Total Vencido</h3>
+                          <p className="text-3xl font-bold text-red-600">{formatCurrency(saldosCalculados.totalVencido)}</p>
+                          {/* Podríamos agregar un % del total si quisiéramos */}
+                      </div>
+                  </div>
+
+                  {/* Tabla de Deudores */}
+                  <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
+                      <h3 className="text-xl font-bold mb-4">Clientes con Saldo Pendiente</h3>
+                      <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                              <tr>
+                                  <th className="px-6 py-3 text-left text-xs font-medium uppercase">Cliente</th>
+                                  <th className="px-6 py-3 text-left text-xs font-medium uppercase">CUIT</th>
+                                  <th className="px-6 py-3 text-right text-xs font-medium uppercase">Saldo Deudor</th>
+                                  <th className="px-6 py-3 text-center text-xs font-medium uppercase">Acciones</th>
+                              </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                              {loading ? (
+                                  <tr><td colSpan="4" className="text-center py-10 text-gray-500">Cargando...</td></tr>
+                              ) : saldosCalculados.deudores.length > 0 ? (
+                                  saldosCalculados.deudores.map(cliente => (
+                                      <tr key={cliente.id}>
+                                          <td className="px-6 py-4 whitespace-nowrap font-medium">{cliente.nombre}</td>
+                                          <td className="px-6 py-4 whitespace-nowrap">{cliente.cuit || '-'}</td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-right font-semibold text-gray-800">{formatCurrency(cliente.saldo)}</td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                                              <button
+                                                  onClick={() => navigate(`/gestion/deudores/${cliente.id}`)} // Acción temporal
+                                                  className="text-indigo-600 hover:text-indigo-900"
+                                              >
+                                                  Ver Cta. Cte.
+                                              </button>
+                                          </td>
+                                      </tr>
+                                  ))
+                              ) : (
+                                  <tr><td colSpan="4" className="text-center py-10 text-gray-500">Ningún cliente presenta saldo deudor actualmente.</td></tr>
+                              )}
+                          </tbody>
+                      </table>
+                  </div>
+              </div>
+          );
         };
         const ProveedoresPage = () => {
             return <div className="text-center p-8 bg-white rounded-lg shadow-md">
@@ -1927,6 +2034,67 @@ const TerceroModal = ({ tercero, onClose }) => {
         </div>
     );
 };
+        // --- PÁGINA DE DETALLE: CUENTA CORRIENTE CLIENTE ---
+      const CuentaCorrienteClientePage = ({ terceroId }) => {
+          const { user } = useAuth();
+          const { navigate } = useContext(AppContext);
+          const [terceroData, setTerceroData] = useState(null);
+          const [loading, setLoading] = useState(true);
+          const [error, setError] = useState('');
+
+          // Cargar datos del tercero específico
+          useEffect(() => {
+              if (!user || !terceroId) return;
+              setLoading(true);
+              setError('');
+              const docRef = doc(db, 'users', user.uid, 'terceros', terceroId);
+              const unsubscribe = onSnapshot(docRef, (docSnap) => {
+                  if (docSnap.exists()) {
+                      setTerceroData({ id: docSnap.id, ...docSnap.data() });
+                  } else {
+                      setError(`No se encontró el tercero con ID: ${terceroId}`);
+                      setTerceroData(null);
+                  }
+                  setLoading(false);
+              }, (err) => {
+                  console.error("Error al leer datos del tercero:", err);
+                  setError('Error al cargar la información del cliente.');
+                  setLoading(false);
+              });
+              return () => unsubscribe();
+          }, [user, terceroId]);
+
+          // Por ahora, solo muestra info básica y un mensaje
+          return (
+              <div>
+                  <button onClick={() => navigate('/gestion/deudores')} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
+                      <Icon name="ArrowLeft" className="w-5 h-5 mr-2"/> Volver a Deudores
+                  </button>
+
+                  {loading && <p className="text-center">Cargando datos del cliente...</p>}
+                  {error && <p className="text-red-600 bg-red-100 p-3 rounded mb-4">{error}</p>}
+
+                  {terceroData && (
+                      <div className="bg-white p-8 rounded-lg shadow-md">
+                          <h2 className="text-3xl font-bold mb-4">Cuenta Corriente de: {terceroData.nombre}</h2>
+                          <p className="text-gray-600 mb-2">CUIT: {terceroData.cuit || 'N/A'}</p>
+                          <p className="text-gray-600 mb-6">ID Interno: {terceroData.id}</p>
+
+                          <hr className="my-6"/>
+
+                          <h3 className="text-xl font-bold mb-4">Movimientos</h3>
+                          <p className="text-gray-500 text-center py-6">(Aquí irán las facturas y pagos - Próximamente)</p>
+
+                           {/* Botones de acción futuros */}
+                           <div className="mt-6 flex gap-4">
+                               <button className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:bg-gray-400" disabled>+ Registrar Pago</button>
+                               <button className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400" disabled>+ Cargar Factura</button>
+                           </div>
+                      </div>
+                  )}
+              </div>
+          );
+      };
         // --- ROUTER Y APP PRINCIPAL ---
         const AppContext = createContext();
 
@@ -1944,31 +2112,38 @@ const TerceroModal = ({ tercero, onClose }) => {
                 }
             }, [user, route, navigate]);
 
-            const renderPage = () => {
-                if (route.startsWith('/admin/manage/')) {
-                    const userId = route.split('/').pop();
-                    return userData?.isAdmin ? <AdminClientManagementPage userId={userId} /> : <div>Acceso denegado</div>;
-                }
-                
-                if (route.startsWith('/gestion')) {
-                                    if (route === '/gestion') return <GestionPage/>;
-                                    if (route === '/gestion/terceros') return <TercerosPage/>; // <-- RUTA NUEVA
-                                    if (route === '/gestion/deudores') return <DeudoresPage/>;
-                                    if (route === '/gestion/proveedores') return <ProveedoresPage/>;
-                                    if (route === '/gestion/cheques') return <ChequesPage/>;
-                }
+        const renderPage = () => {
+          // Nueva lógica para la ruta de cuenta corriente (ANTES de las otras)
+          if (route.startsWith('/gestion/deudores/')) {
+              const terceroId = route.split('/').pop(); // Extrae el ID del final de la URL
+              return <CuentaCorrienteClientePage terceroId={terceroId} />;
+          }
 
-                switch (route) {
-                    case '/dashboard': return <DashboardPage />;
-                    case '/operations': return <OperationsPage />;
-                    case '/finances': return <FinancesPage />;
-                    case '/reports': return <ReportsPage />;
-                    case '/client-center': return <ClientCenterPage />;
-                    case '/profile': return <ProfilePage />;
-                    case '/admin': return <AdminPage />;
-                    default: return user ? <DashboardPage /> : <LoginPage />;
-                }
-            };
+          if (route.startsWith('/admin/manage/')) {
+              const userId = route.split('/').pop();
+              return userData?.isAdmin ? <AdminClientManagementPage userId={userId} /> : <div>Acceso denegado</div>;
+          }
+
+          if (route.startsWith('/gestion')) {
+              if (route === '/gestion') return <GestionPage/>;
+              if (route === '/gestion/terceros') return <TercerosPage/>;
+              // La ruta '/gestion/deudores' simple ahora la maneja el if de arriba
+              if (route === '/gestion/deudores') return <DeudoresPage/>; // Mantenemos por si acaso, pero la de arriba tiene prioridad
+              if (route === '/gestion/proveedores') return <ProveedoresPage/>;
+              if (route === '/gestion/cheques') return <ChequesPage/>;
+          }
+
+          switch (route) {
+              case '/dashboard': return <DashboardPage />;
+              case '/operations': return <OperationsPage />;
+              case '/finances': return <FinancesPage />;
+              case '/reports': return <ReportsPage />;
+              case '/client-center': return <ClientCenterPage />;
+              case '/profile': return <ProfilePage />;
+              case '/admin': return <AdminPage />;
+              default: return user ? <DashboardPage /> : <LoginPage />;
+          }
+        };
 
             return (
                 <AppContext.Provider value={{ navigate }}>
