@@ -140,7 +140,20 @@
         
         // --- VARIABLES GLOBALES DE FIREBASE ---
         let app, auth, db, storage, googleProvider;
-        
+        // --- INICIALIZACIÓN DE FIREBASE ---
+        const initFirebase = () => {
+          try {
+            app = initializeApp(window.firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            storage = getStorage(app); // <-- Ver nota abajo
+            googleProvider = new GoogleAuthProvider();
+          } catch (error) {
+            console.error("Error crítico al inicializar Firebase:", error);
+            // Aquí podrías intentar mostrar un error en la UI si falla
+          }
+        };
+        initFirebase();
         // --- CONTEXTOS ---
         const AuthContext = createContext();
 
