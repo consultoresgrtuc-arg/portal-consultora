@@ -18,12 +18,11 @@
 
     <!-- Firebase -->
     <script type="module">
-        // IMPORTANTE: Reemplaza esto con tu propia configuración de Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyAK3yU78pfmNFAVBojOC7takuDg2NS3i6M",
             authDomain: "gyrconsultores-82422.firebaseapp.com",
             projectId: "gyrconsultores-82422",
-            storageBucket: "gyrconsultores-82422.appspot.com",
+            storageBucket: "gyrconsultores-82422.firebasestorage.app",
             messagingSenderId: "963315189373",
             appId: "1:963315189373:web:b5f02184412b2e78275314"
         };
@@ -2192,7 +2191,7 @@ const TerceroModal = ({ tercero, onClose }) => {
                     app = initializeApp(window.firebaseConfig);
                     auth = getAuth(app); 
                     db = getFirestore(app); 
-                    storage = getStorage(app, "gs://gyrconsultores-82422.firebasestorage.app"); 
+                    storage = getStorage(app); 
                     googleProvider = new GoogleAuthProvider();
                     setIsInitialized(true);
                 } catch (error) { setInitError(error); }
