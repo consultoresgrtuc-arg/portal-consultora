@@ -1570,6 +1570,13 @@
                       const facturas = facturasSnap.docs.map(d => d.data());
                       const pagos = pagosSnap.docs.map(d => d.data());
 
+                      // --- INICIO DE DEPURACIÓN (NUEVO) ---
+                      console.log('--- DEBUG DEUDORES ---');
+                      console.log('Clientes leídos:', tercerosSnap.docs.length, terceros);
+                      console.log('Facturas leídas:', facturasSnap.docs.length, facturas);
+                      console.log('Pagos leídos:', pagosSnap.docs.length, pagos);
+                      // --- FIN DE DEPURACIÓN ---
+
                       // 2. Calculamos los saldos por cliente
                       const saldosPorCliente = {};
 
@@ -1582,6 +1589,8 @@
                       pagos.forEach(p => {
                           saldosPorCliente[p.terceroId] = (saldosPorCliente[p.terceroId] || 0) - p.montoPagado;
                       });
+                      
+                      console.log('Saldos calculados (antes de filtrar):', saldosPorCliente); // (NUEVO)
 
                       // 3. Unimos los saldos con la info de los clientes
                       // Filtramos solo los que tienen saldo > 0
@@ -1591,10 +1600,13 @@
                               saldo: saldosPorCliente[t.id] || 0
                           }))
                           .filter(t => t.saldo > 0)
-                          .sort((a, b) => b.saldo - a.saldo); // Opcional: ordenar por mayor saldo
+                          .sort((a, b) => b.saldo - a.saldo);
 
                       // 4. Calculamos el total general
                       const totalCobrar = deudores.reduce((sum, d) => sum + d.saldo, 0);
+
+                      console.log('Deudores (después de filtrar > 0):', deudores); // (NUEVO)
+                      console.log('Total a Cobrar:', totalCobrar); // (NUEVO)
 
                       // 5. Guardamos todo en el estado
                       setSaldosData({ deudores, totalCobrar });
@@ -1608,10 +1620,6 @@
               };
 
               fetchSaldos();
-              
-              // NOTA: Para tiempo real, deberíamos usar 'onSnapshot' en las 3 colecciones,
-              // pero para empezar, 'getDocs' (leer una vez) es más simple.
-
           }, [user]);
 
           const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
@@ -1628,7 +1636,6 @@
                           <h3 className="text-lg font-semibold text-gray-600 mb-2">Total a Cobrar</h3>
                           <p className="text-3xl font-bold text-blue-600">{formatCurrency(saldosData.totalCobrar)}</p>
                       </div>
-                      {/* NOTA: Tarjeta "Total Vencido" quitada temporalmente por complejidad */}
                   </div>
 
                   {/* Tabla de Deudores */}
