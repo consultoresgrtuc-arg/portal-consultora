@@ -1552,7 +1552,7 @@
                       // Definimos las 3 consultas que necesitamos
                       const qTerceros = query(
                           collection(db, 'users', user.uid, 'terceros'),
-                          where("tipo", "in", ["Cliente", "Ambos"]),
+                          where("tipo", "in", ["Cliente", "Ambos", "cliente", "ambos"]),
                           orderBy("nombre", "asc")
                       );
                       const qFacturas = collection(db, 'users', user.uid, 'facturasVenta');
