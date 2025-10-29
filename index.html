@@ -2067,18 +2067,26 @@ const TerceroModal = ({ tercero, onClose }) => {
         </div>
     );
 };
-        // --- PÁGINA DE DETALLE: CUENTA CORRIENTE CLIENTE ---
+      // --- PÁGINA DE DETALLE: CUENTA CORRIENTE CLIENTE ---
       const CuentaCorrienteClientePage = ({ terceroId }) => {
           const { user } = useAuth();
           const { navigate } = useContext(AppContext);
           const [terceroData, setTerceroData] = useState(null);
-          const [loading, setLoading] = useState(true);
+          const [movimientos, setMovimientos] = useState([]);
+          const [loadingTercero, setLoadingTercero] = useState(true);
+          const [loadingMov, setLoadingMov] = useState(true);
           const [error, setError] = useState('');
 
-          // Cargar datos del tercero específico
+          const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+          const formatDate = (timestamp) => {
+              if (!timestamp || !timestamp.toDate) return 'Fecha inválida';
+              return timestamp.toDate().toLocaleDateString('es-AR');
+          };
+
+          // Hook 1: Cargar datos del tercero específico
           useEffect(() => {
               if (!user || !terceroId) return;
-              setLoading(true);
+              setLoadingTercero(true);
               setError('');
               const docRef = doc(db, 'users', user.uid, 'terceros', terceroId);
               const unsubscribe = onSnapshot(docRef, (docSnap) => {
@@ -2088,16 +2096,74 @@ const TerceroModal = ({ tercero, onClose }) => {
                       setError(`No se encontró el tercero con ID: ${terceroId}`);
                       setTerceroData(null);
                   }
-                  setLoading(false);
+                  setLoadingTercero(false);
               }, (err) => {
                   console.error("Error al leer datos del tercero:", err);
                   setError('Error al cargar la información del cliente.');
-                  setLoading(false);
+                  setLoadingTercero(false);
               });
               return () => unsubscribe();
           }, [user, terceroId]);
 
-          // Por ahora, solo muestra info básica y un mensaje
+          // Hook 2: Cargar movimientos (facturas y pagos) del tercero
+          useEffect(() => {
+              if (!user || !terceroId) return;
+              setLoadingMov(true);
+
+              // Consulta para Facturas
+              const qFacturas = query(
+                  collection(db, 'users', user.uid, 'facturasVenta'),
+                  where("terceroId", "==", terceroId),
+                  orderBy("fechaEmision", "asc")
+              );
+              // Consulta para Pagos
+              const qPagos = query(
+                  collection(db, 'users', user.uid, 'pagosRecibidos'),
+                  where("terceroId", "==", terceroId),
+                  orderBy("fechaPago", "asc")
+              );
+
+              // Escuchamos cambios en ambas colecciones
+              const unsubFacturas = onSnapshot(qFacturas, (facturasSnap) => {
+                  const facturas = facturasSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'factura', fecha: d.data().fechaEmision }));
+                  
+                  const unsubPagos = onSnapshot(qPagos, (pagosSnap) => {
+                      const pagos = pagosSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'pago', fecha: d.data().fechaPago }));
+                      
+                      // Combinamos, ordenamos por fecha y calculamos saldo
+                      const movsCombinados = [...facturas, ...pagos].sort((a, b) => a.fecha.toMillis() - b.fecha.toMillis());
+                      
+                      let saldoAcumulado = 0;
+                      const movsConSaldo = movsCombinados.map(mov => {
+                          if (mov.tipoMovimiento === 'factura') {
+                              saldoAcumulado += mov.montoTotal;
+                          } else if (mov.tipoMovimiento === 'pago') {
+                              saldoAcumulado -= mov.montoPagado;
+                          }
+                          return { ...mov, saldoAcumulado };
+                      });
+
+                      setMovimientos(movsConSaldo);
+                      setLoadingMov(false);
+                  }, (err) => {
+                      console.error("Error al leer pagos:", err);
+                      setError('Error al cargar los pagos.');
+                      setLoadingMov(false);
+                  });
+                  
+                  return () => unsubPagos(); // Limpiamos el listener de pagos
+              }, (err) => {
+                  console.error("Error al leer facturas:", err);
+                  setError('Error al cargar las facturas.');
+                  setLoadingMov(false);
+              });
+
+              return () => unsubFacturas(); // Limpiamos el listener de facturas
+          }, [user, terceroId]);
+
+          const saldoFinal = movimientos.length > 0 ? movimientos[movimientos.length - 1].saldoAcumulado : 0;
+          const loading = loadingTercero || loadingMov;
+
           return (
               <div>
                   <button onClick={() => navigate('/gestion/deudores')} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
@@ -2109,20 +2175,75 @@ const TerceroModal = ({ tercero, onClose }) => {
 
                   {terceroData && (
                       <div className="bg-white p-8 rounded-lg shadow-md">
-                          <h2 className="text-3xl font-bold mb-4">Cuenta Corriente de: {terceroData.nombre}</h2>
-                          <p className="text-gray-600 mb-2">CUIT: {terceroData.cuit || 'N/A'}</p>
-                          <p className="text-gray-600 mb-6">ID Interno: {terceroData.id}</p>
+                          {/* Info Cliente y Saldo */}
+                          <div className="flex justify-between items-start mb-6">
+                              <div>
+                                  <h2 className="text-3xl font-bold mb-2">Cuenta Corriente de: {terceroData.nombre}</h2>
+                                  <p className="text-gray-600">CUIT: {terceroData.cuit || 'N/A'}</p>
+                              </div>
+                              <div className="text-right">
+                                  <h3 className="text-lg font-semibold text-gray-600">Saldo Actual</h3>
+                                  <p className={`text-3xl font-bold ${saldoFinal > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                      {formatCurrency(saldoFinal)}
+                                  </p>
+                              </div>
+                          </div>
 
                           <hr className="my-6"/>
 
+                          {/* Botones de acción (ahora habilitados) */}
+                          <div className="mb-6 flex gap-4">
+                              <button className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center"><Icon name="DollarSign" className="w-5 h-5 mr-2"/>Registrar Pago</button>
+                              <button className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"><Icon name="FilePlus" className="w-5 h-5 mr-2"/>Cargar Factura</button>
+                          </div>
+                          
+                          {/* Tabla de Movimientos */}
                           <h3 className="text-xl font-bold mb-4">Movimientos</h3>
-                          <p className="text-gray-500 text-center py-6">(Aquí irán las facturas y pagos - Próximamente)</p>
-
-                           {/* Botones de acción futuros */}
-                           <div className="mt-6 flex gap-4">
-                               <button className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:bg-gray-400" disabled>+ Registrar Pago</button>
-                               <button className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400" disabled>+ Cargar Factura</button>
-                           </div>
+                          <div className="overflow-x-auto">
+                              <table className="min-w-full divide-y divide-gray-200">
+                                  <thead className="bg-gray-50">
+                                      <tr>
+                                          <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha</th>
+                                          <th className="px-6 py-3 text-left text-xs font-medium uppercase">Concepto</th>
+                                          <th className="px-6 py-3 text-right text-xs font-medium uppercase">Debe</th>
+                                          <th className="px-6 py-3 text-right text-xs font-medium uppercase">Haber</th>
+                                          <th className="px-6 py-3 text-right text-xs font-medium uppercase">Saldo</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-gray-200">
+                                      {loadingMov ? (
+                                          <tr><td colSpan="5" className="text-center py-10 text-gray-500">Cargando movimientos...</td></tr>
+                                      ) : movimientos.length > 0 ? (
+                                          movimientos.map(mov => (
+                                              <tr key={mov.id}>
+                                                  <td className="px-6 py-4 whitespace-nowrap">{formatDate(mov.fecha)}</td>
+                                                  <td className="px-6 py-4 whitespace-nowrap">
+                                                      {mov.tipoMovimiento === 'factura' ? `Factura N° ${mov.numeroComprobante || ''}` : `Pago (${mov.medioDePago || ''})`}
+                                                  </td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-right text-red-600">
+                                                      {mov.tipoMovimiento === 'factura' ? formatCurrency(mov.montoTotal) : ''}
+                                                  </td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-right text-green-600">
+                                                      {mov.tipoMovimiento === 'pago' ? formatCurrency(mov.montoPagado) : ''}
+                                                  </td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-right font-semibold">{formatCurrency(mov.saldoAcumulado)}</td>
+                                              </tr>
+                                          ))
+                                      ) : (
+                                          <tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay movimientos para este cliente.</td></tr>
+                                      )}
+                                  </tbody>
+                                  {/* Pie de tabla con saldo final */}
+                                  {movimientos.length > 0 && (
+                                      <tfoot className="bg-gray-50">
+                                          <tr>
+                                              <td colSpan="4" className="px-6 py-4 text-right font-bold uppercase">Saldo Final</td>
+                                              <td className="px-6 py-4 text-right font-bold text-lg">{formatCurrency(saldoFinal)}</td>
+                                          </tr>
+                                      </tfoot>
+                                  )}
+                              </table>
+                          </div>
                       </div>
                   )}
               </div>
