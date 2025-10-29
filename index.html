@@ -2076,6 +2076,9 @@ const TerceroModal = ({ tercero, onClose }) => {
           const [loadingTercero, setLoadingTercero] = useState(true);
           const [loadingMov, setLoadingMov] = useState(true);
           const [error, setError] = useState('');
+          
+          // --- NUEVO ESTADO PARA EL MODAL ---
+          const [showFacturaModal, setShowFacturaModal] = useState(false);
 
           const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
           const formatDate = (timestamp) => {
@@ -2194,11 +2197,16 @@ const TerceroModal = ({ tercero, onClose }) => {
                           {/* Botones de acción (ahora habilitados) */}
                           <div className="mb-6 flex gap-4">
                               <button className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center"><Icon name="DollarSign" className="w-5 h-5 mr-2"/>Registrar Pago</button>
-                              <button className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"><Icon name="FilePlus" className="w-5 h-5 mr-2"/>Cargar Factura</button>
+                              
+                              {/* --- BOTÓN MODIFICADO --- */}
+                              <button 
+                                  onClick={() => setShowFacturaModal(true)}
+                                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center">
+                                  <Icon name="FilePlus" className="w-5 h-5 mr-2"/>Cargar Factura
+                              </button>
                           </div>
                           
                           {/* Tabla de Movimientos */}
-                          <h3 className="text-xl font-bold mb-4">Movimientos</h3>
                           <div className="overflow-x-auto">
                               <table className="min-w-full divide-y divide-gray-200">
                                   <thead className="bg-gray-50">
@@ -2246,6 +2254,132 @@ const TerceroModal = ({ tercero, onClose }) => {
                           </div>
                       </div>
                   )}
+                  
+                  {/* --- MODAL AÑADIDO AQUÍ --- */}
+                  <FacturaVentaModal
+                      isOpen={showFacturaModal}
+                      onClose={() => setShowFacturaModal(false)}
+                      clienteId={terceroId}
+                      clienteNombre={terceroData ? terceroData.nombre : 'Cargando...'}
+                  />
+              </div>
+          );
+      };
+        // --- MODAL PARA CARGAR NUEVA FACTURA DE VENTA ---
+      const FacturaVentaModal = ({ isOpen, onClose, clienteId, clienteNombre }) => {
+          const { user } = useAuth();
+          const [formData, setFormData] = useState({
+              numeroComprobante: '',
+              fechaEmision: new Date().toISOString().split('T')[0], // Hoy por defecto
+              fechaVencimiento: '',
+              montoTotal: 0,
+          });
+          const [isSubmitting, setIsSubmitting] = useState(false);
+          const [message, setMessage] = useState('');
+
+          // Resetea el formulario cuando se abre para un nuevo cliente
+          useEffect(() => {
+              if (isOpen) {
+                  setFormData({
+                      numeroComprobante: '',
+                      fechaEmision: new Date().toISOString().split('T')[0],
+                      fechaVencimiento: '',
+                      montoTotal: 0,
+                  });
+                  setIsSubmitting(false);
+                  setMessage('');
+              }
+          }, [isOpen, clienteId]);
+
+          const handleChange = (e) => {
+              const { name, value, type } = e.target;
+              setFormData(prev => ({
+                  ...prev,
+                  [name]: type === 'number' ? parseFloat(value) || 0 : value
+              }));
+          };
+
+          const handleSubmit = async (e) => {
+              e.preventDefault();
+              if (formData.montoTotal <= 0) {
+                  setMessage('Error: El monto total debe ser mayor a cero.');
+                  return;
+              }
+              if (!formData.fechaVencimiento) {
+                  setMessage('Error: Por favor, ingrese una fecha de vencimiento.');
+                  return;
+              }
+              
+              setIsSubmitting(true);
+              setMessage('');
+
+              try {
+                  const facturasCollectionRef = collection(db, 'users', user.uid, 'facturasVenta');
+                  
+                  await addDoc(facturasCollectionRef, {
+                      terceroId: clienteId,
+                      numeroComprobante: formData.numeroComprobante,
+                      fechaEmision: Timestamp.fromDate(new Date(formData.fechaEmision + 'T00:00:00-03:00')), // Ajustar a zona horaria local
+                      fechaVencimiento: Timestamp.fromDate(new Date(formData.fechaVencimiento + 'T00:00:00-03:00')),
+                      montoTotal: formData.montoTotal,
+                      saldoPendiente: formData.montoTotal, // Saldo inicial es el total
+                      estado: 'Pendiente'
+                  });
+
+                  // ¡Éxito!
+                  setIsSubmitting(false);
+                  onClose(); // Cierra el modal
+
+              } catch (err) {
+                  console.error("Error al guardar la factura:", err);
+                  setMessage('Error al guardar la factura. Inténtelo de nuevo.');
+                  setIsSubmitting(false);
+              }
+          };
+
+          if (!isOpen) return null;
+
+          return (
+              <div className="modal-overlay fade-in">
+                  <div className="modal-content slide-in-bottom sm:max-w-lg">
+                      <h2 className="text-2xl font-bold mb-4">Cargar Factura de Venta</h2>
+                      <p className="mb-6 text-gray-600">Cliente: <span className="font-semibold">{clienteNombre}</span></p>
+                      
+                      <form onSubmit={handleSubmit} className="space-y-4">
+                          <div>
+                              <label className="label">N° Comprobante</label>
+                              <input type="text" name="numeroComprobante" value={formData.numeroComprobante} onChange={handleChange} className="input" placeholder="Ej: 0001-00001234"/>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                  <label className="label">Fecha Emisión</label>
+                                  <input type="date" name="fechaEmision" value={formData.fechaEmision} onChange={handleChange} required className="input"/>
+                              </div>
+                              <div>
+                                  <label className="label">Fecha Vencimiento</label>
+                                  <input type="date" name="fechaVencimiento" value={formData.fechaVencimiento} onChange={handleChange} required className="input"/>
+                              </div>
+                          </div>
+                          
+                          <div>
+                              <label className="label">Monto Total</label>
+                              <div className="relative">
+                                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
+                                  <input type="number" name="montoTotal" value={formData.montoTotal} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                              </div>
+                          </div>
+
+                          {message && <p className={`text-center ${message.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>}
+                          
+                          <div className="flex justify-end gap-4 pt-4">
+                              <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
+                              <button type="submit" disabled={isSubmitting} className="btn-primary">
+                                  {isSubmitting ? 'Guardando...' : 'Guardar Factura'}
+                              </button>
+                          </div>
+                      </form>
+                  </div>
               </div>
           );
       };
