@@ -70,6 +70,45 @@
             -ms-overflow-style: none;  /* IE and Edge */
             scrollbar-width: none;  /* Firefox */
         }
+        /* --- ESTILOS DE BOTONES PARA MODALES --- */
+        .btn-primary {
+            background-color: #3b82f6; /* bg-blue-500 */
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem; /* rounded-md */
+            font-weight: 600;
+        }
+        .btn-primary:hover {
+            background-color: #2563eb; /* bg-blue-600 */
+        }
+        .btn-primary:disabled {
+            background-color: #9ca3af; /* bg-gray-400 */
+        }
+
+        .btn-primary-green {
+            background-color: #16a34a; /* bg-green-600 */
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem; /* rounded-md */
+            font-weight: 600;
+        }
+        .btn-primary-green:hover {
+            background-color: #15803d; /* bg-green-700 */
+        }
+        .btn-primary-green:disabled {
+            background-color: #9ca3af; /* bg-gray-400 */
+        }
+
+        .btn-secondary {
+            background-color: #e5e7eb; /* bg-gray-200 */
+            color: #1f2937; /* text-gray-800 */
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem; /* rounded-md */
+            font-weight: 600;
+        }
+        .btn-secondary:hover {
+            background-color: #d1d5db; /* bg-gray-300 */
+        }
         @media print {
             body {
                 background-color: white;
@@ -2077,8 +2116,9 @@ const TerceroModal = ({ tercero, onClose }) => {
           const [loadingMov, setLoadingMov] = useState(true);
           const [error, setError] = useState('');
           
-          // --- NUEVO ESTADO PARA EL MODAL ---
+          // --- ESTADOS PARA AMBOS MODALES ---
           const [showFacturaModal, setShowFacturaModal] = useState(false);
+          const [showPagoModal, setShowPagoModal] = useState(false); // <-- NUEVO
 
           const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
           const formatDate = (timestamp) => {
@@ -2157,7 +2197,7 @@ const TerceroModal = ({ tercero, onClose }) => {
                   return () => unsubPagos(); // Limpiamos el listener de pagos
               }, (err) => {
                   console.error("Error al leer facturas:", err);
-                  setError('Error al cargar las facturas.');
+                    setError('Error al cargar las facturas.');
                   setLoadingMov(false);
               });
 
@@ -2196,9 +2236,13 @@ const TerceroModal = ({ tercero, onClose }) => {
 
                           {/* Botones de acción (ahora habilitados) */}
                           <div className="mb-6 flex gap-4">
-                              <button className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center"><Icon name="DollarSign" className="w-5 h-5 mr-2"/>Registrar Pago</button>
+                              {/* --- BOTÓN PAGO MODIFICADO --- */}
+                              <button
+                                  onClick={() => setShowPagoModal(true)}
+                                  className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center">
+                                  <Icon name="DollarSign" className="w-5 h-5 mr-2"/>Registrar Pago
+                              </button>
                               
-                              {/* --- BOTÓN MODIFICADO --- */}
                               <button 
                                   onClick={() => setShowFacturaModal(true)}
                                   className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center">
@@ -2255,10 +2299,17 @@ const TerceroModal = ({ tercero, onClose }) => {
                       </div>
                   )}
                   
-                  {/* --- MODAL AÑADIDO AQUÍ --- */}
+                  {/* --- AMBOS MODALES RENDERIZADOS AQUÍ --- */}
                   <FacturaVentaModal
                       isOpen={showFacturaModal}
                       onClose={() => setShowFacturaModal(false)}
+                      clienteId={terceroId}
+                      clienteNombre={terceroData ? terceroData.nombre : 'Cargando...'}
+                  />
+
+                  <PagoRecibidoModal
+                      isOpen={showPagoModal}
+                      onClose={() => setShowPagoModal(false)}
                       clienteId={terceroId}
                       clienteNombre={terceroData ? terceroData.nombre : 'Cargando...'}
                   />
@@ -2376,6 +2427,124 @@ const TerceroModal = ({ tercero, onClose }) => {
                               <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
                               <button type="submit" disabled={isSubmitting} className="btn-primary">
                                   {isSubmitting ? 'Guardando...' : 'Guardar Factura'}
+                              </button>
+                          </div>
+                      </form>
+                  </div>
+              </div>
+          );
+      };
+        // --- MODAL PARA REGISTRAR NUEVO PAGO RECIBIDO ---
+      const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre }) => {
+          const { user } = useAuth();
+          const [formData, setFormData] = useState({
+              fechaPago: new Date().toISOString().split('T')[0], // Hoy por defecto
+              montoPagado: 0,
+              medioDePago: 'Transferencia',
+              referencia: '',
+          });
+          const [isSubmitting, setIsSubmitting] = useState(false);
+          const [message, setMessage] = useState('');
+
+          // Resetea el formulario cuando se abre
+          useEffect(() => {
+              if (isOpen) {
+                  setFormData({
+                      fechaPago: new Date().toISOString().split('T')[0],
+                      montoPagado: 0,
+                      medioDePago: 'Transferencia',
+                      referencia: '',
+                  });
+                  setIsSubmitting(false);
+                  setMessage('');
+              }
+          }, [isOpen]);
+
+          const handleChange = (e) => {
+              const { name, value, type } = e.target;
+              setFormData(prev => ({
+                  ...prev,
+                  [name]: type === 'number' ? parseFloat(value) || 0 : value
+              }));
+          };
+
+          const handleSubmit = async (e) => {
+              e.preventDefault();
+              if (formData.montoPagado <= 0) {
+                  setMessage('Error: El monto pagado debe ser mayor a cero.');
+                  return;
+              }
+              
+              setIsSubmitting(true);
+              setMessage('');
+
+              try {
+                  const pagosCollectionRef = collection(db, 'users', user.uid, 'pagosRecibidos');
+                  
+                  await addDoc(pagosCollectionRef, {
+                      terceroId: clienteId,
+                      fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')), // Ajustar a zona horaria local
+                      montoPagado: formData.montoPagado,
+                      medioDePago: formData.medioDePago,
+                      referencia: formData.referencia || '',
+                      // En el futuro, podríamos agregar un campo 'facturasAplicadas'
+                  });
+
+                  // ¡Éxito!
+                  setIsSubmitting(false);
+                  onClose(); // Cierra el modal
+
+              } catch (err) {
+                  console.error("Error al guardar el pago:", err);
+                  setMessage('Error al guardar el pago. Inténtelo de nuevo.');
+                  setIsSubmitting(false);
+              }
+          };
+
+          if (!isOpen) return null;
+
+          return (
+              <div className="modal-overlay fade-in">
+                  <div className="modal-content slide-in-bottom sm:max-w-lg">
+                      <h2 className="text-2xl font-bold mb-4">Registrar Pago Recibido</h2>
+                      <p className="mb-6 text-gray-600">Cliente: <span className="font-semibold">{clienteNombre}</span></p>
+                      
+                      <form onSubmit={handleSubmit} className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                  <label className="label">Fecha de Pago</label>
+                                  <input type="date" name="fechaPago" value={formData.fechaPago} onChange={handleChange} required className="input"/>
+                              </div>
+                              <div>
+                                  <label className="label">Monto Pagado</label>
+                                  <div className="relative">
+                                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
+                                      <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                                  </div>
+                              </div>
+                          </div>
+                          
+                          <div>
+                              <label className="label">Medio de Pago</label>
+                              <select name="medioDePago" value={formData.medioDePago} onChange={handleChange} className="input">
+                                  <option>Transferencia</option>
+                                  <option>Efectivo</option>
+                                  <option>Cheque</option>
+                                  <option>Otro</option>
+                              </select>
+                          </div>
+
+                          <div>
+                              <label className="label">Referencia (Opcional)</label>
+                              <input type="text" name="referencia" value={formData.referencia} onChange={handleChange} className="input" placeholder="N° de cheque, ID de transferencia, etc."/>
+                          </div>
+
+                          {message && <p className={`text-center ${message.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>}
+                          
+                          <div className="flex justify-end gap-4 pt-4">
+                              <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
+                              <button type="submit" disabled={isSubmitting} className="btn-primary-green">
+                                  {isSubmitting ? 'Guardando...' : 'Guardar Pago'}
                               </button>
                           </div>
                       </form>
