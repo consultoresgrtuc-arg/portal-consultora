@@ -2107,285 +2107,308 @@ const TerceroModal = ({ tercero, onClose }) => {
     );
 };
       // --- PÁGINA DE DETALLE: CUENTA CORRIENTE CLIENTE ---
-      const CuentaCorrienteClientePage = ({ terceroId }) => {
-          const { user } = useAuth();
-          const { navigate } = useContext(AppContext);
-          const [terceroData, setTerceroData] = useState(null);
-          const [movimientos, setMovimientos] = useState([]);
-          const [loadingTercero, setLoadingTercero] = useState(true);
-          const [loadingMov, setLoadingMov] = useState(true);
-          const [error, setError] = useState('');
-          const [isDeleting, setIsDeleting] = useState(false); // Para evitar doble click
-          
-          const [showFacturaModal, setShowFacturaModal] = useState(false);
-          const [showPagoModal, setShowPagoModal] = useState(false); 
+    const CuentaCorrienteClientePage = ({ terceroId }) => {
+        const { user } = useAuth();
+        const { navigate } = useContext(AppContext);
+        const [terceroData, setTerceroData] = useState(null);
+        const [movimientos, setMovimientos] = useState([]);
+        const [loadingTercero, setLoadingTercero] = useState(true);
+        const [loadingMov, setLoadingMov] = useState(true);
+        const [error, setError] = useState('');
+        const [isDeleting, setIsDeleting] = useState(false); // Para evitar doble click
+        
+        // --- CAMBIO: Un solo estado para manejar todos los modales ---
+        const [movimientoAEditar, setMovimientoAEditar] = useState(null); 
 
-          const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
-          const formatDate = (timestamp) => {
-              if (!timestamp || !timestamp.toDate) return 'Fecha inválida';
-              return timestamp.toDate().toLocaleDateString('es-AR');
-          };
+        const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+        const formatDate = (timestamp) => {
+            if (!timestamp || !timestamp.toDate) return 'Fecha inválida';
+            return timestamp.toDate().toLocaleDateString('es-AR');
+        };
 
-          // Hook 1: Cargar datos del tercero específico
-          useEffect(() => { /* ... (Este hook no cambia) ... */
-              if (!user || !terceroId) return;
-              setLoadingTercero(true);
-              setError('');
-              const docRef = doc(db, 'users', user.uid, 'terceros', terceroId);
-              const unsubscribe = onSnapshot(docRef, (docSnap) => {
-                  if (docSnap.exists()) {
-                      setTerceroData({ id: docSnap.id, ...docSnap.data() });
-                  } else {
-                      setError(`No se encontró el tercero con ID: ${terceroId}`);
-                      setTerceroData(null);
-                  }
-                  setLoadingTercero(false);
-              }, (err) => {
-                  console.error("Error al leer datos del tercero:", err);
-                  setError('Error al cargar la información del cliente.');
-                  setLoadingTercero(false);
-              });
-              return () => unsubscribe();
-          }, [user, terceroId]);
+        // Hook 1: Cargar datos del tercero específico (Sin cambios)
+        useEffect(() => {
+            if (!user || !terceroId) return;
+            setLoadingTercero(true);
+            setError('');
+            const docRef = doc(db, 'users', user.uid, 'terceros', terceroId);
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    setTerceroData({ id: docSnap.id, ...docSnap.data() });
+                } else {
+                    setError(`No se encontró el tercero con ID: ${terceroId}`);
+                    setTerceroData(null);
+                }
+                setLoadingTercero(false);
+            }, (err) => {
+                console.error("Error al leer datos del tercero:", err);
+                setError('Error al cargar la información del cliente.');
+                setLoadingTercero(false);
+            });
+            return () => unsubscribe();
+        }, [user, terceroId]);
 
-          // Hook 2: Cargar movimientos (facturas y pagos) del tercero
-          useEffect(() => { /* ... (Este hook no cambia) ... */
-              if (!user || !terceroId) return;
-              setLoadingMov(true);
+        // Hook 2: Cargar movimientos (facturas y pagos) del tercero (Sin cambios)
+        useEffect(() => {
+            if (!user || !terceroId) return;
+            setLoadingMov(true);
 
-              // Consulta para Facturas
-              const qFacturas = query(
-                  collection(db, 'users', user.uid, 'facturasVenta'),
-                  where("terceroId", "==", terceroId),
-                  orderBy("fechaEmision", "asc")
-              );
-              // Consulta para Pagos
-              const qPagos = query(
-                  collection(db, 'users', user.uid, 'pagosRecibidos'),
-                  where("terceroId", "==", terceroId),
-                  orderBy("fechaPago", "asc")
-              );
+            const qFacturas = query(
+                collection(db, 'users', user.uid, 'facturasVenta'),
+                where("terceroId", "==", terceroId),
+                orderBy("fechaEmision", "asc")
+            );
+            const qPagos = query(
+                collection(db, 'users', user.uid, 'pagosRecibidos'),
+                where("terceroId", "==", terceroId),
+                orderBy("fechaPago", "asc")
+            );
 
-              // Escuchamos cambios en ambas colecciones
-              const unsubFacturas = onSnapshot(qFacturas, (facturasSnap) => {
-                  const facturas = facturasSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'factura', fecha: d.data().fechaEmision }));
-                  
-                  const unsubPagos = onSnapshot(qPagos, (pagosSnap) => {
-                      const pagos = pagosSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'pago', fecha: d.data().fechaPago }));
-                      
-                      // Combinamos, ordenamos por fecha y calculamos saldo
-                      const movsCombinados = [...facturas, ...pagos].sort((a, b) => a.fecha.toMillis() - b.fecha.toMillis());
-                      
-                      let saldoAcumulado = 0;
-                      const movsConSaldo = movsCombinados.map(mov => {
-                          if (mov.tipoMovimiento === 'factura') {
-                              saldoAcumulado += mov.montoTotal;
-                          } else if (mov.tipoMovimiento === 'pago') {
-                              saldoAcumulado -= mov.montoPagado;
-                          }
-                          return { ...mov, saldoAcumulado };
-                      });
+            const unsubFacturas = onSnapshot(qFacturas, (facturasSnap) => {
+                const facturas = facturasSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'factura', fecha: d.data().fechaEmision }));
+                
+                const unsubPagos = onSnapshot(qPagos, (pagosSnap) => {
+                    const pagos = pagosSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'pago', fecha: d.data().fechaPago }));
+                    
+                    const movsCombinados = [...facturas, ...pagos].sort((a, b) => a.fecha.toMillis() - b.fecha.toMillis());
+                    
+                    let saldoAcumulado = 0;
+                    const movsConSaldo = movsCombinados.map(mov => {
+                        if (mov.tipoMovimiento === 'factura') {
+                            saldoAcumulado += mov.montoTotal;
+                        } else if (mov.tipoMovimiento === 'pago') {
+                            saldoAcumulado -= mov.montoPagado;
+                        }
+                        return { ...mov, saldoAcumulado };
+                    });
 
-                      setMovimientos(movsConSaldo);
-                      setLoadingMov(false);
-                  }, (err) => {
-                      console.error("Error al leer pagos:", err);
-                      setError('Error al cargar los pagos.');
-                      setLoadingMov(false);
-                  });
-                  
-                  return () => unsubPagos(); // Limpiamos el listener de pagos
-              }, (err) => {
-                  console.error("Error al leer facturas:", err);
-                  setError('Error al cargar las facturas.');
-                  setLoadingMov(false);
-              });
+                    setMovimientos(movsConSaldo);
+                    setLoadingMov(false);
+                }, (err) => {
+                    console.error("Error al leer pagos:", err);
+                    setError('Error al cargar los pagos.');
+                    setLoadingMov(false);
+                });
+                
+                return () => unsubPagos();
+            }, (err) => {
+                console.error("Error al leer facturas:", err);
+                setError('Error al cargar las facturas.');
+                setLoadingMov(false);
+            });
 
-              return () => unsubFacturas(); // Limpiamos el listener de facturas
-          }, [user, terceroId]);
+            return () => unsubFacturas();
+        }, [user, terceroId]);
 
-          // --- NUEVA FUNCIÓN PARA ELIMINAR ---
-          const handleDeleteMovimiento = async (mov) => {
-              if (isDeleting) return; // Evitar doble click
-              
-              const tipoStr = mov.tipoMovimiento === 'factura' ? 'la factura' : 'el pago';
-              if (!window.confirm(`¿Estás seguro de que deseas eliminar ${tipoStr}? Esta acción no se puede deshacer.`)) {
-                  return;
-              }
+        // Función de eliminar (Sin cambios)
+        const handleDeleteMovimiento = async (mov) => {
+            if (isDeleting) return;
+            
+            const tipoStr = mov.tipoMovimiento === 'factura' ? 'la factura' : 'el pago';
+            if (!window.confirm(`¿Estás seguro de que deseas eliminar ${tipoStr}? Esta acción no se puede deshacer.`)) {
+                return;
+            }
 
-              setIsDeleting(true);
-              try {
-                  // Determinar de qué colección borrar
-                  const collectionName = mov.tipoMovimiento === 'factura' ? 'facturasVenta' : 'pagosRecibidos';
-                  // Crear la referencia al documento
-                  const docRef = doc(db, 'users', user.uid, collectionName, mov.id);
-                  // Borrar el documento
-                  await deleteDoc(docRef);
-                  // Nota: No necesitamos hacer nada más. El 'onSnapshot' del Hook 2
-                  // detectará el cambio y actualizará la tabla y el saldo automáticamente.
-              } catch (err) {
-                  console.error("Error al eliminar el documento:", err);
-                  setError("Error al eliminar el movimiento. Inténtalo de nuevo.");
-              } finally {
-                  setIsDeleting(false);
-              }
-          };
+            setIsDeleting(true);
+            try {
+                const collectionName = mov.tipoMovimiento === 'factura' ? 'facturasVenta' : 'pagosRecibidos';
+                const docRef = doc(db, 'users', user.uid, collectionName, mov.id);
+                await deleteDoc(docRef);
+            } catch (err) {
+                console.error("Error al eliminar el documento:", err);
+                setError("Error al eliminar el movimiento. Inténtalo de nuevo.");
+            } finally {
+                setIsDeleting(false);
+            }
+        };
 
-          const saldoFinal = movimientos.length > 0 ? movimientos[movimientos.length - 1].saldoAcumulado : 0;
-          const loading = loadingTercero || loadingMov;
+        // --- CAMBIO: Nuevas funciones para abrir los modales ---
+        const handleEditMovimiento = (mov) => {
+            setMovimientoAEditar(mov);
+        };
 
-          return (
-              <div>
-                  <button onClick={() => navigate('/gestion/deudores')} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
-                      <Icon name="ArrowLeft" className="w-5 h-5 mr-2"/> Volver a Deudores
-                  </button>
+        const handleShowNuevoMovimiento = (tipo) => {
+            if (tipo === 'factura') {
+                setMovimientoAEditar({
+                    tipoMovimiento: 'factura',
+                    numeroComprobante: '',
+                    fechaEmision: new Date().toISOString().split('T')[0],
+                    fechaVencimiento: '',
+                    montoTotal: 0,
+                });
+            } else if (tipo === 'pago') {
+                setMovimientoAEditar({
+                    tipoMovimiento: 'pago',
+                    fechaPago: new Date().toISOString().split('T')[0],
+                    montoPagado: 0,
+                    medioDePago: 'Transferencia',
+                    referencia: '',
+                });
+            }
+        };
 
-                  {loading && <p className="text-center">Cargando datos del cliente...</p>}
-                  {error && <p className="text-red-600 bg-red-100 p-3 rounded mb-4">{error}</p>}
+        const handleCloseModals = () => {
+            setMovimientoAEditar(null);
+        };
 
-                  {terceroData && (
-                      <div className="bg-white p-8 rounded-lg shadow-md">
-                          {/* ... (Info Cliente y Saldo - sin cambios) ... */}
-                          <div className="flex justify-between items-start mb-6">
-                              <div>
-                                  <h2 className="text-3xl font-bold mb-2">Cuenta Corriente de: {terceroData.nombre}</h2>
-                                  <p className="text-gray-600">CUIT: {terceroData.cuit || 'N/A'}</p>
-                              </div>
-                              <div className="text-right">
-                                  <h3 className="text-lg font-semibold text-gray-600">Saldo Actual</h3>
-                                  <p className={`text-3xl font-bold ${saldoFinal > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                      {formatCurrency(saldoFinal)}
-                                  </p>
-                              </div>
-                          </div>
+        const saldoFinal = movimientos.length > 0 ? movimientos[movimientos.length - 1].saldoAcumulado : 0;
+        const loading = loadingTercero || loadingMov;
 
-                          <hr className="my-6"/>
+        return (
+            <div>
+                <button onClick={() => navigate('/gestion/deudores')} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
+                    <Icon name="ArrowLeft" className="w-5 h-5 mr-2"/> Volver a Deudores
+                </button>
 
-                          {/* ... (Botones de acción - sin cambios) ... */}
-                          <div className="mb-6 flex gap-4">
-                              <button
-                                  onClick={() => setShowPagoModal(true)}
-                                  className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center">
-                                  <Icon name="DollarSign" className="w-5 h-5 mr-2"/>Registrar Pago
-                              </button>
-                              
-                              <button 
-                                  onClick={() => setShowFacturaModal(true)}
-                                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center">
-                                  <Icon name="FilePlus" className="w-5 h-5 mr-2"/>Cargar Factura
-                              </button>
-                          </div>
-                          
-                          {/* --- TABLA DE MOVIMIENTOS MODIFICADA --- */}
-                          <h3 className="text-xl font-bold mb-4">Movimientos</h3>
-                          <div className="overflow-x-auto">
-                              <table className="min-w-full divide-y divide-gray-200">
-                                  <thead className="bg-gray-50">
-                                      <tr>
-                                          <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha</th>
-                                          <th className="px-6 py-3 text-left text-xs font-medium uppercase">Concepto</th>
-                                          <th className="px-6 py-3 text-right text-xs font-medium uppercase">Debe</th>
-                                          <th className="px-6 py-3 text-right text-xs font-medium uppercase">Haber</th>
-                                          <th className="px-6 py-3 text-right text-xs font-medium uppercase">Saldo</th>
-                                          <th className="px-6 py-3 text-center text-xs font-medium uppercase">Acciones</th> {/* <-- NUEVA COLUMNA */}
-                                      </tr>
-                                  </thead>
-                                  <tbody className="bg-white divide-y divide-gray-200">
-                                      {loadingMov ? (
-                                          <tr><td colSpan="6" className="text-center py-10 text-gray-500">Cargando movimientos...</td></tr>
-                                      ) : movimientos.length > 0 ? (
-                                          movimientos.map(mov => (
-                                              <tr key={mov.id}>
-                                                  <td className="px-6 py-4 whitespace-nowrap">{formatDate(mov.fecha)}</td>
-                                                  <td className="px-6 py-4 whitespace-nowrap">
-                                                      {mov.tipoMovimiento === 'factura' ? `Factura N° ${mov.numeroComprobante || ''}` : `Pago (${mov.medioDePago || ''})`}
-                                                  </td>
-                                                  <td className="px-6 py-4 whitespace-nowrap text-right text-red-600">
-                                                      {mov.tipoMovimiento === 'factura' ? formatCurrency(mov.montoTotal) : ''}
-                                                  </td>
-                                                  <td className="px-6 py-4 whitespace-nowrap text-right text-green-600">
-                                                      {mov.tipoMovimiento === 'pago' ? formatCurrency(mov.montoPagado) : ''}
-                                                  </td>
-                                                  <td className="px-6 py-4 whitespace-nowrap text-right font-semibold">{formatCurrency(mov.saldoAcumulado)}</td>
-                                                  
-                                                  {/* --- NUEVA CELDA DE ACCIONES --- */}
-                                                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                                                      <button 
-                                                          onClick={() => alert('Modificar - Próximamente')}
-                                                          className="text-blue-600 hover:text-blue-900 mr-3"
-                                                          title="Modificar">
-                                                          <Icon name="Edit" className="w-5 h-5"/>
-                                                      </button>
-                                                      <button 
-                                                          onClick={() => handleDeleteMovimiento(mov)} 
-                                                          disabled={isDeleting}
-                                                          className="text-red-600 hover:text-red-900 disabled:text-gray-400"
-                                                          title="Eliminar">
-                                                          <Icon name="Trash2" className="w-5 h-5"/>
-                                                      </button>
-                                                  </td>
-                                              </tr>
-                                          ))
-                                      ) : (
-                                          <tr><td colSpan="6" className="text-center py-10 text-gray-500">No hay movimientos para este cliente.</td></tr>
-                                      )}
-                                  </tbody>
-                                  {/* Pie de tabla con saldo final */}
-                                  {movimientos.length > 0 && (
-                                      <tfoot className="bg-gray-50">
-                                          <tr>
-                                              <td colSpan="5" className="px-6 py-4 text-right font-bold uppercase">Saldo Final</td>
-                                              <td className="px-6 py-4 text-right font-bold text-lg">{formatCurrency(saldoFinal)}</td>
-                                          </tr>
-                                      </tfoot>
-                                  )}
-                              </table>
-                          </div>
-                      </div>
-                  )}
-                  
-                  {/* ... (Ambos Modales - sin cambios) ... */}
-                  <FacturaVentaModal
-                      isOpen={showFacturaModal}
-                      onClose={() => setShowFacturaModal(false)}
-                      clienteId={terceroId}
-                      clienteNombre={terceroData ? terceroData.nombre : 'Cargando...'}
-                  />
+                {loading && <p className="text-center">Cargando datos del cliente...</p>}
+                {error && <p className="text-red-600 bg-red-100 p-3 rounded mb-4">{error}</p>}
 
-                  <PagoRecibidoModal
-                      isOpen={showPagoModal}
-                      onClose={() => setShowPagoModal(false)}
-                      clienteId={terceroId}
-                      clienteNombre={terceroData ? terceroData.nombre : 'Cargando...'}
-                  />
-              </div>
-          );
-      };
+                {terceroData && (
+                    <div className="bg-white p-8 rounded-lg shadow-md">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h2 className="text-3xl font-bold mb-2">Cuenta Corriente de: {terceroData.nombre}</h2>
+                                <p className="text-gray-600">CUIT: {terceroData.cuit || 'N/A'}</p>
+                            </div>
+                            <div className="text-right">
+                                <h3 className="text-lg font-semibold text-gray-600">Saldo Actual</h3>
+                                <p className={`text-3xl font-bold ${saldoFinal > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                    {formatCurrency(saldoFinal)}
+                                </p>
+                            </div>
+                        </div>
+
+                        <hr className="my-6"/>
+
+                        {/* --- CAMBIO: Botones de acción actualizados --- */}
+                        <div className="mb-6 flex gap-4">
+                            <button
+                                onClick={() => handleShowNuevoMovimiento('pago')}
+                                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center">
+                                <Icon name="DollarSign" className="w-5 h-5 mr-2"/>Registrar Pago
+                            </button>
+                            
+                            <button 
+                                onClick={() => handleShowNuevoMovimiento('factura')}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center">
+                                <Icon name="FilePlus" className="w-5 h-5 mr-2"/>Cargar Factura
+                            </button>
+                        </div>
+                        
+                        <h3 className="text-xl font-bold mb-4">Movimientos</h3>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium uppercase">Concepto</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium uppercase">Debe</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium uppercase">Haber</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium uppercase">Saldo</th>
+                                        <th className="px-6 py-3 text-center text-xs font-medium uppercase">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {loadingMov ? (
+                                        <tr><td colSpan="6" className="text-center py-10 text-gray-500">Cargando movimientos...</td></tr>
+                                    ) : movimientos.length > 0 ? (
+                                        movimientos.map(mov => (
+                                            <tr key={mov.id}>
+                                                <td className="px-6 py-4 whitespace-nowrap">{formatDate(mov.fecha)}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {mov.tipoMovimiento === 'factura' ? `Factura N° ${mov.numeroComprobante || ''}` : `Pago (${mov.medioDePago || ''})`}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-right text-red-600">
+                                                    {mov.tipoMovimiento === 'factura' ? formatCurrency(mov.montoTotal) : ''}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-right text-green-600">
+                                                    {mov.tipoMovimiento === 'pago' ? formatCurrency(mov.montoPagado) : ''}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-right font-semibold">{formatCurrency(mov.saldoAcumulado)}</td>
+                                                
+                                            {/* --- CAMBIO: Botón de Modificar activado --- */}
+                                                <td className="px-6 py-4 whitespace-nowrap text-center">
+                                                    <button 
+                                                        onClick={() => handleEditMovimiento(mov)}
+                                                        className="text-blue-600 hover:text-blue-900 mr-3"
+                                                        title="Modificar">
+                                                        <Icon name="Edit" className="w-5 h-5"/>
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDeleteMovimiento(mov)} 
+                                                        disabled={isDeleting}
+                                                        className="text-red-600 hover:text-red-900 disabled:text-gray-400"
+                                                        title="Eliminar">
+                                                        <Icon name="Trash2" className="w-5 h-5"/>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr><td colSpan="6" className="text-center py-10 text-gray-500">No hay movimientos para este cliente.</td></tr>
+                                    )}
+                                </tbody>
+                                {movimientos.length > 0 && (
+                                    <tfoot className="bg-gray-50">
+                                        <tr>
+                                            <td colSpan="5" className="px-6 py-4 text-right font-bold uppercase">Saldo Final</td>
+                                            <td className="px-6 py-4 text-right font-bold text-lg">{formatCurrency(saldoFinal)}</td>
+                                        </tr>
+                                    </tfoot>
+                                )}
+                            </table>
+                        </div>
+                    </div>
+                )}
+                
+                {/* --- CAMBIO: Lógica de renderizado de modales actualizada --- */}
+                <FacturaVentaModal
+                    isOpen={movimientoAEditar?.tipoMovimiento === 'factura'}
+                    onClose={handleCloseModals}
+                    clienteId={terceroId}
+                    clienteNombre={terceroData ? terceroData.nombre : 'Cargando...'}
+                    movimiento={movimientoAEditar} 
+                />
+
+                <PagoRecibidoModal
+                    isOpen={movimientoAEditar?.tipoMovimiento === 'pago'}
+                    onClose={handleCloseModals}
+                    clienteId={terceroId}
+                    clienteNombre={terceroData ? terceroData.nombre : 'Cargando...'}
+                    movimiento={movimientoAEditar}
+                />
+            </div>
+        );
+    };
         // --- MODAL PARA CARGAR NUEVA FACTURA DE VENTA ---
-      const FacturaVentaModal = ({ isOpen, onClose, clienteId, clienteNombre }) => {
+      const FacturaVentaModal = ({ isOpen, onClose, clienteId, clienteNombre, movimiento }) => {
           const { user } = useAuth();
+          const [isSubmitting, setIsSubmitting] = useState(false);
+          const [message, setMessage] = useState('');
+          // --- CAMBIO: isEditMode se calcula basado en el 'movimiento' recibido ---
+          const isEditMode = movimiento && movimiento.id;
+
           const [formData, setFormData] = useState({
               numeroComprobante: '',
-              fechaEmision: new Date().toISOString().split('T')[0], // Hoy por defecto
+              fechaEmision: new Date().toISOString().split('T')[0],
               fechaVencimiento: '',
               montoTotal: 0,
           });
-          const [isSubmitting, setIsSubmitting] = useState(false);
-          const [message, setMessage] = useState('');
 
-          // Resetea el formulario cuando se abre para un nuevo cliente
+          // --- CAMBIO: useEffect ahora rellena el formulario si estamos en modo edición ---
           useEffect(() => {
-              if (isOpen) {
+              if (isOpen && movimiento) {
                   setFormData({
-                      numeroComprobante: '',
-                      fechaEmision: new Date().toISOString().split('T')[0],
-                      fechaVencimiento: '',
-                      montoTotal: 0,
+                      numeroComprobante: movimiento.numeroComprobante || '',
+                      // Maneja Timestamps (modo edición) y Strings (modo nuevo)
+                      fechaEmision: movimiento.fechaEmision?.toDate ? movimiento.fechaEmision.toDate().toISOString().split('T')[0] : (movimiento.fechaEmision || new Date().toISOString().split('T')[0]),
+                      fechaVencimiento: movimiento.fechaVencimiento?.toDate ? movimiento.fechaVencimiento.toDate().toISOString().split('T')[0] : (movimiento.fechaVencimiento || ''),
+                      montoTotal: movimiento.montoTotal || 0,
                   });
                   setIsSubmitting(false);
                   setMessage('');
               }
-          }, [isOpen, clienteId]);
+          }, [isOpen, movimiento]);
 
           const handleChange = (e) => {
               const { name, value, type } = e.target;
@@ -2395,6 +2418,7 @@ const TerceroModal = ({ tercero, onClose }) => {
               }));
           };
 
+          // --- CAMBIO: handleSubmit ahora maneja lógica de Edición (updateDoc) y Creación (addDoc) ---
           const handleSubmit = async (e) => {
               e.preventDefault();
               if (formData.montoTotal <= 0) {
@@ -2409,20 +2433,27 @@ const TerceroModal = ({ tercero, onClose }) => {
               setIsSubmitting(true);
               setMessage('');
 
-              try {
-                  const facturasCollectionRef = collection(db, 'users', user.uid, 'facturasVenta');
-                  
-                  await addDoc(facturasCollectionRef, {
-                      terceroId: clienteId,
-                      numeroComprobante: formData.numeroComprobante,
-                      fechaEmision: Timestamp.fromDate(new Date(formData.fechaEmision + 'T00:00:00-03:00')), // Ajustar a zona horaria local
-                      fechaVencimiento: Timestamp.fromDate(new Date(formData.fechaVencimiento + 'T00:00:00-03:00')),
-                      montoTotal: formData.montoTotal,
-                      saldoPendiente: formData.montoTotal, // Saldo inicial es el total
-                      estado: 'Pendiente'
-                  });
+              const dataToSave = {
+                  terceroId: clienteId,
+                  numeroComprobante: formData.numeroComprobante,
+                  fechaEmision: Timestamp.fromDate(new Date(formData.fechaEmision + 'T00:00:00-03:00')),
+                  fechaVencimiento: Timestamp.fromDate(new Date(formData.fechaVencimiento + 'T00:00:00-03:00')),
+                  montoTotal: formData.montoTotal,
+                  saldoPendiente: formData.montoTotal, // Se actualiza/setea el saldo
+                  estado: 'Pendiente'
+              };
 
-                  // ¡Éxito!
+              try {
+                  if (isEditMode) {
+                      // Lógica de Edición
+                      const docRef = doc(db, 'users', user.uid, 'facturasVenta', movimiento.id);
+                      await updateDoc(docRef, dataToSave);
+                  } else {
+                      // Lógica de Creación (la que ya tenías)
+                      const facturasCollectionRef = collection(db, 'users', user.uid, 'facturasVenta');
+                      await addDoc(facturasCollectionRef, dataToSave);
+                  }
+
                   setIsSubmitting(false);
                   onClose(); // Cierra el modal
 
@@ -2438,7 +2469,8 @@ const TerceroModal = ({ tercero, onClose }) => {
           return (
               <div className="modal-overlay fade-in">
                   <div className="modal-content slide-in-bottom sm:max-w-lg">
-                      <h2 className="text-2xl font-bold mb-4">Cargar Factura de Venta</h2>
+                  {/* --- CAMBIO: Título dinámico --- */}
+                      <h2 className="text-2xl font-bold mb-4">{isEditMode ? 'Modificar' : 'Cargar'} Factura de Venta</h2>
                       <p className="mb-6 text-gray-600">Cliente: <span className="font-semibold">{clienteNombre}</span></p>
                       
                       <form onSubmit={handleSubmit} className="space-y-4">
@@ -2471,7 +2503,8 @@ const TerceroModal = ({ tercero, onClose }) => {
                           <div className="flex justify-end gap-4 pt-4">
                               <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
                               <button type="submit" disabled={isSubmitting} className="btn-primary">
-                                  {isSubmitting ? 'Guardando...' : 'Guardar Factura'}
+                                  {/* --- CAMBIO: Texto de botón dinámico --- */}
+                                  {isSubmitting ? 'Guardando...' : (isEditMode ? 'Guardar Cambios' : 'Guardar Factura')}
                               </button>
                           </div>
                       </form>
@@ -2479,31 +2512,35 @@ const TerceroModal = ({ tercero, onClose }) => {
               </div>
           );
       };
-        // --- MODAL PARA REGISTRAR NUEVO PAGO RECIBIDO ---
-      const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre }) => {
+
+      // --- MODAL PARA REGISTRAR NUEVO PAGO RECIBIDO ---
+      const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimiento }) => {
           const { user } = useAuth();
+          const [isSubmitting, setIsSubmitting] = useState(false);
+          const [message, setMessage] = useState('');
+          // --- CAMBIO: isEditMode se calcula basado en el 'movimiento' recibido ---
+          const isEditMode = movimiento && movimiento.id;
+
           const [formData, setFormData] = useState({
-              fechaPago: new Date().toISOString().split('T')[0], // Hoy por defecto
+              fechaPago: new Date().toISOString().split('T')[0],
               montoPagado: 0,
               medioDePago: 'Transferencia',
               referencia: '',
           });
-          const [isSubmitting, setIsSubmitting] = useState(false);
-          const [message, setMessage] = useState('');
 
-          // Resetea el formulario cuando se abre
+          // --- CAMBIO: useEffect ahora rellena el formulario si estamos en modo edición ---
           useEffect(() => {
-              if (isOpen) {
+              if (isOpen && movimiento) {
                   setFormData({
-                      fechaPago: new Date().toISOString().split('T')[0],
-                      montoPagado: 0,
-                      medioDePago: 'Transferencia',
-                      referencia: '',
+                      fechaPago: movimiento.fechaPago?.toDate ? movimiento.fechaPago.toDate().toISOString().split('T')[0] : (movimiento.fechaPago || new Date().toISOString().split('T')[0]),
+                      montoPagado: movimiento.montoPagado || 0,
+                      medioDePago: movimiento.medioDePago || 'Transferencia',
+                      referencia: movimiento.referencia || '',
                   });
                   setIsSubmitting(false);
                   setMessage('');
               }
-          }, [isOpen]);
+          }, [isOpen, movimiento]);
 
           const handleChange = (e) => {
               const { name, value, type } = e.target;
@@ -2513,6 +2550,7 @@ const TerceroModal = ({ tercero, onClose }) => {
               }));
           };
 
+          // --- CAMBIO: handleSubmit ahora maneja lógica de Edición (updateDoc) y Creación (addDoc) ---
           const handleSubmit = async (e) => {
               e.preventDefault();
               if (formData.montoPagado <= 0) {
@@ -2523,19 +2561,25 @@ const TerceroModal = ({ tercero, onClose }) => {
               setIsSubmitting(true);
               setMessage('');
 
-              try {
-                  const pagosCollectionRef = collection(db, 'users', user.uid, 'pagosRecibidos');
-                  
-                  await addDoc(pagosCollectionRef, {
-                      terceroId: clienteId,
-                      fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')), // Ajustar a zona horaria local
-                      montoPagado: formData.montoPagado,
-                      medioDePago: formData.medioDePago,
-                      referencia: formData.referencia || '',
-                      // En el futuro, podríamos agregar un campo 'facturasAplicadas'
-                  });
+              const dataToSave = {
+                  terceroId: clienteId,
+                  fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
+                  montoPagado: formData.montoPagado,
+                  medioDePago: formData.medioDePago,
+                  referencia: formData.referencia || '',
+              };
 
-                  // ¡Éxito!
+              try {
+                  if (isEditMode) {
+                      // Lógica de Edición
+                      const docRef = doc(db, 'users', user.uid, 'pagosRecibidos', movimiento.id);
+                      await updateDoc(docRef, dataToSave);
+                  } else {
+                      // Lógica de Creación (la que ya tenías)
+                      const pagosCollectionRef = collection(db, 'users', user.uid, 'pagosRecibidos');
+                      await addDoc(pagosCollectionRef, dataToSave);
+                  }
+
                   setIsSubmitting(false);
                   onClose(); // Cierra el modal
 
@@ -2551,7 +2595,8 @@ const TerceroModal = ({ tercero, onClose }) => {
           return (
               <div className="modal-overlay fade-in">
                   <div className="modal-content slide-in-bottom sm:max-w-lg">
-                      <h2 className="text-2xl font-bold mb-4">Registrar Pago Recibido</h2>
+                  {/* --- CAMBIO: Título dinámico --- */}
+                      <h2 className="text-2xl font-bold mb-4">{isEditMode ? 'Modificar' : 'Registrar'} Pago Recibido</h2>
                       <p className="mb-6 text-gray-600">Cliente: <span className="font-semibold">{clienteNombre}</span></p>
                       
                       <form onSubmit={handleSubmit} className="space-y-4">
@@ -2589,7 +2634,8 @@ const TerceroModal = ({ tercero, onClose }) => {
                           <div className="flex justify-end gap-4 pt-4">
                               <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
                               <button type="submit" disabled={isSubmitting} className="btn-primary-green">
-                                  {isSubmitting ? 'Guardando...' : 'Guardar Pago'}
+                                  {/* --- CAMBIO: Texto de botón dinámico --- */}
+                                  {isSubmitting ? 'Guardando...' : (isEditMode ? 'Guardar Cambios' : 'Guardar Pago')}
                               </button>
                           </div>
                       </form>
@@ -2597,24 +2643,25 @@ const TerceroModal = ({ tercero, onClose }) => {
               </div>
           );
       };
-        // --- ROUTER Y APP PRINCIPAL ---
-        const AppContext = createContext();
 
-        const App = () => {
-            const { user, userData } = useAuth();
-            const [route, setRoute] = useState('/');
-            
-            const navigate = useCallback((path) => {
-                setRoute(path);
-            }, []);
+      // --- ROUTER Y APP PRINCIPAL (Sin cambios) ---
+      const AppContext = createContext();
 
-            useEffect(() => {
-                if(user && route === '/') {
-                    navigate('/dashboard');
-                }
-            }, [user, route, navigate]);
+      const App = () => {
+          const { user, userData } = useAuth();
+          const [route, setRoute] = useState('/');
+          
+          const navigate = useCallback((path) => {
+              setRoute(path);
+          }, []);
 
-        const renderPage = () => {
+          useEffect(() => {
+              if(user && route === '/') {
+                  navigate('/dashboard');
+              }
+          }, [user, route, navigate]);
+
+      const renderPage = () => {
           // Nueva lógica para la ruta de cuenta corriente (ANTES de las otras)
           if (route.startsWith('/gestion/deudores/')) {
               const terceroId = route.split('/').pop(); // Extrae el ID del final de la URL
@@ -2638,55 +2685,54 @@ const TerceroModal = ({ tercero, onClose }) => {
           switch (route) {
               case '/dashboard': return <DashboardPage />;
               case '/operations': return <OperationsPage />;
-              case '/finances': return <FinancesPage />;
+              case '/finances': <FinancesPage />;
               case '/reports': return <ReportsPage />;
               case '/client-center': return <ClientCenterPage />;
               case '/profile': return <ProfilePage />;
               case '/admin': return <AdminPage />;
               default: return user ? <DashboardPage /> : <LoginPage />;
           }
-        };
+      };
 
-            return (
-                <AppContext.Provider value={{ navigate }}>
-                    <div className="App">
-                        {!user ? <LoginPage /> : <AppLayout>{renderPage()}</AppLayout>}
-                    </div>
-                </AppContext.Provider>
-            );
-        };
-        
-        // --- INICIALIZADOR ---
-        const FirebaseErrorScreen = () => (<div className="min-h-screen flex items-center justify-center bg-red-50 p-4"><div className="max-w-2xl w-full bg-white p-8 rounded-lg shadow-lg border-2 border-red-500 text-center"><h1 className="text-2xl md:text-3xl font-bold text-red-700 mb-4">Error de Configuración</h1><p className="text-gray-700 mb-2">No se pudo inicializar la aplicación. La causa más probable es que la configuración de Firebase no se ha establecido correctamente o los servicios (Authentication, Firestore) no están habilitados.</p></div></div>);
-        const AppInitializer = () => {
-            const [isInitialized, setIsInitialized] = useState(false);
-            const [initError, setInitError] = useState(null);
-            useEffect(() => {
-                try {
-                    if (!window.firebaseConfig || !window.firebaseConfig.apiKey || window.firebaseConfig.apiKey.startsWith("AIzaSy")) {
-                        console.warn("La configuración de Firebase parece ser de ejemplo. Asegúrate de usar tus propias credenciales.");
-                    }
-                    app = initializeApp(window.firebaseConfig);
-                    auth = getAuth(app); 
-                    db = getFirestore(app); 
-                    storage = getStorage(app); 
-                    googleProvider = new GoogleAuthProvider();
-                    setIsInitialized(true);
-                } catch (error) { setInitError(error); }
-            }, []);
-            if (initError) return <FirebaseErrorScreen />;
-            if (!isInitialized) return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
-            return (
-                <AuthProvider>
-                    <App />
-                </AuthProvider>
-            );
-        };
+          return (
+              <AppContext.Provider value={{ navigate }}>
+                  <div className="App">
+                      {!user ? <LoginPage /> : <AppLayout>{renderPage()}</AppLayout>}
+                  </div>
+              </AppContext.Provider>
+          );
+      };
+      
+      // --- INICIALIZADOR (Sin cambios) ---
+      const FirebaseErrorScreen = () => (<div className="min-h-screen flex items-center justify-center bg-red-50 p-4"><div className="max-w-2xl w-full bg-white p-8 rounded-lg shadow-lg border-2 border-red-500 text-center"><h1 className="text-2xl md:text-3xl font-bold text-red-700 mb-4">Error de Configuración</h1><p className="text-gray-700 mb-2">No se pudo inicializar la aplicación. La causa más probable es que la configuración de Firebase no se ha establecido correctamente o los servicios (Authentication, Firestore) no están habilitados.</p></div></div>);
+      const AppInitializer = () => {
+          const [isInitialized, setIsInitialized] = useState(false);
+          const [initError, setInitError] = useState(null);
+          useEffect(() => {
+              try {
+                  if (!window.firebaseConfig || !window.firebaseConfig.apiKey || window.firebaseConfig.apiKey.startsWith("AIzaSy")) {
+                      console.warn("La configuración de Firebase parece ser de ejemplo. Asegúrate de usar tus propias credenciales.");
+                  }
+                  app = initializeApp(window.firebaseConfig);
+                  auth = getAuth(app); 
+                  db = getFirestore(app); 
+                  storage = getStorage(app); 
+                  googleProvider = new GoogleAuthProvider();
+                  setIsInitialized(true);
+              } catch (error) { setInitError(error); }
+          }, []);
+          if (initError) return <FirebaseErrorScreen />;
+          if (!isInitialized) return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
+          return (
+              <AuthProvider>
+                  <App />
+              </AuthProvider>
+          );
+      };
 
-        const root = createRoot(document.getElementById('root'));
-        root.render(<AppInitializer />);
-        
-    </script>
+      const root = createRoot(document.getElementById('root'));
+      root.render(<AppInitializer />);
+      
+  </script>
 </body>
 </html>
-
