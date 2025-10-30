@@ -2106,6 +2106,656 @@ const TerceroModal = ({ tercero, onClose }) => {
         </div>
     );
 };
+          // --- PÁGINA DE LISTADO: DEUDAS POR PAGAR (PROVEEDORES) ---
+    const ProveedoresPage = () => {
+        const { user } = useAuth();
+        const { navigate } = useContext(AppContext);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState('');
+        const [saldosData, setSaldosData] = useState({ proveedores: [], totalPagar: 0 });
+
+        // Hook para leer TODOS los datos y calcular saldos de proveedores
+        useEffect(() => {
+            if (!user) return;
+
+            const fetchSaldosProveedores = async () => {
+                setLoading(true);
+                setError('');
+                try {
+                    // 1. Definimos las 3 consultas
+                    const qTerceros = query(
+                        collection(db, 'users', user.uid, 'terceros'),
+                        where("tipo", "in", ["Proveedor", "Ambos"]), // <-- CAMBIO: Filtro por Proveedor/Ambos
+                        orderBy("nombre", "asc")
+                    );
+                    // <-- CAMBIO: Nuevas colecciones
+                    const qFacturas = collection(db, 'users', user.uid, 'facturasCompra'); 
+                    const qPagos = collection(db, 'users', user.uid, 'pagosRealizados');
+
+                    // 2. Ejecutamos en paralelo
+                    const [tercerosSnap, facturasSnap, pagosSnap] = await Promise.all([
+                        getDocs(qTerceros),
+                        getDocs(qFacturas),
+                        getDocs(qPagos)
+                    ]);
+
+                    // 3. Procesamos
+                    const terceros = tercerosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    const facturas = facturasSnap.docs.map(d => d.data());
+                    const pagos = pagosSnap.docs.map(d => d.data());
+
+                    // 4. Calculamos saldos (lógica idéntica, solo cambian las fuentes)
+                    const saldosPorProveedor = {};
+                    facturas.forEach(f => {
+                        saldosPorProveedor[f.terceroId] = (saldosPorProveedor[f.terceroId] || 0) + f.montoTotal;
+                    });
+                    pagos.forEach(p => {
+                        saldosPorProveedor[p.terceroId] = (saldosPorProveedor[p.terceroId] || 0) - p.montoPagado;
+                    });
+
+                    // 5. Unimos saldos con info de proveedores
+                    const proveedores = terceros
+                        .map(t => ({
+                            ...t,
+                            saldo: saldosPorProveedor[t.id] || 0
+                        }))
+                        .filter(t => t.saldo > 0) // Solo mostramos proveedores a los que les debemos
+                        .sort((a, b) => b.saldo - a.saldo);
+
+                    // 6. Calculamos total general
+                    const totalPagar = proveedores.reduce((sum, p) => sum + p.saldo, 0);
+
+                    // 7. Guardamos en estado
+                    setSaldosData({ proveedores, totalPagar });
+
+                } catch (err) {
+                    console.error("Error al calcular saldos de proveedores:", err);
+                    setError('Error al calcular los saldos. ' + (err.message.includes('index') ? 'Podría faltar un índice en Firestore.' : ''));
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            fetchSaldosProveedores();
+        }, [user]);
+
+        const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+
+        return (
+            <div>
+                <h2 className="text-3xl font-bold mb-6">Deudas por Pagar (Proveedores)</h2>
+                {error && <p className="text-red-600 bg-red-100 p-3 rounded mb-4">{error}</p>}
+
+                {/* Tarjetas de Métricas */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <div className="bg-white p-6 rounded-lg shadow-md md:col-span-2">
+                        <h3 className="text-lg font-semibold text-gray-600 mb-2">Total a Pagar</h3>
+                        <p className="text-3xl font-bold text-red-600">{formatCurrency(saldosData.totalPagar)}</p>
+                    </div>
+                </div>
+
+                {/* Tabla de Proveedores con Saldo */}
+                <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
+                    <h3 className="text-xl font-bold mb-4">Proveedores con Saldo Pendiente</h3>
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Proveedor</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">CUIT</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium uppercase">Saldo Acreedor</th>
+                                <th className="px-6 py-3 text-center text-xs font-medium uppercase">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {loading ? (
+                                <tr><td colSpan="4" className="text-center py-10 text-gray-500">Calculando saldos...</td></tr>
+                            ) : saldosData.proveedores.length > 0 ? (
+                                saldosData.proveedores.map(proveedor => (
+                                    <tr key={proveedor.id}>
+                                        <td className="px-6 py-4 whitespace-nowrap font-medium">{proveedor.nombre}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap">{proveedor.cuit || '-'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right font-semibold text-gray-800">{formatCurrency(proveedor.saldo)}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                                            <button
+                                                onClick={() => navigate(`/gestion/proveedores/${proveedor.id}`)} // <-- CAMBIO: Nueva ruta
+                                                className="text-indigo-600 hover:text-indigo-900"
+                                            >
+                                                Ver Cta. Cte.
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr><td colSpan="4" className="text-center py-10 text-gray-500">Ningún proveedor presenta saldo acreedor.</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        );
+    };
+
+    // --- PÁGINA DE DETALLE: CUENTA CORRIENTE PROVEEDOR ---
+    const CuentaCorrienteProveedorPage = ({ terceroId }) => {
+        const { user } = useAuth();
+        const { navigate } = useContext(AppContext);
+        const [terceroData, setTerceroData] = useState(null);
+        const [movimientos, setMovimientos] = useState([]);
+        const [loadingTercero, setLoadingTercero] = useState(true);
+        const [loadingMov, setLoadingMov] = useState(true);
+        const [error, setError] = useState('');
+        const [isDeleting, setIsDeleting] = useState(false);
+        const [movimientoAEditar, setMovimientoAEditar] = useState(null); 
+
+        const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+        const formatDate = (timestamp) => {
+            if (!timestamp || !timestamp.toDate) return 'Fecha inválida';
+            return timestamp.toDate().toLocaleDateString('es-AR');
+        };
+
+        // Hook 1: Cargar datos del tercero (Proveedor)
+        useEffect(() => {
+            if (!user || !terceroId) return;
+            setLoadingTercero(true);
+            setError('');
+            const docRef = doc(db, 'users', user.uid, 'terceros', terceroId);
+            const unsubscribe = onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    setTerceroData({ id: docSnap.id, ...docSnap.data() });
+                } else {
+                    setError(`No se encontró el tercero con ID: ${terceroId}`);
+                    setTerceroData(null);
+                }
+                setLoadingTercero(false);
+            }, (err) => {
+                console.error("Error al leer datos del tercero:", err);
+                setError('Error al cargar la información del proveedor.');
+                setLoadingTercero(false);
+            });
+            return () => unsubscribe();
+        }, [user, terceroId]);
+
+        // Hook 2: Cargar movimientos (facturas de compra y pagos realizados)
+        useEffect(() => {
+            if (!user || !terceroId) return;
+            setLoadingMov(true);
+
+            // <-- CAMBIO: Nuevas colecciones
+            const qFacturas = query(
+                collection(db, 'users', user.uid, 'facturasCompra'),
+                where("terceroId", "==", terceroId),
+                orderBy("fechaEmision", "asc")
+            );
+            const qPagos = query(
+                collection(db, 'users', user.uid, 'pagosRealizados'),
+                where("terceroId", "==", terceroId),
+                orderBy("fechaPago", "asc")
+            );
+
+            const unsubFacturas = onSnapshot(qFacturas, (facturasSnap) => {
+                const facturas = facturasSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'factura', fecha: d.data().fechaEmision }));
+                
+                const unsubPagos = onSnapshot(qPagos, (pagosSnap) => {
+                    const pagos = pagosSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'pago', fecha: d.data().fechaPago }));
+                    
+                    const movsCombinados = [...facturas, ...pagos].sort((a, b) => a.fecha.toMillis() - b.fecha.toMillis());
+                    
+                    // Lógica de saldo: Factura de Compra SUMA (aumenta deuda), Pago Realizado RESTA (disminuye deuda)
+                    let saldoAcumulado = 0;
+                    const movsConSaldo = movsCombinados.map(mov => {
+                        if (mov.tipoMovimiento === 'factura') {
+                            saldoAcumulado += mov.montoTotal; // Aumenta lo que debo
+                        } else if (mov.tipoMovimiento === 'pago') {
+                            saldoAcumulado -= mov.montoPagado; // Disminuye lo que debo
+                        }
+                        return { ...mov, saldoAcumulado };
+                    });
+
+                    setMovimientos(movsConSaldo);
+                    setLoadingMov(false);
+                }, (err) => {
+                    console.error("Error al leer pagos realizados:", err);
+                    setError('Error al cargar los pagos.');
+                    setLoadingMov(false);
+                });
+                
+                return () => unsubPagos();
+            }, (err) => {
+                console.error("Error al leer facturas de compra:", err);
+                setError('Error al cargar las facturas.');
+                setLoadingMov(false);
+            });
+
+            return () => unsubFacturas();
+        }, [user, terceroId]);
+
+        // Función de eliminar
+        const handleDeleteMovimiento = async (mov) => {
+            if (isDeleting) return;
+            
+            const tipoStr = mov.tipoMovimiento === 'factura' ? 'la factura de compra' : 'el pago realizado';
+            // NOTA: window.confirm no funciona en este entorno, usamos lógica directa
+            // if (!window.confirm(`¿Estás seguro de que deseas eliminar ${tipoStr}?`)) {
+            //     return;
+            // }
+
+            setIsDeleting(true);
+            try {
+                const collectionName = mov.tipoMovimiento === 'factura' ? 'facturasCompra' : 'pagosRealizados';
+                const docRef = doc(db, 'users', user.uid, collectionName, mov.id);
+                await deleteDoc(docRef);
+            } catch (err) {
+                console.error("Error al eliminar el documento:", err);
+                setError("Error al eliminar el movimiento. Inténtalo de nuevo.");
+            } finally {
+                setIsDeleting(false);
+            }
+        };
+
+        const handleEditMovimiento = (mov) => {
+            setMovimientoAEditar(mov);
+        };
+
+        const handleShowNuevoMovimiento = (tipo) => {
+            if (tipo === 'factura') {
+                setMovimientoAEditar({
+                    tipoMovimiento: 'factura',
+                    numeroComprobante: '',
+                    fechaEmision: new Date().toISOString().split('T')[0],
+                    fechaVencimiento: '',
+                    montoTotal: 0,
+                });
+            } else if (tipo === 'pago') {
+                setMovimientoAEditar({
+                    tipoMovimiento: 'pago',
+                    fechaPago: new Date().toISOString().split('T')[0],
+                    montoPagado: 0,
+                    medioDePago: 'Transferencia',
+                    referencia: '',
+                });
+            }
+        };
+
+        const handleCloseModals = () => {
+            setMovimientoAEditar(null);
+        };
+
+        const saldoFinal = movimientos.length > 0 ? movimientos[movimientos.length - 1].saldoAcumulado : 0;
+        const loading = loadingTercero || loadingMov;
+
+        return (
+            <div>
+                <button onClick={() => navigate('/gestion/proveedores')} className="mb-6 bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 flex items-center">
+                    <Icon name="ArrowLeft" className="w-5 h-5 mr-2"/> Volver a Proveedores
+                </button>
+
+                {loading && <p className="text-center">Cargando datos del proveedor...</p>}
+                {error && <p className="text-red-600 bg-red-100 p-3 rounded mb-4">{error}</p>}
+
+                {terceroData && (
+                    <div className="bg-white p-8 rounded-lg shadow-md">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h2 className="text-3xl font-bold mb-2">Cuenta Corriente de: {terceroData.nombre}</h2>
+                                <p className="text-gray-600">CUIT: {terceroData.cuit || 'N/A'}</p>
+                            </div>
+                            <div className="text-right">
+                                <h3 className="text-lg font-semibold text-gray-600">Saldo a Pagar</h3>
+                                <p className={`text-3xl font-bold ${saldoFinal > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                    {formatCurrency(saldoFinal)}
+                                </p>
+                            </div>
+                        </div>
+
+                        <hr className="my-6"/>
+
+                        <div className="mb-6 flex gap-4">
+                            <button
+                                onClick={() => handleShowNuevoMovimiento('pago')}
+                                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center">
+                                <Icon name="DollarSign" className="w-5 h-5 mr-2"/>Registrar Pago Realizado
+                            </button>
+                            
+                            <button 
+                                onClick={() => handleShowNuevoMovimiento('factura')}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center">
+                                <Icon name="FilePlus" className="w-5 h-5 mr-2"/>Cargar Factura de Compra
+                            </button>
+                        </div>
+                        
+                        <h3 className="text-xl font-bold mb-4">Movimientos</h3>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium uppercase">Concepto</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium uppercase">Facturas (Deuda)</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium uppercase">Pagos (Abonos)</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium uppercase">Saldo</th>
+                                        <th className="px-6 py-3 text-center text-xs font-medium uppercase">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {loadingMov ? (
+                                        <tr><td colSpan="6" className="text-center py-10 text-gray-500">Cargando movimientos...</td></tr>
+                                    ) : movimientos.length > 0 ? (
+                                        movimientos.map(mov => (
+                                            <tr key={mov.id}>
+                                                <td className="px-6 py-4 whitespace-nowrap">{formatDate(mov.fecha)}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {mov.tipoMovimiento === 'factura' ? `Factura Compra N° ${mov.numeroComprobante || ''}` : `Pago (${mov.medioDePago || ''})`}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-right text-red-600">
+                                                    {mov.tipoMovimiento === 'factura' ? formatCurrency(mov.montoTotal) : ''}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-right text-green-600">
+                                                    {mov.tipoMovimiento === 'pago' ? formatCurrency(mov.montoPagado) : ''}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-right font-semibold">{formatCurrency(mov.saldoAcumulado)}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-center">
+                                                    <button 
+                                                        onClick={() => handleEditMovimiento(mov)}
+                                                        className="text-blue-600 hover:text-blue-900 mr-3"
+                                                        title="Modificar">
+                                                        <Icon name="Edit" className="w-5 h-5"/>
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDeleteMovimiento(mov)} 
+                                                        disabled={isDeleting}
+                                                        className="text-red-600 hover:text-red-900 disabled:text-gray-400"
+                                                        title="Eliminar">
+                                                        <Icon name="Trash2" className="w-5 h-5"/>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr><td colSpan="6" className="text-center py-10 text-gray-500">No hay movimientos para este proveedor.</td></tr>
+                                    )}
+                                </tbody>
+                                {movimientos.length > 0 && (
+                                    <tfoot className="bg-gray-50">
+                                        <tr>
+                                            <td colSpan="5" className="px-6 py-4 text-right font-bold uppercase">Saldo Final a Pagar</td>
+                                            <td className="px-6 py-4 text-right font-bold text-lg">{formatCurrency(saldoFinal)}</td>
+                                        </tr>
+                                    </tfoot>
+                                )}
+                            </table>
+                        </div>
+                    </div>
+                )}
+                
+                {/* --- Modales para Proveedores --- */}
+                <FacturaCompraModal
+                    isOpen={movimientoAEditar?.tipoMovimiento === 'factura'}
+                    onClose={handleCloseModals}
+                    proveedorId={terceroId} // Renombrado para claridad
+                    proveedorNombre={terceroData ? terceroData.nombre : 'Cargando...'}
+                    movimiento={movimientoAEditar} 
+                />
+
+                <PagoRealizadoModal
+                    isOpen={movimientoAEditar?.tipoMovimiento === 'pago'}
+                    onClose={handleCloseModals}
+                    proveedorId={terceroId} // Renombrado para claridad
+                    proveedorNombre={terceroData ? terceroData.nombre : 'Cargando...'}
+                    movimiento={movimientoAEditar}
+                />
+            </div>
+        );
+    };
+
+    // --- MODAL PARA CARGAR NUEVA FACTURA DE COMPRA ---
+    const FacturaCompraModal = ({ isOpen, onClose, proveedorId, proveedorNombre, movimiento }) => {
+        const { user } = useAuth();
+        const [isSubmitting, setIsSubmitting] = useState(false);
+        const [message, setMessage] = useState('');
+        const isEditMode = movimiento && movimiento.id;
+
+        const [formData, setFormData] = useState({
+            numeroComprobante: '',
+            fechaEmision: new Date().toISOString().split('T')[0],
+            fechaVencimiento: '',
+            montoTotal: 0,
+        });
+
+        useEffect(() => {
+            if (isOpen && movimiento) {
+                setFormData({
+                    numeroComprobante: movimiento.numeroComprobante || '',
+                    fechaEmision: movimiento.fechaEmision?.toDate ? movimiento.fechaEmision.toDate().toISOString().split('T')[0] : (movimiento.fechaEmision || new Date().toISOString().split('T')[0]),
+                    fechaVencimiento: movimiento.fechaVencimiento?.toDate ? movimiento.fechaVencimiento.toDate().toISOString().split('T')[0] : (movimiento.fechaVencimiento || ''),
+                    montoTotal: movimiento.montoTotal || 0,
+                });
+                setIsSubmitting(false);
+                setMessage('');
+            }
+        }, [isOpen, movimiento]);
+
+        const handleChange = (e) => {
+            const { name, value, type } = e.target;
+            setFormData(prev => ({
+                ...prev,
+                [name]: type === 'number' ? parseFloat(value) || 0 : value
+            }));
+        };
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (formData.montoTotal <= 0) {
+                setMessage('Error: El monto total debe ser mayor a cero.');
+                return;
+            }
+            if (!formData.fechaVencimiento) {
+                setMessage('Error: Por favor, ingrese una fecha de vencimiento.');
+                return;
+            }
+            
+            setIsSubmitting(true);
+            setMessage('');
+
+            const dataToSave = {
+                terceroId: proveedorId,
+                numeroComprobante: formData.numeroComprobante,
+                fechaEmision: Timestamp.fromDate(new Date(formData.fechaEmision + 'T00:00:00-03:00')),
+                fechaVencimiento: Timestamp.fromDate(new Date(formData.fechaVencimiento + 'T00:00:00-03:00')),
+                montoTotal: formData.montoTotal,
+                saldoPendiente: formData.montoTotal,
+                estado: 'Pendiente'
+            };
+
+            try {
+                // <-- CAMBIO: Nueva colección
+                const collectionName = 'facturasCompra';
+                if (isEditMode) {
+                    const docRef = doc(db, 'users', user.uid, collectionName, movimiento.id);
+                    await updateDoc(docRef, dataToSave);
+                } else {
+                    const facturasCollectionRef = collection(db, 'users', user.uid, collectionName);
+                    await addDoc(facturasCollectionRef, dataToSave);
+                }
+                setIsSubmitting(false);
+                onClose();
+            } catch (err) {
+                console.error("Error al guardar la factura de compra:", err);
+                setMessage('Error al guardar la factura. Inténtelo de nuevo.');
+                setIsSubmitting(false);
+            }
+        };
+
+        if (!isOpen) return null;
+
+        return (
+            <div className="modal-overlay fade-in">
+                <div className="modal-content slide-in-bottom sm:max-w-lg">
+                    <h2 className="text-2xl font-bold mb-4">{isEditMode ? 'Modificar' : 'Cargar'} Factura de Compra</h2>
+                    <p className="mb-6 text-gray-600">Proveedor: <span className="font-semibold">{proveedorNombre}</span></p>
+                    
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="label">N° Comprobante</label>
+                            <input type="text" name="numeroComprobante" value={formData.numeroComprobante} onChange={handleChange} className="input" placeholder="Ej: 0001-00001234"/>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="label">Fecha Emisión</label>
+                                <input type="date" name="fechaEmision" value={formData.fechaEmision} onChange={handleChange} required className="input"/>
+                            </div>
+                            <div>
+                                <label className="label">Fecha Vencimiento</label>
+                                <input type="date" name="fechaVencimiento" value={formData.fechaVencimiento} onChange={handleChange} required className="input"/>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label className="label">Monto Total</label>
+                            <div className="relative">
+                                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
+                                <input type="number" name="montoTotal" value={formData.montoTotal} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                            </div>
+                        </div>
+
+                        {message && <p className={`text-center ${message.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>}
+                        
+                        <div className="flex justify-end gap-4 pt-4">
+                            <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
+                            <button type="submit" disabled={isSubmitting} className="btn-primary">
+                                {isSubmitting ? 'Guardando...' : (isEditMode ? 'Guardar Cambios' : 'Guardar Factura')}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        );
+    };
+
+    // --- MODAL PARA REGISTRAR NUEVO PAGO REALIZADO ---
+    const PagoRealizadoModal = ({ isOpen, onClose, proveedorId, proveedorNombre, movimiento }) => {
+        const { user } = useAuth();
+        const [isSubmitting, setIsSubmitting] = useState(false);
+        const [message, setMessage] = useState('');
+        const isEditMode = movimiento && movimiento.id;
+
+        const [formData, setFormData] = useState({
+            fechaPago: new Date().toISOString().split('T')[0],
+            montoPagado: 0,
+            medioDePago: 'Transferencia',
+            referencia: '',
+        });
+
+        useEffect(() => {
+            if (isOpen && movimiento) {
+                setFormData({
+                    fechaPago: movimiento.fechaPago?.toDate ? movimiento.fechaPago.toDate().toISOString().split('T')[0] : (movimiento.fechaPago || new Date().toISOString().split('T')[0]),
+                    montoPagado: movimiento.montoPagado || 0,
+                    medioDePago: movimiento.medioDePago || 'Transferencia',
+                    referencia: movimiento.referencia || '',
+                });
+                setIsSubmitting(false);
+                setMessage('');
+            }
+        }, [isOpen, movimiento]);
+
+        const handleChange = (e) => {
+            const { name, value, type } = e.target;
+            setFormData(prev => ({
+                ...prev,
+                [name]: type === 'number' ? parseFloat(value) || 0 : value
+            }));
+        };
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (formData.montoPagado <= 0) {
+                setMessage('Error: El monto pagado debe ser mayor a cero.');
+                return;
+            }
+            
+            setIsSubmitting(true);
+            setMessage('');
+
+            const dataToSave = {
+                terceroId: proveedorId,
+                fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
+                montoPagado: formData.montoPagado,
+                medioDePago: formData.medioDePago,
+                referencia: formData.referencia || '',
+            };
+
+            try {
+                // <-- CAMBIO: Nueva colección
+                const collectionName = 'pagosRealizados';
+                if (isEditMode) {
+                    const docRef = doc(db, 'users', user.uid, collectionName, movimiento.id);
+                    await updateDoc(docRef, dataToSave);
+                } else {
+                    const pagosCollectionRef = collection(db, 'users', user.uid, collectionName);
+                    await addDoc(pagosCollectionRef, dataToSave);
+                }
+                setIsSubmitting(false);
+                onClose();
+            } catch (err) {
+                console.error("Error al guardar el pago:", err);
+                setMessage('Error al guardar el pago. Inténtelo de nuevo.');
+                setIsSubmitting(false);
+            }
+        };
+
+        if (!isOpen) return null;
+
+        return (
+            <div className="modal-overlay fade-in">
+                <div className="modal-content slide-in-bottom sm:max-w-lg">
+                    <h2 className="text-2xl font-bold mb-4">{isEditMode ? 'Modificar' : 'Registrar'} Pago Realizado</h2>
+                    <p className="mb-6 text-gray-600">Proveedor: <span className="font-semibold">{proveedorNombre}</span></p>
+                    
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="label">Fecha de Pago</label>
+                                <input type="date" name="fechaPago" value={formData.fechaPago} onChange={handleChange} required className="input"/>
+                            </div>
+                            <div>
+                                <label className="label">Monto Pagado</label>
+                                <div className="relative">
+                                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
+                                    <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label className="label">Medio de Pago</label>
+                            <select name="medioDePago" value={formData.medioDePago} onChange={handleChange} className="input">
+                                <option>Transferencia</option>
+                                <option>Efectivo</option>
+                                <option>Cheque</option>
+                                <option>Otro</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="label">Referencia (Opcional)</label>
+                            <input type="text" name="referencia" value={formData.referencia} onChange={handleChange} className="input" placeholder="N° de cheque, ID de transferencia, etc."/>
+                        </div>
+
+                        {message && <p className={`text-center ${message.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>}
+                        
+                        <div className="flex justify-end gap-4 pt-4">
+                            <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
+                            <button type="submit" disabled={isSubmitting} className="btn-primary-green">
+                                {isSubmitting ? 'Guardando...' : (isEditMode ? 'Guardar Cambios' : 'Guardar Pago')}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        );
+    };
+
       // --- PÁGINA DE DETALLE: CUENTA CORRIENTE CLIENTE ---
     const CuentaCorrienteClientePage = ({ terceroId }) => {
         const { user } = useAuth();
@@ -2644,7 +3294,7 @@ const TerceroModal = ({ tercero, onClose }) => {
           );
       };
 
-      // --- ROUTER Y APP PRINCIPAL (Sin cambios) ---
+            // --- ROUTER Y APP PRINCIPAL (Actualizado para Proveedores) ---
       const AppContext = createContext();
 
       const App = () => {
@@ -2662,26 +3312,36 @@ const TerceroModal = ({ tercero, onClose }) => {
           }, [user, route, navigate]);
 
       const renderPage = () => {
-          // Nueva lógica para la ruta de cuenta corriente (ANTES de las otras)
+          // --- NUEVAS RUTAS DE GESTIÓN ---
+
+          // Detalle Cta. Cte. Cliente
           if (route.startsWith('/gestion/deudores/')) {
-              const terceroId = route.split('/').pop(); // Extrae el ID del final de la URL
+              const terceroId = route.split('/').pop();
               return <CuentaCorrienteClientePage terceroId={terceroId} />;
           }
 
+          // Detalle Cta. Cte. Proveedor (NUEVO)
+          if (route.startsWith('/gestion/proveedores/')) {
+              const terceroId = route.split('/').pop();
+              return <CuentaCorrienteProveedorPage terceroId={terceroId} />;
+          }
+
+          // Páginas principales de Gestión
+          if (route.startsWith('/gestion')) {
+              if (route === '/gestion') return <GestionPage/>;
+              if (route === '/gestion/terceros') return <TercerosPage/>;
+              if (route === '/gestion/deudores') return <DeudoresPage/>;
+              if (route === '/gestion/proveedores') return <ProveedoresPage/>; // <-- AHORA FUNCIONAL
+              if (route === '/gestion/cheques') return <ChequesPage/>; // Sigue siendo placeholder
+          }
+          
+          // Rutas de Admin
           if (route.startsWith('/admin/manage/')) {
               const userId = route.split('/').pop();
               return userData?.isAdmin ? <AdminClientManagementPage userId={userId} /> : <div>Acceso denegado</div>;
           }
 
-          if (route.startsWith('/gestion')) {
-              if (route === '/gestion') return <GestionPage/>;
-              if (route === '/gestion/terceros') return <TercerosPage/>;
-              // La ruta '/gestion/deudores' simple ahora la maneja el if de arriba
-              if (route === '/gestion/deudores') return <DeudoresPage/>; // Mantenemos por si acaso, pero la de arriba tiene prioridad
-              if (route === '/gestion/proveedores') return <ProveedoresPage/>;
-              if (route === '/gestion/cheques') return <ChequesPage/>;
-          }
-
+          // Rutas Principales
           switch (route) {
               case '/dashboard': return <DashboardPage />;
               case '/operations': return <OperationsPage />;
@@ -2702,7 +3362,7 @@ const TerceroModal = ({ tercero, onClose }) => {
               </AppContext.Provider>
           );
       };
-      
+
       // --- INICIALIZADOR (Sin cambios) ---
       const FirebaseErrorScreen = () => (<div className="min-h-screen flex items-center justify-center bg-red-50 p-4"><div className="max-w-2xl w-full bg-white p-8 rounded-lg shadow-lg border-2 border-red-500 text-center"><h1 className="text-2xl md:text-3xl font-bold text-red-700 mb-4">Error de Configuración</h1><p className="text-gray-700 mb-2">No se pudo inicializar la aplicación. La causa más probable es que la configuración de Firebase no se ha establecido correctamente o los servicios (Authentication, Firestore) no están habilitados.</p></div></div>);
       const AppInitializer = () => {
