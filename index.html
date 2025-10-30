@@ -2115,10 +2115,10 @@ const TerceroModal = ({ tercero, onClose }) => {
           const [loadingTercero, setLoadingTercero] = useState(true);
           const [loadingMov, setLoadingMov] = useState(true);
           const [error, setError] = useState('');
+          const [isDeleting, setIsDeleting] = useState(false); // Para evitar doble click
           
-          // --- ESTADOS PARA AMBOS MODALES ---
           const [showFacturaModal, setShowFacturaModal] = useState(false);
-          const [showPagoModal, setShowPagoModal] = useState(false); // <-- NUEVO
+          const [showPagoModal, setShowPagoModal] = useState(false); 
 
           const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
           const formatDate = (timestamp) => {
@@ -2127,7 +2127,7 @@ const TerceroModal = ({ tercero, onClose }) => {
           };
 
           // Hook 1: Cargar datos del tercero específico
-          useEffect(() => {
+          useEffect(() => { /* ... (Este hook no cambia) ... */
               if (!user || !terceroId) return;
               setLoadingTercero(true);
               setError('');
@@ -2149,7 +2149,7 @@ const TerceroModal = ({ tercero, onClose }) => {
           }, [user, terceroId]);
 
           // Hook 2: Cargar movimientos (facturas y pagos) del tercero
-          useEffect(() => {
+          useEffect(() => { /* ... (Este hook no cambia) ... */
               if (!user || !terceroId) return;
               setLoadingMov(true);
 
@@ -2197,12 +2197,39 @@ const TerceroModal = ({ tercero, onClose }) => {
                   return () => unsubPagos(); // Limpiamos el listener de pagos
               }, (err) => {
                   console.error("Error al leer facturas:", err);
-                    setError('Error al cargar las facturas.');
+                  setError('Error al cargar las facturas.');
                   setLoadingMov(false);
               });
 
               return () => unsubFacturas(); // Limpiamos el listener de facturas
           }, [user, terceroId]);
+
+          // --- NUEVA FUNCIÓN PARA ELIMINAR ---
+          const handleDeleteMovimiento = async (mov) => {
+              if (isDeleting) return; // Evitar doble click
+              
+              const tipoStr = mov.tipoMovimiento === 'factura' ? 'la factura' : 'el pago';
+              if (!window.confirm(`¿Estás seguro de que deseas eliminar ${tipoStr}? Esta acción no se puede deshacer.`)) {
+                  return;
+              }
+
+              setIsDeleting(true);
+              try {
+                  // Determinar de qué colección borrar
+                  const collectionName = mov.tipoMovimiento === 'factura' ? 'facturasVenta' : 'pagosRecibidos';
+                  // Crear la referencia al documento
+                  const docRef = doc(db, 'users', user.uid, collectionName, mov.id);
+                  // Borrar el documento
+                  await deleteDoc(docRef);
+                  // Nota: No necesitamos hacer nada más. El 'onSnapshot' del Hook 2
+                  // detectará el cambio y actualizará la tabla y el saldo automáticamente.
+              } catch (err) {
+                  console.error("Error al eliminar el documento:", err);
+                  setError("Error al eliminar el movimiento. Inténtalo de nuevo.");
+              } finally {
+                  setIsDeleting(false);
+              }
+          };
 
           const saldoFinal = movimientos.length > 0 ? movimientos[movimientos.length - 1].saldoAcumulado : 0;
           const loading = loadingTercero || loadingMov;
@@ -2218,7 +2245,7 @@ const TerceroModal = ({ tercero, onClose }) => {
 
                   {terceroData && (
                       <div className="bg-white p-8 rounded-lg shadow-md">
-                          {/* Info Cliente y Saldo */}
+                          {/* ... (Info Cliente y Saldo - sin cambios) ... */}
                           <div className="flex justify-between items-start mb-6">
                               <div>
                                   <h2 className="text-3xl font-bold mb-2">Cuenta Corriente de: {terceroData.nombre}</h2>
@@ -2234,9 +2261,8 @@ const TerceroModal = ({ tercero, onClose }) => {
 
                           <hr className="my-6"/>
 
-                          {/* Botones de acción (ahora habilitados) */}
+                          {/* ... (Botones de acción - sin cambios) ... */}
                           <div className="mb-6 flex gap-4">
-                              {/* --- BOTÓN PAGO MODIFICADO --- */}
                               <button
                                   onClick={() => setShowPagoModal(true)}
                                   className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center">
@@ -2250,7 +2276,8 @@ const TerceroModal = ({ tercero, onClose }) => {
                               </button>
                           </div>
                           
-                          {/* Tabla de Movimientos */}
+                          {/* --- TABLA DE MOVIMIENTOS MODIFICADA --- */}
+                          <h3 className="text-xl font-bold mb-4">Movimientos</h3>
                           <div className="overflow-x-auto">
                               <table className="min-w-full divide-y divide-gray-200">
                                   <thead className="bg-gray-50">
@@ -2260,11 +2287,12 @@ const TerceroModal = ({ tercero, onClose }) => {
                                           <th className="px-6 py-3 text-right text-xs font-medium uppercase">Debe</th>
                                           <th className="px-6 py-3 text-right text-xs font-medium uppercase">Haber</th>
                                           <th className="px-6 py-3 text-right text-xs font-medium uppercase">Saldo</th>
+                                          <th className="px-6 py-3 text-center text-xs font-medium uppercase">Acciones</th> {/* <-- NUEVA COLUMNA */}
                                       </tr>
                                   </thead>
                                   <tbody className="bg-white divide-y divide-gray-200">
                                       {loadingMov ? (
-                                          <tr><td colSpan="5" className="text-center py-10 text-gray-500">Cargando movimientos...</td></tr>
+                                          <tr><td colSpan="6" className="text-center py-10 text-gray-500">Cargando movimientos...</td></tr>
                                       ) : movimientos.length > 0 ? (
                                           movimientos.map(mov => (
                                               <tr key={mov.id}>
@@ -2279,17 +2307,34 @@ const TerceroModal = ({ tercero, onClose }) => {
                                                       {mov.tipoMovimiento === 'pago' ? formatCurrency(mov.montoPagado) : ''}
                                                   </td>
                                                   <td className="px-6 py-4 whitespace-nowrap text-right font-semibold">{formatCurrency(mov.saldoAcumulado)}</td>
+                                                  
+                                                  {/* --- NUEVA CELDA DE ACCIONES --- */}
+                                                  <td className="px-6 py-4 whitespace-nowrap text-center">
+                                                      <button 
+                                                          onClick={() => alert('Modificar - Próximamente')}
+                                                          className="text-blue-600 hover:text-blue-900 mr-3"
+                                                          title="Modificar">
+                                                          <Icon name="Edit" className="w-5 h-5"/>
+                                                      </button>
+                                                      <button 
+                                                          onClick={() => handleDeleteMovimiento(mov)} 
+                                                          disabled={isDeleting}
+                                                          className="text-red-600 hover:text-red-900 disabled:text-gray-400"
+                                                          title="Eliminar">
+                                                          <Icon name="Trash2" className="w-5 h-5"/>
+                                                      </button>
+                                                  </td>
                                               </tr>
                                           ))
                                       ) : (
-                                          <tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay movimientos para este cliente.</td></tr>
+                                          <tr><td colSpan="6" className="text-center py-10 text-gray-500">No hay movimientos para este cliente.</td></tr>
                                       )}
                                   </tbody>
                                   {/* Pie de tabla con saldo final */}
                                   {movimientos.length > 0 && (
                                       <tfoot className="bg-gray-50">
                                           <tr>
-                                              <td colSpan="4" className="px-6 py-4 text-right font-bold uppercase">Saldo Final</td>
+                                              <td colSpan="5" className="px-6 py-4 text-right font-bold uppercase">Saldo Final</td>
                                               <td className="px-6 py-4 text-right font-bold text-lg">{formatCurrency(saldoFinal)}</td>
                                           </tr>
                                       </tfoot>
@@ -2299,7 +2344,7 @@ const TerceroModal = ({ tercero, onClose }) => {
                       </div>
                   )}
                   
-                  {/* --- AMBOS MODALES RENDERIZADOS AQUÍ --- */}
+                  {/* ... (Ambos Modales - sin cambios) ... */}
                   <FacturaVentaModal
                       isOpen={showFacturaModal}
                       onClose={() => setShowFacturaModal(false)}
