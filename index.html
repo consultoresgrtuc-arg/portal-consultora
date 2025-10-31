@@ -1705,14 +1705,225 @@
               </div>
           );
       };
+        // --- PÁGINA DE GESTIÓN DE CHEQUES ---
+const ChequesPage = () => {
+    const { user } = useAuth();
+    const [cheques, setCheques] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    
+    // Estados para el modal de confirmación
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [confirmParams, setConfirmParams] = useState({ message: '', action: () => {} });
+
+    const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+    const formatDate = (timestamp) => {
+        if (!timestamp || !timestamp.toDate) return 'Fecha inválida';
+        return timestamp.toDate().toLocaleDateString('es-AR');
+    };
+
+    // 1. Hook para leer todos los cheques en tiempo real
+    useEffect(() => {
+        if (!user) return;
+        setLoading(true);
+
+        const q = query(
+            collection(db, 'users', user.uid, 'cheques'), 
+            orderBy("fechaVencimiento", "asc")
+        );
         
-        const ChequesPage = () => {
-            return <div className="text-center p-8 bg-white rounded-lg shadow-md">
-                <h2 className="text-2xl font-bold mb-4">Módulo de Gestión de Cheques</h2>
-                <p className="text-gray-600">Esta funcionalidad se encuentra en desarrollo y estará disponible próximamente.</p>
-            </div>;
-        };
-        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setCheques(items);
+            setLoading(false);
+        }, (err) => {
+            console.error("Error al leer cheques:", err);
+            setError("Error al cargar los cheques. Es posible que falte un índice en Firestore. Revisa la consola para más detalles.");
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [user]);
+
+    // 2. Función para actualizar el estado de un cheque
+    const handleUpdateEstado = async (chequeId, nuevoEstado) => {
+        try {
+            const docRef = doc(db, 'users', user.uid, 'cheques', chequeId);
+            await updateDoc(docRef, {
+                estado: nuevoEstado
+            });
+        } catch (err) {
+            console.error("Error al actualizar estado del cheque:", err);
+            setError("Error al actualizar el cheque.");
+        }
+    };
+
+    // 3. Función genérica para abrir el modal de confirmación
+    const promptAction = (message, action) => {
+        setConfirmParams({ message, action: () => {
+            action();
+            setShowConfirmModal(false);
+        }});
+        setShowConfirmModal(true);
+    };
+
+    // 4. Lógica de renderizado de acciones para cheques RECIBIDOS
+    const renderAccionesRecibido = (cheque) => {
+        switch (cheque.estado) {
+            case 'En Cartera':
+                return (
+                    <button 
+                        onClick={() => promptAction(
+                            `¿Confirmas que quieres depositar el cheque N° ${cheque.numero}?`,
+                            () => handleUpdateEstado(cheque.id, 'Depositado')
+                        )}
+                        className="btn-primary text-xs"
+                    >
+                        Depositar
+                    </button>
+                );
+            case 'Depositado':
+                return (
+                    <button 
+                        onClick={() => promptAction(
+                            `¿Confirmas que el cheque N° ${cheque.numero} se ha cobrado?`,
+                            () => handleUpdateEstado(cheque.id, 'Cobrado')
+                        )}
+                        className="btn-primary-green text-xs"
+                    >
+                        Marcar Cobrado
+                    </button>
+                );
+            case 'Cobrado':
+                return <span className="text-green-600 font-semibold">Cobrado</span>;
+            default:
+                return null;
+        }
+    };
+    
+    // 5. Lógica de renderizado de acciones para cheques EMITIDOS
+    const renderAccionesEmitido = (cheque) => {
+         switch (cheque.estado) {
+            case 'Emitido':
+                return (
+                    <button 
+                        onClick={() => promptAction(
+                            `¿Confirmas que el cheque N° ${cheque.numero} se ha pagado?`,
+                            () => handleUpdateEstado(cheque.id, 'Pagado')
+                        )}
+                        className="btn-primary-green text-xs"
+                    >
+                        Marcar Pagado
+                    </button>
+                );
+            case 'Pagado':
+                 return <span className="text-green-600 font-semibold">Pagado</span>;
+            default:
+                return null;
+        }
+    };
+
+    const chequesRecibidos = cheques.filter(c => c.tipo === 'recibido');
+    const chequesEmitidos = cheques.filter(c => c.tipo === 'emitido');
+
+    return (
+        <div>
+            {/* Modal de Confirmación reutilizado */}
+            {showConfirmModal && (
+                <ConfirmModal
+                    message={confirmParams.message}
+                    onConfirm={confirmParams.action}
+                    onCancel={() => setShowConfirmModal(false)}
+                />
+            )}
+
+            <h2 className="text-3xl font-bold mb-6">Gestión de Cheques</h2>
+            
+            {error && <p className="text-red-600 bg-red-100 p-3 rounded mb-4">{error}</p>}
+            
+            {loading ? (
+                <p className="text-center py-10">Cargando cheques...</p>
+            ) : (
+                <div className="space-y-10">
+                    {/* Tabla de Cheques Recibidos */}
+                    <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
+                        <h3 className="text-xl font-bold mb-4">Cheques Recibidos (de Clientes)</h3>
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">Recibido de</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">N° Cheque</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">Banco</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha Vto.</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium uppercase">Monto</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">Estado</th>
+                                    <th className="px-6 py-3 text-center text-xs font-medium uppercase">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {chequesRecibidos.length > 0 ? (
+                                    chequesRecibidos.map(cheque => (
+                                        <tr key={cheque.id}>
+                                            <td className="px-6 py-4 whitespace-nowrap">{cheque.terceroNombre}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">{cheque.numero}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">{cheque.banco}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">{formatDate(cheque.fechaVencimiento)}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-right">{formatCurrency(cheque.monto)}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap font-semibold">{cheque.estado}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-center">
+                                                {renderAccionesRecibido(cheque)}
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr><td colSpan="7" className="text-center py-10 text-gray-500">No hay cheques recibidos registrados.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Tabla de Cheques Emitidos */}
+                    <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
+                        <h3 className="text-xl font-bold mb-4">Cheques Emitidos (a Proveedores)</h3>
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">Pagado a</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">N° Cheque</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">Banco</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha Vto.</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium uppercase">Monto</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium uppercase">Estado</th>
+                                    <th className="px-6 py-3 text-center text-xs font-medium uppercase">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {chequesEmitidos.length > 0 ? (
+                                    chequesEmitidos.map(cheque => (
+                                        <tr key={cheque.id}>
+                                            <td className="px-6 py-4 whitespace-nowrap">{cheque.terceroNombre}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">{cheque.numero}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">{cheque.banco}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">{formatDate(cheque.fechaVencimiento)}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-right">{formatCurrency(cheque.monto)}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap font-semibold">{cheque.estado}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-center">
+                                                {renderAccionesEmitido(cheque)}
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr><td colSpan="7" className="text-center py-10 text-gray-500">No hay cheques emitidos registrados.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
         const ReportsPage = () => {
             const { userData } = useAuth();
             const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -2623,130 +2834,186 @@ const TerceroModal = ({ tercero, onClose }) => {
             </div>
         );
     };
+    // --- MODAL PARA REGISTRAR NUEVO PAGO REALIZADO (A PROVEEDOR) ---
+const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimiento }) => {
+    const { user } = useAuth();
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [message, setMessage] = useState('');
+    const isEditMode = movimiento && movimiento.id;
 
-    // --- MODAL PARA REGISTRAR NUEVO PAGO REALIZADO ---
-    const PagoRealizadoModal = ({ isOpen, onClose, proveedorId, proveedorNombre, movimiento }) => {
-        const { user } = useAuth();
-        const [isSubmitting, setIsSubmitting] = useState(false);
-        const [message, setMessage] = useState('');
-        const isEditMode = movimiento && movimiento.id;
+    const [formData, setFormData] = useState({
+        fechaPago: new Date().toISOString().split('T')[0],
+        montoPagado: 0,
+        medioDePago: 'Transferencia',
+        referencia: '',
+        // --- NUEVOS CAMPOS PARA CHEQUE ---
+        chequeNumero: '',
+        chequeBanco: '',
+        chequeFechaVencimiento: '',
+    });
 
-        const [formData, setFormData] = useState({
-            fechaPago: new Date().toISOString().split('T')[0],
-            montoPagado: 0,
-            medioDePago: 'Transferencia',
-            referencia: '',
-        });
+    useEffect(() => {
+        if (isOpen && movimiento) {
+            setFormData({
+                fechaPago: movimiento.fechaPago?.toDate ? movimiento.fechaPago.toDate().toISOString().split('T')[0] : (movimiento.fechaPago || new Date().toISOString().split('T')[0]),
+                montoPagado: movimiento.montoPagado || 0,
+                medioDePago: movimiento.medioDePago || 'Transferencia',
+                referencia: movimiento.referencia || '',
+                // --- RESETEAMOS CAMPOS CHEQUE ---
+                chequeNumero: '',
+                chequeBanco: '',
+                chequeFechaVencimiento: '',
+            });
+            setIsSubmitting(false);
+            setMessage('');
+        }
+    }, [isOpen, movimiento]);
 
-        useEffect(() => {
-            if (isOpen && movimiento) {
-                setFormData({
-                    fechaPago: movimiento.fechaPago?.toDate ? movimiento.fechaPago.toDate().toISOString().split('T')[0] : (movimiento.fechaPago || new Date().toISOString().split('T')[0]),
-                    montoPagado: movimiento.montoPagado || 0,
-                    medioDePago: movimiento.medioDePago || 'Transferencia',
-                    referencia: movimiento.referencia || '',
-                });
-                setIsSubmitting(false);
-                setMessage('');
-            }
-        }, [isOpen, movimiento]);
+    const handleChange = (e) => {
+        const { name, value, type } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: type === 'number' ? parseFloat(value) || 0 : value
+        }));
+    };
 
-        const handleChange = (e) => {
-            const { name, value, type } = e.target;
-            setFormData(prev => ({
-                ...prev,
-                [name]: type === 'number' ? parseFloat(value) || 0 : value
-            }));
-        };
-
-        const handleSubmit = async (e) => {
-            e.preventDefault();
-            if (formData.montoPagado <= 0) {
-                setMessage('Error: El monto pagado debe ser mayor a cero.');
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (formData.montoPagado <= 0) {
+            setMessage('Error: El monto pagado debe ser mayor a cero.');
+            return;
+        }
+        
+        // --- NUEVA VALIDACIÓN PARA CHEQUES (Solo al crear) ---
+        if (formData.medioDePago === 'Cheque' && !isEditMode) {
+            if (!formData.chequeNumero || !formData.chequeBanco || !formData.chequeFechaVencimiento) {
+                setMessage('Error: Para pagos con cheque, debe completar N°, Banco y Fecha de Vencimiento.');
                 return;
             }
-            
-            setIsSubmitting(true);
-            setMessage('');
+        }
+        
+        setIsSubmitting(true);
+        setMessage('');
 
-            const dataToSave = {
-                terceroId: proveedorId,
-                fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
-                montoPagado: formData.montoPagado,
-                medioDePago: formData.medioDePago,
-                referencia: formData.referencia || '',
-            };
-
-            try {
-                // <-- CAMBIO: Nueva colección
-                const collectionName = 'pagosRealizados';
-                if (isEditMode) {
-                    const docRef = doc(db, 'users', user.uid, collectionName, movimiento.id);
-                    await updateDoc(docRef, dataToSave);
-                } else {
-                    const pagosCollectionRef = collection(db, 'users', user.uid, collectionName);
-                    await addDoc(pagosCollectionRef, dataToSave);
-                }
-                setIsSubmitting(false);
-                onClose();
-            } catch (err) {
-                console.error("Error al guardar el pago:", err);
-                setMessage('Error al guardar el pago. Inténtelo de nuevo.');
-                setIsSubmitting(false);
-            }
+        const dataToSave = {
+            terceroId: clienteId,
+            fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
+            montoPagado: formData.montoPagado,
+            medioDePago: formData.medioDePago,
+            referencia: formData.referencia || '',
         };
 
-        if (!isOpen) return null;
+        try {
+            if (isEditMode) {
+                // Lógica de Edición (No se modifica el cheque asociado)
+                const docRef = doc(db, 'users', user.uid, 'pagosRealizados', movimiento.id);
+                await updateDoc(docRef, dataToSave);
+            } else {
+                // Lógica de Creación
+                const pagosCollectionRef = collection(db, 'users', user.uid, 'pagosRealizados');
+                const docRef = await addDoc(pagosCollectionRef, dataToSave); // Obtenemos la ref del nuevo pago
 
-        return (
-            <div className="modal-overlay fade-in">
-                <div className="modal-content slide-in-bottom sm:max-w-lg">
-                    <h2 className="text-2xl font-bold mb-4">{isEditMode ? 'Modificar' : 'Registrar'} Pago Realizado</h2>
-                    <p className="mb-6 text-gray-600">Proveedor: <span className="font-semibold">{proveedorNombre}</span></p>
-                    
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="label">Fecha de Pago</label>
-                                <input type="date" name="fechaPago" value={formData.fechaPago} onChange={handleChange} required className="input"/>
-                            </div>
-                            <div>
-                                <label className="label">Monto Pagado</label>
-                                <div className="relative">
-                                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
-                                    <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <label className="label">Medio de Pago</label>
-                            <select name="medioDePago" value={formData.medioDePago} onChange={handleChange} className="input">
-                                <option>Transferencia</option>
-                                <option>Efectivo</option>
-                                <option>Cheque</option>
-                                <option>Otro</option>
-                            </select>
-                        </div>
+                // --- NUEVA LÓGICA: GUARDAR CHEQUE ---
+                if (formData.medioDePago === 'Cheque') {
+                    const chequeData = {
+                        terceroId: clienteId,
+                        terceroNombre: clienteNombre,
+                        tipo: 'emitido', // Cheque propio
+                        estado: 'Emitido',
+                        numero: formData.chequeNumero,
+                        banco: formData.chequeBanco,
+                        fechaVencimiento: Timestamp.fromDate(new Date(formData.chequeFechaVencimiento + 'T00:00:00-03:00')),
+                        fechaEmision: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
+                        monto: formData.montoPagado,
+                        pagoId: docRef.id // Vinculamos el cheque al pago
+                    };
+                    // Creamos el doc en la colección 'cheques'
+                    await addDoc(collection(db, 'users', user.uid, 'cheques'), chequeData);
+                }
+            }
 
-                        <div>
-                            <label className="label">Referencia (Opcional)</label>
-                            <input type="text" name="referencia" value={formData.referencia} onChange={handleChange} className="input" placeholder="N° de cheque, ID de transferencia, etc."/>
-                        </div>
+            setIsSubmitting(false);
+            onClose(); // Cierra el modal
 
-                        {message && <p className={`text-center ${message.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>}
-                        
-                        <div className="flex justify-end gap-4 pt-4">
-                            <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
-                            <button type="submit" disabled={isSubmitting} className="btn-primary-green">
-                                {isSubmitting ? 'Guardando...' : (isEditMode ? 'Guardar Cambios' : 'Guardar Pago')}
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        );
+        } catch (err) {
+            console.error("Error al guardar el pago:", err);
+            setMessage('Error al guardar el pago. Inténtelo de nuevo.');
+            setIsSubmitting(false);
+        }
     };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="modal-overlay fade-in">
+            <div className="modal-content slide-in-bottom sm:max-w-lg">
+                <h2 className="text-2xl font-bold mb-4">{isEditMode ? 'Modificar' : 'Registrar'} Pago Realizado</h2>
+                <p className="mb-6 text-gray-600">Proveedor: <span className="font-semibold">{clienteNombre}</span></p>
+                
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="label">Fecha de Pago</label>
+                            <input type="date" name="fechaPago" value={formData.fechaPago} onChange={handleChange} required className="input"/>
+                        </div>
+                        <div>
+                            <label className="label">Monto Pagado</label>
+                            <div className="relative">
+                                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
+                                <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label className="label">Medio de Pago</label>
+                        {/* --- CAMBIO: Deshabilitamos edición de cheque --- */}
+                        <select name="medioDePago" value={formData.medioDePago} onChange={handleChange} className="input" disabled={isEditMode}>
+                            <option>Transferencia</option>
+                            <option>Efectivo</option>
+                            <option>Cheque</option>
+                            <option>Otro</option>
+                        </select>
+                        {isEditMode && movimiento.medioDePago === 'Cheque' && <p className="text-sm text-gray-500 mt-2">La edición de pagos con cheques asociados no está habilitada. Gestione el cheque desde el módulo de Cheques.</p>}
+                    </div>
+
+                    {/* --- NUEVOS CAMPOS (Solo al crear) --- */}
+                    {formData.medioDePago === 'Cheque' && !isEditMode && (
+                        <div className="space-y-4 p-4 border rounded-md bg-gray-50 fade-in">
+                            <h4 className="font-semibold">Datos del Cheque Emitido</h4>
+                            <div>
+                                <label className="label">N° de Cheque</label>
+                                <input type="text" name="chequeNumero" value={formData.chequeNumero} onChange={handleChange} className="input" placeholder="00012345"/>
+                            </div>
+                            <div>
+                                <label className="label">Banco (Tu banco)</label>
+                                <input type="text" name="chequeBanco" value={formData.chequeBanco} onChange={handleChange} className="input" placeholder="Ej: Banco Macro"/>
+                            </div>
+                            <div>
+                                <label className="label">Fecha Vencimiento Cheque</label>
+                                <input type="date" name="chequeFechaVencimiento" value={formData.chequeFechaVencimiento} onChange={handleChange} className="input"/>
+                            </div>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="label">Referencia (Opcional)</label>
+                        <input type="text" name="referencia" value={formData.referencia} onChange={handleChange} className="input" placeholder="N° de transferencia, etc."/>
+                    </div>
+
+                    {message && <p className={`text-center ${message.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>}
+                    
+                    <div className="flex justify-end gap-4 pt-4">
+                        <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
+                        <button type="submit" disabled={isSubmitting} className="btn-primary-green">
+                            {isSubmitting ? 'Guardando...' : (isEditMode ? 'Guardar Cambios' : 'Guardar Pago')}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
 
       // --- PÁGINA DE DETALLE: CUENTA CORRIENTE CLIENTE ---
     const CuentaCorrienteClientePage = ({ terceroId }) => {
@@ -3154,138 +3421,186 @@ const TerceroModal = ({ tercero, onClose }) => {
               </div>
           );
       };
-
       // --- MODAL PARA REGISTRAR NUEVO PAGO RECIBIDO ---
-      const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimiento }) => {
-          const { user } = useAuth();
-          const [isSubmitting, setIsSubmitting] = useState(false);
-          const [message, setMessage] = useState('');
-          // --- CAMBIO: isEditMode se calcula basado en el 'movimiento' recibido ---
-          const isEditMode = movimiento && movimiento.id;
+const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimiento }) => {
+    const { user } = useAuth();
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [message, setMessage] = useState('');
+    const isEditMode = movimiento && movimiento.id;
 
-          const [formData, setFormData] = useState({
-              fechaPago: new Date().toISOString().split('T')[0],
-              montoPagado: 0,
-              medioDePago: 'Transferencia',
-              referencia: '',
-          });
+    const [formData, setFormData] = useState({
+        fechaPago: new Date().toISOString().split('T')[0],
+        montoPagado: 0,
+        medioDePago: 'Transferencia',
+        referencia: '',
+        // --- NUEVOS CAMPOS PARA CHEQUE ---
+        chequeNumero: '',
+        chequeBanco: '',
+        chequeFechaVencimiento: '',
+    });
 
-          // --- CAMBIO: useEffect ahora rellena el formulario si estamos en modo edición ---
-          useEffect(() => {
-              if (isOpen && movimiento) {
-                  setFormData({
-                      fechaPago: movimiento.fechaPago?.toDate ? movimiento.fechaPago.toDate().toISOString().split('T')[0] : (movimiento.fechaPago || new Date().toISOString().split('T')[0]),
-                      montoPagado: movimiento.montoPagado || 0,
-                      medioDePago: movimiento.medioDePago || 'Transferencia',
-                      referencia: movimiento.referencia || '',
-                  });
-                  setIsSubmitting(false);
-                  setMessage('');
-              }
-          }, [isOpen, movimiento]);
+    useEffect(() => {
+        if (isOpen && movimiento) {
+            setFormData({
+                fechaPago: movimiento.fechaPago?.toDate ? movimiento.fechaPago.toDate().toISOString().split('T')[0] : (movimiento.fechaPago || new Date().toISOString().split('T')[0]),
+                montoPagado: movimiento.montoPagado || 0,
+                medioDePago: movimiento.medioDePago || 'Transferencia',
+                referencia: movimiento.referencia || '',
+                // --- RESETEAMOS CAMPOS CHEQUE ---
+                chequeNumero: '',
+                chequeBanco: '',
+                chequeFechaVencimiento: '',
+            });
+            setIsSubmitting(false);
+            setMessage('');
+        }
+    }, [isOpen, movimiento]);
 
-          const handleChange = (e) => {
-              const { name, value, type } = e.target;
-              setFormData(prev => ({
-                  ...prev,
-                  [name]: type === 'number' ? parseFloat(value) || 0 : value
-              }));
-          };
+    const handleChange = (e) => {
+        const { name, value, type } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: type === 'number' ? parseFloat(value) || 0 : value
+        }));
+    };
 
-          // --- CAMBIO: handleSubmit ahora maneja lógica de Edición (updateDoc) y Creación (addDoc) ---
-          const handleSubmit = async (e) => {
-              e.preventDefault();
-              if (formData.montoPagado <= 0) {
-                  setMessage('Error: El monto pagado debe ser mayor a cero.');
-                  return;
-              }
-              
-              setIsSubmitting(true);
-              setMessage('');
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (formData.montoPagado <= 0) {
+            setMessage('Error: El monto pagado debe ser mayor a cero.');
+            return;
+        }
+        
+        // --- NUEVA VALIDACIÓN PARA CHEQUES (Solo al crear) ---
+        if (formData.medioDePago === 'Cheque' && !isEditMode) {
+            if (!formData.chequeNumero || !formData.chequeBanco || !formData.chequeFechaVencimiento) {
+                setMessage('Error: Para pagos con cheque, debe completar N°, Banco y Fecha de Vencimiento.');
+                return;
+            }
+        }
+        
+        setIsSubmitting(true);
+        setMessage('');
 
-              const dataToSave = {
-                  terceroId: clienteId,
-                  fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
-                  montoPagado: formData.montoPagado,
-                  medioDePago: formData.medioDePago,
-                  referencia: formData.referencia || '',
-              };
+        const dataToSave = {
+            terceroId: clienteId,
+            fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
+            montoPagado: formData.montoPagado,
+            medioDePago: formData.medioDePago,
+            referencia: formData.referencia || '',
+        };
 
-              try {
-                  if (isEditMode) {
-                      // Lógica de Edición
-                      const docRef = doc(db, 'users', user.uid, 'pagosRecibidos', movimiento.id);
-                      await updateDoc(docRef, dataToSave);
-                  } else {
-                      // Lógica de Creación (la que ya tenías)
-                      const pagosCollectionRef = collection(db, 'users', user.uid, 'pagosRecibidos');
-                      await addDoc(pagosCollectionRef, dataToSave);
-                  }
+        try {
+            if (isEditMode) {
+                // Lógica de Edición (No se modifica el cheque asociado)
+                const docRef = doc(db, 'users', user.uid, 'pagosRecibidos', movimiento.id);
+                await updateDoc(docRef, dataToSave);
+            } else {
+                // Lógica de Creación
+                const pagosCollectionRef = collection(db, 'users', user.uid, 'pagosRecibidos');
+                const docRef = await addDoc(pagosCollectionRef, dataToSave); // Obtenemos la ref del nuevo pago
 
-                  setIsSubmitting(false);
-                  onClose(); // Cierra el modal
+                // --- NUEVA LÓGICA: GUARDAR CHEQUE ---
+                if (formData.medioDePago === 'Cheque') {
+                    const chequeData = {
+                        terceroId: clienteId,
+                        terceroNombre: clienteNombre,
+                        tipo: 'recibido', // Cheque de cliente
+                        estado: 'En Cartera',
+                        numero: formData.chequeNumero,
+                        banco: formData.chequeBanco,
+                        fechaVencimiento: Timestamp.fromDate(new Date(formData.chequeFechaVencimiento + 'T00:00:00-03:00')),
+                        fechaRecepcion: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
+                        monto: formData.montoPagado,
+                        pagoId: docRef.id // Vinculamos el cheque al pago
+                    };
+                    // Creamos el doc en la colección 'cheques'
+                    await addDoc(collection(db, 'users', user.uid, 'cheques'), chequeData);
+                }
+            }
 
-              } catch (err) {
-                  console.error("Error al guardar el pago:", err);
-                  setMessage('Error al guardar el pago. Inténtelo de nuevo.');
-                  setIsSubmitting(false);
-              }
-          };
+            setIsSubmitting(false);
+            onClose(); // Cierra el modal
 
-          if (!isOpen) return null;
+        } catch (err) {
+            console.error("Error al guardar el pago:", err);
+            setMessage('Error al guardar el pago. Inténtelo de nuevo.');
+            setIsSubmitting(false);
+        }
+    };
 
-          return (
-              <div className="modal-overlay fade-in">
-                  <div className="modal-content slide-in-bottom sm:max-w-lg">
-                  {/* --- CAMBIO: Título dinámico --- */}
-                      <h2 className="text-2xl font-bold mb-4">{isEditMode ? 'Modificar' : 'Registrar'} Pago Recibido</h2>
-                      <p className="mb-6 text-gray-600">Cliente: <span className="font-semibold">{clienteNombre}</span></p>
-                      
-                      <form onSubmit={handleSubmit} className="space-y-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                  <label className="label">Fecha de Pago</label>
-                                  <input type="date" name="fechaPago" value={formData.fechaPago} onChange={handleChange} required className="input"/>
-                              </div>
-                              <div>
-                                  <label className="label">Monto Pagado</label>
-                                  <div className="relative">
-                                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
-                                      <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
-                                  </div>
-                              </div>
-                          </div>
-                          
-                          <div>
-                              <label className="label">Medio de Pago</label>
-                              <select name="medioDePago" value={formData.medioDePago} onChange={handleChange} className="input">
-                                  <option>Transferencia</option>
-                                  <option>Efectivo</option>
-                                  <option>Cheque</option>
-                                  <option>Otro</option>
-                              </select>
-                          </div>
+    if (!isOpen) return null;
 
-                          <div>
-                              <label className="label">Referencia (Opcional)</label>
-                              <input type="text" name="referencia" value={formData.referencia} onChange={handleChange} className="input" placeholder="N° de cheque, ID de transferencia, etc."/>
-                          </div>
+    return (
+        <div className="modal-overlay fade-in">
+            <div className="modal-content slide-in-bottom sm:max-w-lg">
+                <h2 className="text-2xl font-bold mb-4">{isEditMode ? 'Modificar' : 'Registrar'} Pago Recibido</h2>
+                <p className="mb-6 text-gray-600">Cliente: <span className="font-semibold">{clienteNombre}</span></p>
+                
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="label">Fecha de Pago</label>
+                            <input type="date" name="fechaPago" value={formData.fechaPago} onChange={handleChange} required className="input"/>
+                        </div>
+                        <div>
+                            <label className="label">Monto Pagado</label>
+                            <div className="relative">
+                                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
+                                <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label className="label">Medio de Pago</label>
+                        {/* --- CAMBIO: Deshabilitamos edición de cheque --- */}
+                        <select name="medioDePago" value={formData.medioDePago} onChange={handleChange} className="input" disabled={isEditMode}>
+                            <option>Transferencia</option>
+                            <option>Efectivo</option>
+                            <option>Cheque</option>
+                            <option>Otro</option>
+                        </select>
+                        {isEditMode && movimiento.medioDePago === 'Cheque' && <p className="text-sm text-gray-500 mt-2">La edición de pagos con cheques asociados no está habilitada. Gestione el cheque desde el módulo de Cheques.</p>}
+                    </div>
 
-                          {message && <p className={`text-center ${message.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>}
-                          
-                          <div className="flex justify-end gap-4 pt-4">
-                              <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
-                              <button type="submit" disabled={isSubmitting} className="btn-primary-green">
-                                  {/* --- CAMBIO: Texto de botón dinámico --- */}
-                                  {isSubmitting ? 'Guardando...' : (isEditMode ? 'Guardar Cambios' : 'Guardar Pago')}
-                              </button>
-                          </div>
-                      </form>
-                  </div>
-              </div>
-          );
-      };
+                    {/* --- NUEVOS CAMPOS (Solo al crear) --- */}
+                    {formData.medioDePago === 'Cheque' && !isEditMode && (
+                        <div className="space-y-4 p-4 border rounded-md bg-gray-50 fade-in">
+                            <h4 className="font-semibold">Datos del Cheque Recibido</h4>
+                            <div>
+                                <label className="label">N° de Cheque</label>
+                                <input type="text" name="chequeNumero" value={formData.chequeNumero} onChange={handleChange} className="input" placeholder="00012345"/>
+                            </div>
+                            <div>
+                                <label className="label">Banco</label>
+                                <input type="text" name="chequeBanco" value={formData.chequeBanco} onChange={handleChange} className="input" placeholder="Ej: Banco Galicia"/>
+                            </div>
+                            <div>
+                                <label className="label">Fecha Vencimiento Cheque</label>
+                                <input type="date" name="chequeFechaVencimiento" value={formData.chequeFechaVencimiento} onChange={handleChange} className="input"/>
+                            </div>
+                        </div>
+                    )}
 
+                    <div>
+                        <label className="label">Referencia (Opcional)</label>
+                        <input type="text" name="referencia" value={formData.referencia} onChange={handleChange} className="input" placeholder="N° de transferencia, etc."/>
+                    </div>
+
+                    {message && <p className={`text-center ${message.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>}
+                    
+                    <div className="flex justify-end gap-4 pt-4">
+                        <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
+                        <button type="submit" disabled={isSubmitting} className="btn-primary-green">
+                            {isSubmitting ? 'Guardando...' : (isEditMode ? 'Guardar Cambios' : 'Guardar Pago')}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
             // --- ROUTER Y APP PRINCIPAL (Actualizado para Proveedores) ---
       const AppContext = createContext();
 
