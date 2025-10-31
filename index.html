@@ -2835,7 +2835,8 @@ const TerceroModal = ({ tercero, onClose }) => {
         );
     };
     // --- MODAL PARA REGISTRAR NUEVO PAGO REALIZADO (A PROVEEDOR) ---
-const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimiento }) => {
+// ---- CORRECCIÓN: Se cambian props de 'cliente' a 'proveedor' ----
+const PagoRealizadoModal = ({ isOpen, onClose, proveedorId, proveedorNombre, movimiento }) => {
     const { user } = useAuth();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [message, setMessage] = useState('');
@@ -2846,7 +2847,6 @@ const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimie
         montoPagado: 0,
         medioDePago: 'Transferencia',
         referencia: '',
-        // --- NUEVOS CAMPOS PARA CHEQUE ---
         chequeNumero: '',
         chequeBanco: '',
         chequeFechaVencimiento: '',
@@ -2859,7 +2859,6 @@ const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimie
                 montoPagado: movimiento.montoPagado || 0,
                 medioDePago: movimiento.medioDePago || 'Transferencia',
                 referencia: movimiento.referencia || '',
-                // --- RESETEAMOS CAMPOS CHEQUE ---
                 chequeNumero: '',
                 chequeBanco: '',
                 chequeFechaVencimiento: '',
@@ -2884,7 +2883,6 @@ const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimie
             return;
         }
         
-        // --- NUEVA VALIDACIÓN PARA CHEQUES (Solo al crear) ---
         if (formData.medioDePago === 'Cheque' && !isEditMode) {
             if (!formData.chequeNumero || !formData.chequeBanco || !formData.chequeFechaVencimiento) {
                 setMessage('Error: Para pagos con cheque, debe completar N°, Banco y Fecha de Vencimiento.');
@@ -2896,7 +2894,8 @@ const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimie
         setMessage('');
 
         const dataToSave = {
-            terceroId: clienteId,
+            // ---- CORRECCIÓN: Se usa 'proveedorId' ----
+            terceroId: proveedorId,
             fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
             montoPagado: formData.montoPagado,
             medioDePago: formData.medioDePago,
@@ -2905,35 +2904,32 @@ const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimie
 
         try {
             if (isEditMode) {
-                // Lógica de Edición (No se modifica el cheque asociado)
                 const docRef = doc(db, 'users', user.uid, 'pagosRealizados', movimiento.id);
                 await updateDoc(docRef, dataToSave);
             } else {
-                // Lógica de Creación
                 const pagosCollectionRef = collection(db, 'users', user.uid, 'pagosRealizados');
-                const docRef = await addDoc(pagosCollectionRef, dataToSave); // Obtenemos la ref del nuevo pago
+                const docRef = await addDoc(pagosCollectionRef, dataToSave); 
 
-                // --- NUEVA LÓGICA: GUARDAR CHEQUE ---
                 if (formData.medioDePago === 'Cheque') {
                     const chequeData = {
-                        terceroId: clienteId,
-                        terceroNombre: clienteNombre,
-                        tipo: 'emitido', // Cheque propio
+                        // ---- CORRECCIÓN: Se usa 'proveedorId' y 'proveedorNombre' ----
+                        terceroId: proveedorId,
+                        terceroNombre: proveedorNombre,
+                        tipo: 'emitido', 
                         estado: 'Emitido',
                         numero: formData.chequeNumero,
                         banco: formData.chequeBanco,
                         fechaVencimiento: Timestamp.fromDate(new Date(formData.chequeFechaVencimiento + 'T00:00:00-03:00')),
                         fechaEmision: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
                         monto: formData.montoPagado,
-                        pagoId: docRef.id // Vinculamos el cheque al pago
+                        pagoId: docRef.id 
                     };
-                    // Creamos el doc en la colección 'cheques'
                     await addDoc(collection(db, 'users', user.uid, 'cheques'), chequeData);
                 }
             }
 
             setIsSubmitting(false);
-            onClose(); // Cierra el modal
+            onClose(); 
 
         } catch (err) {
             console.error("Error al guardar el pago:", err);
@@ -2948,7 +2944,8 @@ const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimie
         <div className="modal-overlay fade-in">
             <div className="modal-content slide-in-bottom sm:max-w-lg">
                 <h2 className="text-2xl font-bold mb-4">{isEditMode ? 'Modificar' : 'Registrar'} Pago Realizado</h2>
-                <p className="mb-6 text-gray-600">Proveedor: <span className="font-semibold">{clienteNombre}</span></p>
+                {/* ---- CORRECCIÓN: Se usa 'proveedorNombre' ---- */}
+                <p className="mb-6 text-gray-600">Proveedor: <span className="font-semibold">{proveedorNombre}</span></p>
                 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2967,7 +2964,6 @@ const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimie
                     
                     <div>
                         <label className="label">Medio de Pago</label>
-                        {/* --- CAMBIO: Deshabilitamos edición de cheque --- */}
                         <select name="medioDePago" value={formData.medioDePago} onChange={handleChange} className="input" disabled={isEditMode}>
                             <option>Transferencia</option>
                             <option>Efectivo</option>
@@ -2977,7 +2973,6 @@ const PagoRealizadoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimie
                         {isEditMode && movimiento.medioDePago === 'Cheque' && <p className="text-sm text-gray-500 mt-2">La edición de pagos con cheques asociados no está habilitada. Gestione el cheque desde el módulo de Cheques.</p>}
                     </div>
 
-                    {/* --- NUEVOS CAMPOS (Solo al crear) --- */}
                     {formData.medioDePago === 'Cheque' && !isEditMode && (
                         <div className="space-y-4 p-4 border rounded-md bg-gray-50 fade-in">
                             <h4 className="font-semibold">Datos del Cheque Emitido</h4>
