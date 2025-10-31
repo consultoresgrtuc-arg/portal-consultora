@@ -539,14 +539,14 @@
             );
         };
         
-        // --- NUEVO HOOK DE INACTIVIDAD (pegar antes de AppLayout) ---
+                // --- NUEVO HOOK DE INACTIVIDAD (pegar antes de AppLayout) ---
 const useInactivityTimer = ({ onTimeout, timeout = 3600000, warningTime = 60000 }) => {
-    const [showWarning, setShowWarning] = useState(false);
-    const [countdown, setCountdown] = useState(warningTime / 1000);
+    const [showWarning, setShowWarning] = React.useState(false);
+    const [countdown, setCountdown] = React.useState(warningTime / 1000);
     
-    const timerId = useRef();
-    const warningTimerId = useRef();
-    const countdownIntervalId = useRef();
+    const timerId = React.useRef();
+    const warningTimerId = React.useRef();
+    const countdownIntervalId = React.useRef();
 
     const handleTimeout = () => {
         onTimeout();
@@ -588,7 +588,7 @@ const useInactivityTimer = ({ onTimeout, timeout = 3600000, warningTime = 60000 
     };
 
     // Iniciar el temporizador al montar
-    useEffect(() => {
+    React.useEffect(() => {
         resetTimer();
 
         // Eventos que reinician el temporizador
@@ -638,9 +638,9 @@ const InactivityWarningModal = ({ isOpen, onKeepActive, countdown }) => {
 
 // --- LAYOUT PRINCIPAL (ACTUALIZADO) ---
 const AppLayout = ({ children }) => {
-    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = React.useState(false);
     const { userData, auth, signOut } = useAuth(); // Importamos auth y signOut
-    const { navigate } = useContext(AppContext);
+    const { navigate } = React.useContext(AppContext);
     
     // --- LÓGICA DE INACTIVIDAD ---
     const handleTimeout = () => {
