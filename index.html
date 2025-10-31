@@ -539,7 +539,7 @@
             );
         };
         
-                // --- NUEVO HOOK DE INACTIVIDAD (pegar antes de AppLayout) ---
+        // --- NUEVO HOOK DE INACTIVIDAD (pegar antes de AppLayout) ---
 const useInactivityTimer = ({ onTimeout, timeout = 3600000, warningTime = 60000 }) => {
     const [showWarning, setShowWarning] = React.useState(false);
     const [countdown, setCountdown] = React.useState(warningTime / 1000);
@@ -639,12 +639,16 @@ const InactivityWarningModal = ({ isOpen, onKeepActive, countdown }) => {
 // --- LAYOUT PRINCIPAL (ACTUALIZADO) ---
 const AppLayout = ({ children }) => {
     const [sidebarOpen, setSidebarOpen] = React.useState(false);
-    const { userData, auth, signOut } = useAuth(); // Importamos auth y signOut
+    
+    // --- CORRECCIÓN ---
+    // Solo traemos 'userData' de useAuth. 'auth' y 'signOut' son globales.
+    const { userData } = useAuth(); 
     const { navigate } = React.useContext(AppContext);
     
     // --- LÓGICA DE INACTIVIDAD ---
     const handleTimeout = () => {
-        signOut(auth); // Llama a la función de cierre de sesión
+        // Usamos las variables GLOBALES 'signOut' y 'auth'
+        signOut(auth); 
     };
 
     // 1 hora = 3600000 ms. 1 minuto = 60000 ms.
