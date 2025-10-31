@@ -539,45 +539,172 @@
             );
         };
         
-        // --- LAYOUT PRINCIPAL ---
-        const AppLayout = ({ children }) => {
-            const [sidebarOpen, setSidebarOpen] = useState(false);
-            const { userData } = useAuth();
-            const { navigate } = useContext(AppContext);
-            const navLinks = [
-                { name: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' }, 
-                { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
-                { name: 'Gestión', icon: 'ClipboardList', path: '/gestion'},
-                { name: 'Finanzas', icon: 'TrendingUp', path: '/finances' }, 
-                { name: 'Reportes', icon: 'BarChart3', path: '/reports' },
-                { name: 'Cliente', icon: 'FolderArchive', path: '/client-center' },
-                { name: 'Perfil', icon: 'User', path: '/profile' },
-                ...(userData?.isAdmin ? [{ name: 'Admin', icon: 'Shield', path: '/admin' }] : [])
-            ];
-            
-            const handleNavigate = (path) => {
-                navigate(path);
-                setSidebarOpen(false); // Cierra el menú al navegar
-            };
+        // --- NUEVO HOOK DE INACTIVIDAD (pegar antes de AppLayout) ---
+const useInactivityTimer = ({ onTimeout, timeout = 3600000, warningTime = 60000 }) => {
+    const [showWarning, setShowWarning] = useState(false);
+    const [countdown, setCountdown] = useState(warningTime / 1000);
+    
+    const timerId = useRef();
+    const warningTimerId = useRef();
+    const countdownIntervalId = useRef();
 
-            return (
-                <div className="flex h-screen bg-gray-100">
-                    {/* Overlay para cerrar el menú en móvil */}
-                    {sidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setSidebarOpen(false)}></div>}
+    const handleTimeout = () => {
+        onTimeout();
+    };
 
-                    <div className={`fixed inset-y-0 left-0 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out bg-gray-800 text-white w-64 space-y-6 py-7 px-2 z-30 no-print`}>
-                        <a href="#" onClick={() => handleNavigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">G&R Consultores</span></a>
-                        <nav>{navLinks.map(link => (<a key={link.name} href="#" onClick={() => handleNavigate(link.path)} className="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name={link.icon} className="w-5 h-5"/><span>{link.name}</span></a>))}</nav>
-                        <div className="absolute bottom-5 w-full left-0 px-4"><button onClick={() => signOut(auth)} className="w-full text-left py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name="LogOut" className="w-5 h-5"/><span>Cerrar Sesión</span></button></div>
-                    </div>
-                    <div className="flex-1 flex flex-col overflow-hidden">
-                        <header className="flex justify-between items-center p-4 bg-white border-b no-print"><button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 focus:outline-none md:hidden"><Icon name="Menu" className="h-6 w-6"/></button><h1 className="text-2xl font-semibold text-gray-800">Bienvenido, {userData?.nombre || 'Cliente'}!</h1><div></div></header>
-                        <main className="flex-1 overflow-y-auto bg-gray-100 p-6"><div className="fade-in">{children}</div></main>
-                    </div>
-                </div>
-            );
-        };
+    const handleShowWarning = () => {
+        setShowWarning(true);
+        // Iniciar cuenta regresiva para el modal
+        setCountdown(warningTime / 1000);
+        countdownIntervalId.current = setInterval(() => {
+            setCountdown(prev => {
+                if (prev <= 1) {
+                    clearInterval(countdownIntervalId.current);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    };
+
+    const resetTimer = () => {
+        // Limpiar todos los temporizadores
+        if (timerId.current) clearTimeout(timerId.current);
+        if (warningTimerId.current) clearTimeout(warningTimerId.current);
+        if (countdownIntervalId.current) clearInterval(countdownIntervalId.current);
         
+        setShowWarning(false);
+        setCountdown(warningTime / 1000);
+
+        // Iniciar temporizador de advertencia (1 hora - 1 minuto)
+        warningTimerId.current = setTimeout(handleShowWarning, timeout - warningTime);
+        
+        // Iniciar temporizador de cierre de sesión (1 hora)
+        timerId.current = setTimeout(handleTimeout, timeout);
+    };
+
+    const keepActive = () => {
+        resetTimer();
+    };
+
+    // Iniciar el temporizador al montar
+    useEffect(() => {
+        resetTimer();
+
+        // Eventos que reinician el temporizador
+        const events = ['mousemove', 'mousedown', 'keypress', 'touchstart'];
+        const eventListener = () => resetTimer();
+        
+        events.forEach(event => window.addEventListener(event, eventListener));
+
+        // Limpieza al desmontar
+        return () => {
+            if (timerId.current) clearTimeout(timerId.current);
+            if (warningTimerId.current) clearTimeout(warningTimerId.current);
+            if (countdownIntervalId.current) clearInterval(countdownIntervalId.current);
+            events.forEach(event => window.removeEventListener(event, eventListener));
+        };
+    }, [onTimeout, timeout, warningTime]);
+
+    return { showWarning, keepActive, countdown };
+};
+
+// --- NUEVO MODAL DE ADVERTENCIA (pegar antes de AppLayout) ---
+const InactivityWarningModal = ({ isOpen, onKeepActive, countdown }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="modal-overlay fade-in">
+            <div className="modal-content slide-in-bottom sm:max-w-md">
+                <div className="text-center">
+                    <Icon name="AlertTriangle" className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
+                    <h3 className="text-2xl font-bold mb-3">¿Sigues ahí?</h3>
+                    <p className="text-gray-600 mb-6">
+                        Tu sesión está a punto de cerrarse por inactividad.
+                        Cerrando sesión en... <span className="font-bold text-lg">{countdown}</span> segundos.
+                    </p>
+                    <button 
+                        onClick={onKeepActive} 
+                        className="btn-primary w-full"
+                    >
+                        Permanecer Activo
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- LAYOUT PRINCIPAL (ACTUALIZADO) ---
+const AppLayout = ({ children }) => {
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const { userData, auth, signOut } = useAuth(); // Importamos auth y signOut
+    const { navigate } = useContext(AppContext);
+    
+    // --- LÓGICA DE INACTIVIDAD ---
+    const handleTimeout = () => {
+        signOut(auth); // Llama a la función de cierre de sesión
+    };
+
+    // 1 hora = 3600000 ms. 1 minuto = 60000 ms.
+    // Para pruebas, puedes usar valores bajos: timeout: 10000 (10 seg), warningTime: 5000 (5 seg)
+    const { showWarning, keepActive, countdown } = useInactivityTimer({
+        onTimeout: handleTimeout,
+        timeout: 3600000, 
+        warningTime: 60000  
+    });
+    // --- FIN LÓGICA DE INACTIVIDAD ---
+
+    const navLinks = [
+        { name: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' },
+        { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
+        { name: 'Gestión', icon: 'ClipboardList', path: '/gestion'},
+        { name: 'Finanzas', icon: 'TrendingUp', path: '/finances' },
+        { name: 'Reportes', icon: 'BarChart3', path: '/reports' },
+        { name: 'Cliente', icon: 'FolderArchive', path: '/client-center' },
+        { name: 'Perfil', icon: 'User', path: '/profile' },
+        ...(userData?.isAdmin ? [{ name: 'Admin', icon: 'Shield', path: '/admin' }] : [])
+    ];
+    
+    const handleNavigate = (path) => {
+        navigate(path);
+        setSidebarOpen(false); // Cierra el menú al navegar
+    };
+
+    return (
+        <div className="flex h-screen bg-gray-100">
+            {/* --- RENDERIZADO DEL MODAL DE ADVERTENCIA --- */}
+            <InactivityWarningModal 
+                isOpen={showWarning} 
+                onKeepActive={keepActive} 
+                countdown={countdown} 
+            />
+
+            {/* Overlay para cerrar el menú en móvil */}
+            {sidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setSidebarOpen(false)}></div>}
+
+            <div className={`fixed inset-y-0 left-0 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out bg-gray-800 text-white w-64 space-y-6 py-7 px-2 z-30 no-print`}>
+                <a href="#" onClick={() => handleNavigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">G&R Consultores</span></a>
+                <nav>{navLinks.map(link => (<a key={link.name} href="#" onClick={() => handleNavigate(link.path)} className="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name={link.icon} className="w-5 h-5"/><span>{link.name}</span></a>))}</nav>
+                
+                {/* --- BOTÓN CERRAR SESIÓN ACTUALIZADO --- */}
+                <div className="absolute bottom-5 w-full left-0 px-4">
+                    <button onClick={handleTimeout} className="w-full text-left py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2">
+                        <Icon name="LogOut" className="w-5 h-5"/>
+                        <span>Cerrar Sesión</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div className="flex-1 flex flex-col overflow-hidden">
+                <header className="flex justify-between items-center p-4 bg-white border-b no-print"><button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 focus:outline-none md:hidden"><Icon name="Menu" className="h-6 w-6"/></button><h1 className="text-2xl font-semibold text-gray-800">Bienvenido, {userData?.nombre || 'Cliente'}!</h1><div></div></header>
+                <main className="flex-1 overflow-y-auto bg-gray-100 p-6"><div className="fade-in">{children}</div></main>
+            </div>
+        </div>
+    );
+};
+
         // --- COMPONENTE DE IA ---
         const AIAnalyzer = () => {
             const [operations, setOperations] = useState([]);
