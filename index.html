@@ -173,12 +173,12 @@
             listAll,
             deleteObject
         } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-storage.js";
-
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-functions.js";
         const { useState, useEffect, createContext, useContext, useCallback, useMemo } = React;
         const { createRoot } = ReactDOM;
         
         // --- VARIABLES GLOBALES DE FIREBASE ---
-        let app, auth, db, storage, googleProvider;
+        let app, auth, db, storage, googleProvider, functions;
         // --- INICIALIZACIÓN DE FIREBASE ---
         const initFirebase = () => {
           try {
@@ -187,6 +187,7 @@
             db = getFirestore(app);
             storage = getStorage(app); // <-- Ver nota abajo
             googleProvider = new GoogleAuthProvider();
+            functions = getFunctions(app); // <--- AÑADIR ESTA LÍNEA
           } catch (error) {
             console.error("Error crítico al inicializar Firebase:", error);
             // Aquí podrías intentar mostrar un error en la UI si falla
@@ -1594,11 +1595,16 @@ const AppLayout = ({ children }) => {
         };
         const AdminPage = () => {
             const { userData } = useAuth();
-            const [users, setUsers] = useState([]);
-            const [error, setError] = useState('');
-            const { navigate } = useContext(AppContext);
-            
-            useEffect(() => {
+            const [users, setUsers] = React.useState([]);
+            const [error, setError] = React.useState('');
+            const { navigate } = React.useContext(AppContext);
+
+            // --- Nuevos estados para el "Botón de Arranque" (Custom Claims) ---
+            const [claimMessage, setClaimMessage] = React.useState('');
+            const [isClaiming, setIsClaiming] = React.useState(false);
+            const functions = getFunctions(); // Preparamos la SDK de Functions
+
+            React.useEffect(() => {
                 const fetchUsers = async () => {
                     setError('');
                     try {
@@ -1614,13 +1620,62 @@ const AppLayout = ({ children }) => {
                     fetchUsers();
                 }
             }, [userData]);
-
+        // --- Nueva función para el "Botón de Arranque" (Custom Claims) ---
+            const handleMakeAdmin = async () => {
+                setIsClaiming(true);
+                setClaimMessage('Procesando...');
+                
+                try {
+                    // 1. Preparamos la Cloud Function
+                    const makeMeAdmin = httpsCallable(functions, 'makeMeAdmin');
+                    
+                    // 2. Llamamos a la Cloud Function (no necesita enviar datos)
+                    await makeMeAdmin();
+        
+                    // 3. ¡Punto Crítico! Forzamos el refresco del token
+                    if (auth.currentUser) {
+                        await auth.currentUser.getIdTokenResult(true);
+                    }
+        
+                    setClaimMessage('¡Éxito! Token actualizado. Por favor, CIERRA SESIÓN y VUELVE A INGRESAR.');
+                    
+                } catch (err) {
+                    console.error("Error al llamar a makeMeAdmin:", err);
+                    setClaimMessage(`Error: ${err.message}`);
+                } finally {
+                    setIsClaiming(false);
+                }
+            };
+            
             if (!userData?.isAdmin) return <div><h2 className="text-3xl font-bold text-red-600">Acceso Denegado</h2><p>Esta sección es solo para administradores.</p></div>;
 
             return (
                 <div>
                     <h2 className="text-3xl font-bold mb-6">Panel de Administración</h2>
-                    
+                 {/* --- Bloque Temporal para el "Botón de Arranque" (Custom Claims) --- */}
+            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md mb-6 shadow-md">
+                <h3 className="text-lg font-bold text-yellow-800 flex items-center">
+                    <Icon name="AlertTriangle" className="w-5 h-5 mr-2"/> Acción de Administrador (Primer Uso)
+                </h3>
+                <p className="text-sm text-yellow-700 mt-2">
+                    Haz clic en este botón **una sola vez** para asignarte los permisos de administrador (Custom Claim).
+                    Después de hacerlo, **debes cerrar sesión y volver a ingresar** para que los cambios surtan efecto.
+                    (Una vez hecho, este panel se puede borrar del código fuente).
+                </p>
+                <button
+                    onClick={handleMakeAdmin}
+                    disabled={isClaiming}
+                    className="mt-4 bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 disabled:bg-gray-400 font-semibold"
+                >
+                    {isClaiming ? 'Procesando...' : "Asignarme 'Custom Claim' de Admin"}
+                </button>
+                {claimMessage && (
+                    <p className={`mt-3 text-sm font-semibold ${claimMessage.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
+                        {claimMessage}
+                    </p>
+                )}
+            </div>
+            {/* --- Fin del Bloque Temporal --- */}                   
                     {error && (
                         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6" role="alert">
                             <p className="font-bold">Error de Permisos</p>
