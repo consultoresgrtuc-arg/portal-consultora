@@ -174,6 +174,7 @@
             deleteObject
         } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-storage.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-functions.js";
+        import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app-check.js";
         const { useState, useEffect, createContext, useContext, useCallback, useMemo } = React;
         const { createRoot } = ReactDOM;
         
@@ -183,6 +184,21 @@
         const initFirebase = () => {
           try {
             app = initializeApp(window.firebaseConfig);
+                  // --- INICIALIZAR APP CHECK (PASO 2) ---
+try {
+  // Inicializa App Check
+  const appCheck = initializeAppCheck(app, {
+    // Usa el proveedor reCAPTCHA v3 y TU CLAVE DEL SITIO
+    provider: new ReCaptchaV3Provider('6LfC6wQsAAAAAOHfrlMZPGaVHx057A0xGCrnc4C8'),
+
+    // Importante: Refresca el token automáticamente
+    isTokenAutoRefreshEnabled: true
+  });
+  console.log('App Check inicializado correctamente.');
+} catch (err) {
+  console.error('Error al inicializar App Check:', err);
+}
+// --- Fin del bloque de App Check ---
             auth = getAuth(app);
             db = getFirestore(app);
             storage = getStorage(app); // <-- Ver nota abajo
