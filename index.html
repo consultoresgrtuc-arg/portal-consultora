@@ -214,48 +214,87 @@ try {
         const AuthContext = createContext();
 
         const AuthProvider = ({ children }) => {
-            const [user, setUser] = useState(null);
-            const [userData, setUserData] = useState(null);
-            const [loading, setLoading] = useState(true);
+    const [user, setUser] = useState(null);
+    const [userData, setUserData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    
+    // --- NUEVOS ESTADOS PARA NOTIFICACIONES GLOBALES ---
+    const [notifications, setNotifications] = useState([]);
+    const [loadingNotifications, setLoadingNotifications] = useState(true);
 
-            useEffect(() => {
-                const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-                    if (firebaseUser) {
-                        setUser(firebaseUser);
-                        const userDocRef = doc(db, "users", firebaseUser.uid);
-                        const unsubProfile = onSnapshot(userDocRef, (doc) => {
-                            if (doc.exists()) {
-                                setUserData(doc.data());
-                            } else {
-                                const newUserProfile = {
-                                    email: firebaseUser.email,
-                                    nombre: firebaseUser.displayName || '',
-                                    cuit: '',
-                                    actividad: '',
-                                    categoriaTributaria: 'Monotributo',
-                                    telefono: firebaseUser.phoneNumber || '',
-                                    isAdmin: false,
-                                    incomeGoal: 500000,
-                                    expenseBudget: 200000
-                                };
-                                setDoc(userDocRef, newUserProfile);
-                                setUserData(newUserProfile);
-                            }
-                            setLoading(false);
-                        });
-                        return () => unsubProfile();
+    // Efecto principal para cargar perfil (sin cambios)
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+            if (firebaseUser) {
+                setUser(firebaseUser);
+                const userDocRef = doc(db, "users", firebaseUser.uid);
+                const unsubProfile = onSnapshot(userDocRef, (doc) => {
+                    if (doc.exists()) {
+                        setUserData(doc.data());
                     } else {
-                        setUser(null);
-                        setUserData(null);
-                        setLoading(false);
+                        const newUserProfile = {
+                            email: firebaseUser.email,
+                            nombre: firebaseUser.displayName || '',
+                            cuit: '',
+                            actividad: '',
+                            categoriaTributaria: 'Monotributo',
+                            telefono: firebaseUser.phoneNumber || '',
+                            isAdmin: false,
+                            incomeGoal: 500000,
+                            expenseBudget: 200000
+                        };
+                        setDoc(userDocRef, newUserProfile);
+                        setUserData(newUserProfile);
                     }
+                    setLoading(false);
                 });
-                return () => unsubscribe();
-            }, []);
+                return () => unsubProfile();
+            } else {
+                setUser(null);
+                setUserData(null);
+                setLoading(false);
+                // Limpiamos notificaciones al cerrar sesión
+                setNotifications([]);
+                setLoadingNotifications(true);
+            }
+        });
+        return () => unsubscribe();
+    }, []);
 
-            const value = { user, userData, loading };
-            return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
-        };
+    // --- NUEVO EFECTO PARA CARGAR SOLO NOTIFICACIONES DE DOCUMENTOS ---
+    useEffect(() => {
+        if (user) {
+            setLoadingNotifications(true);
+            
+            // 1. Preparamos el listener para notificaciones de documentos
+            const q = query(
+                collection(db, 'users', user.uid, 'notifications'),
+                orderBy("timestamp", "desc"),
+                limit(5) // Traemos las 5 notificaciones de documentos más nuevas
+            );
+            
+            const unsubscribeNotifs = onSnapshot(q, (snapshot) => {
+                const docNotifs = snapshot.docs.map(doc => ({ 
+                    id: doc.id, 
+                    ...doc.data(),
+                    // Aseguramos que el timestamp sea un objeto Date para ordenar
+                    timestamp: doc.data().timestamp.toDate() 
+                }));
+                
+                setNotifications(docNotifs);
+                setLoadingNotifications(false);
+            });
+
+            return () => unsubscribeNotifs();
+            
+        }
+    }, [user]); // Se re-ejecuta si el usuario cambia
+
+    // --- PASAMOS LOS NUEVOS ESTADOS AL CONTEXTO ---
+    const value = { user, userData, loading, notifications, loadingNotifications };
+    
+    return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
+};
         
         const useAuth = () => useContext(AuthContext);
         
@@ -1301,7 +1340,47 @@ const AppLayout = ({ children }) => {
                  </div>
             );
         };
-        
+        // --- NUEVO COMPONENTE SEPARADO PARA NOTIFICACIONES ---
+        const NotificationPanel = () => {
+            // Leemos las notificaciones globales desde el AuthProvider
+            const { notifications, loadingNotifications } = useAuth();
+
+            const getIcon = (type) => {
+                switch(type) {
+                    case 'warning': return 'AlertTriangle';
+                    case 'info': return 'File';
+                    default: return 'CheckCircle';
+                }
+            };
+
+            const getColor = (type) => {
+                 switch(type) {
+                    case 'warning': return 'bg-yellow-50 border-yellow-400 text-yellow-600';
+                    case 'info': return 'bg-blue-50 border-blue-400 text-blue-600';
+                    default: return 'bg-green-50 border-green-400 text-green-600';
+                }
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-lg shadow-md">
+                    <h3 className="text-xl font-bold mb-4">Notificaciones</h3>
+                    {loadingNotifications ? <p className="text-gray-500">Cargando notificaciones...</p> : 
+                        <div className="space-y-4">
+                            {notifications.length > 0 ? notifications.map(notif => (
+                                <div key={notif.id} className={`flex items-start p-4 border-l-4 rounded-r-lg ${getColor(notif.type)}`}>
+                                    <Icon name={getIcon(notif.type)} className="h-6 w-6 mr-3 shrink-0"/>
+                                    <div>
+                                        <p className="font-bold">{notif.title}</p>
+                                        <p className="text-sm">{notif.body}</p>
+                                    </div>
+                                </div>
+                            )) : <p className="text-gray-500">No hay notificaciones nuevas.</p>}
+                        </div>
+                    }
+                </div>
+            );
+        };
+
         const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managedClientName = '' }) => {
             const { user, userData } = useAuth();
             const currentUserId = isManagedView ? managedUserId : user?.uid;
@@ -1324,69 +1403,6 @@ const AppLayout = ({ children }) => {
                 { id: 'balances', name: 'Balances', acl: 'client' },
                 { id: 'documentos_del_contador', name: 'Documentos del Contador', acl: 'accountant' },
             ];
-
-            // AI Logic for notifications
-            useEffect(() => {
-                if (isManagedView || !userData) return;
-
-                const fetchVencimientos = async () => {
-                    setLoadingNotifications(true);
-                    const apiUrl = `https://us-central1-gyrconsultores-82422.cloudfunctions.net/secureGeminiCall`;
-                    
-                    let userQuery = "";
-                    if (userData.categoriaTributaria === 'Monotributo') {
-                        userQuery = "Vencimientos de Monotributo para el mes actual en Argentina según AFIP.";
-                    } else if (userData.categoriaTributaria === 'Responsable Inscripto') {
-                        userQuery = "Vencimientos de IVA y Ganancias para el mes actual en Argentina según AFIP.";
-                    } else {
-                        setLoadingNotifications(false);
-                        return;
-                    }
-                    
-                    const systemPrompt = "Actúa como un asistente contable. Busca los vencimientos impositivos de AFIP para el mes actual en Argentina para un contribuyente. Formatea la respuesta como una lista corta y clara. Si no encuentras información, indícalo. La fecha de hoy es Octubre 2025.";
-
-                    const payload = {
-                        contents: [{ parts: [{ text: userQuery }] }],
-                        tools: [{ "google_search": {} }],
-                        systemInstruction: { parts: [{ text: systemPrompt }] },
-                    };
-                    
-                    try {
-                        const response = await fetch(apiUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        if (!response.ok) {
-                            const errorBody = await response.json();
-                            console.error("Error response from backend for notifications:", errorBody);
-                            throw new Error('API response not OK');
-                        }
-                        const data = await response.json();
-                        const text = data.text;
-
-                        if (text) {
-                            const lines = text.split('\n').filter(line => line.trim().startsWith('*') || line.trim().startsWith('-'));
-                            const parsedNotifications = lines.map((line, index) => ({
-                                id: `vencimiento-${index}`,
-                                title: line.replace(/[\*\-]/g, '').split(':')[0].trim(),
-                                body: line.replace(/[\*\-]/g, '').split(':')[1]?.trim() || 'Verificar fecha en AFIP.',
-                                type: 'warning'
-                            }));
-                            setNotifications(parsedNotifications);
-                        } else {
-                            setNotifications([{ id: 'error', title: 'Vencimientos', body: 'No se pudo obtener la información de vencimientos.', type: 'error' }]);
-                        }
-                    } catch (error) {
-                        console.error("Error fetching vencimientos:", error);
-                        setNotifications([{ id: 'error', title: 'Vencimientos', body: 'Error al consultar vencimientos.', type: 'error' }]);
-                    } finally {
-                        setLoadingNotifications(false);
-                    }
-                };
-
-                fetchVencimientos();
-            }, [isManagedView, userData]);
 
             const handleFirebaseError = (error) => {
                 console.error("Firebase Storage Error:", error);
@@ -1434,24 +1450,39 @@ const AppLayout = ({ children }) => {
             const [uploadFolder, setUploadFolder] = useState(isManagedView ? 'documentos_del_contador' : 'comprobantes');
 
             const handleUpload = async () => {
-                if (!file || !currentUserId) return;
-                setUploading(true);
-                setStorageError('');
-                setMessage('');
-                const storageRef = ref(storage, `user_documents/${currentUserId}/${uploadFolder}/${file.name}`);
-                try {
-                    await uploadBytes(storageRef, file);
-                    setMessage({ type: 'success', text: 'Archivo subido.' }); 
-                    setFile(null); 
-                    fetchFiles();
-                } catch (error) { 
-                    setMessage({ type: 'error', text: 'Error al subir.' }); 
-                    handleFirebaseError(error);
-                } finally { 
-                    setUploading(false); 
-                    setTimeout(() => setMessage(''), 3000); 
+            if (!file || !currentUserId) return;
+            setUploading(true);
+            setStorageError('');
+            setMessage('');
+            const storageRef = ref(storage, `user_documents/${currentUserId}/${uploadFolder}/${file.name}`);
+            try {
+                await uploadBytes(storageRef, file);
+                setMessage({ type: 'success', text: 'Archivo subido.' }); 
+                
+                // --- INICIO DE CÓDIGO NUEVO ---
+                // Si eres el Admin (isManagedView es true) y subes a la carpeta "documentos_del_contador"...
+                if (isManagedView && uploadFolder === 'documentos_del_contador') {
+                    // Creamos una notificación real para el cliente
+                    const notifCollection = collection(db, 'users', currentUserId, 'notifications');
+                    await addDoc(notifCollection, {
+                        title: "Nuevo Documento del Contador",
+                        body: `Se ha subido el archivo: "${file.name}" a tu carpeta.`,
+                        type: "info", // Usaremos 'info' para el color azul
+                        timestamp: Timestamp.now()
+                    });
                 }
-            };
+                // --- FIN DE CÓDIGO NUEVO ---
+                
+                setFile(null); 
+                fetchFiles(); // Actualiza la lista de archivos
+            } catch (error) { 
+                setMessage({ type: 'error', text: 'Error al subir.' }); 
+                handleFirebaseError(error);
+            } finally { 
+                setUploading(false); 
+                setTimeout(() => setMessage(''), 3000); 
+            }
+        };
             
             const promptDelete = (filePath) => {
                 setFileToDelete(filePath);
@@ -1544,23 +1575,7 @@ const AppLayout = ({ children }) => {
                         {currentFolder ? <FileView /> : <FolderView />}
                     </div>
 
-                    {!isManagedView && <div className="bg-white p-8 rounded-lg shadow-md">
-                        <h3 className="text-xl font-bold mb-4">Notificaciones</h3>
-                         {loadingNotifications ? <p>Buscando vencimientos...</p> : 
-                             <div className="space-y-4">
-                                 {notifications.length > 0 ? notifications.map(notif => (
-                                     <div key={notif.id} className={`flex items-start p-4 border-l-4 rounded-r-lg ${notif.type === 'warning' ? 'bg-yellow-50 border-yellow-400' : 'bg-green-50 border-green-400'}`}>
-                                         <Icon name={notif.type === 'warning' ? 'AlertTriangle' : 'CheckCircle'} className={`h-6 w-6 mr-3 shrink-0 ${notif.type === 'warning' ? 'text-yellow-600' : 'text-green-600'}`}/>
-                                         <div>
-                                             <p className="font-bold">{notif.title}</p>
-                                             <p className="text-sm">{notif.body}</p>
-                                         </div>
-                                     </div>
-                                 )) : <p className="text-gray-500">No hay vencimientos para mostrar según tu categoría fiscal.</p>}
-                                 <div className="flex items-start p-4 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg"><Icon name="File" className="h-6 w-6 text-blue-600 mr-3 shrink-0"/><div><p className="font-bold">Nuevo Documento del Contador</p><p className="text-sm">Se ha subido "Balance Anual 2024.pdf" (Ejemplo).</p></div></div>
-                             </div>
-                         }
-                    </div>}
+                    {!isManagedView && <NotificationPanel />}
                 </div>
             );
         };
