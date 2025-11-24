@@ -648,7 +648,7 @@ const useInactivityTimer = ({ onTimeout, timeout = 3600000, warningTime = 60000 
         resetTimer();
 
         // Eventos que reinician el temporizador
-        const events = ['mousemove', 'mousedown', 'keypress', 'touchstart'];
+        const events = ['mousedown', 'keypress', 'touchstart', 'scroll', 'click'];
         const eventListener = () => resetTimer();
         
         events.forEach(event => window.addEventListener(event, eventListener));
