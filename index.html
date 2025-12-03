@@ -492,8 +492,7 @@ try {
             );
         };
 
-
-        // --- PÁGINA DE LOGIN ---
+        // --- PÁGINA DE LOGIN (V2.0 - PREMIUM) ---
         const LoginPage = () => {
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
@@ -558,8 +557,9 @@ try {
                                  {view === 'register' && 'Crear una cuenta'}
                                  {view === 'reset' && 'Recuperar Contraseña'}
                              </h2>
+                             {/* --- TEXTO BIENVENIDA ACTUALIZADO --- */}
                              <p className="mt-2 text-sm text-gray-600">
-                                 {view === 'reset' ? 'Ingresa tu email para recibir un enlace de recuperación.' : 'Bienvenido a tu portal de gestión contable.'}
+                                 {view === 'reset' ? 'Ingresa tu email para recibir un enlace de recuperación.' : 'Bienvenido a tu Portal de Gestión Financiera Contable.'}
                              </p>
                          </div>
 
@@ -593,11 +593,18 @@ try {
                              {view === 'register' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('login'); }} className="font-medium text-blue-600 hover:text-blue-500">¿Ya tienes cuenta? Inicia sesión</a>}
                              {view === 'reset' && <a href="#" onClick={(e) => { e.preventDefault(); switchView('login'); }} className="font-medium text-blue-600 hover:text-blue-500">Volver a Iniciar Sesión</a>}
                          </div>
+
+                         {/* --- SELLO DE SEGURIDAD V2.0 --- */}
+                         <div className="text-center mt-8 pt-4 border-t border-gray-100">
+                            <p className="text-xs text-gray-400 font-medium flex items-center justify-center">
+                                <Icon name="Shield" className="w-3 h-3 mr-1"/>
+                                G&R System v2.0 • Seguridad Verificada
+                            </p>
+                         </div>
                      </div>
                  </div>
             );
         };
-        
         // --- NUEVO HOOK DE INACTIVIDAD (pegar antes de AppLayout) ---
 const useInactivityTimer = ({ onTimeout, timeout = 3600000, warningTime = 60000 }) => {
     const [showWarning, setShowWarning] = React.useState(false);
@@ -694,12 +701,10 @@ const InactivityWarningModal = ({ isOpen, onKeepActive, countdown }) => {
     );
 };
 
-
-// --- LAYOUT PRINCIPAL (ACTUALIZADO) ---
+// --- LAYOUT PRINCIPAL (CON VERSIÓN) ---
 const AppLayout = ({ children }) => {
     const [sidebarOpen, setSidebarOpen] = React.useState(false);
     
-    // --- CORRECCIÓN ---
     // Solo traemos 'userData' de useAuth. 'auth' y 'signOut' son globales.
     const { userData } = useAuth(); 
     const { navigate } = React.useContext(AppContext);
@@ -710,8 +715,7 @@ const AppLayout = ({ children }) => {
         signOut(auth); 
     };
 
-    // 1 hora = 3600000 ms. 1 minuto = 60000 ms.
-    // Para pruebas, puedes usar valores bajos: timeout: 10000 (10 seg), warningTime: 5000 (5 seg)
+    // 1 hora = 3600000 ms.
     const { showWarning, keepActive, countdown } = useInactivityTimer({
         onTimeout: handleTimeout,
         timeout: 3600000, 
@@ -721,6 +725,8 @@ const AppLayout = ({ children }) => {
 
     const navLinks = [
         { name: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' },
+        // Agregamos el enlace a Facturación (Solicitudes) aquí si ya tienes el código listo, sino puedes dejarlo comentado
+        { name: 'Facturación', icon: 'File', path: '/billing-requests' },
         { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
         { name: 'Gestión', icon: 'ClipboardList', path: '/gestion'},
         { name: 'Finanzas', icon: 'TrendingUp', path: '/finances' },
@@ -751,12 +757,22 @@ const AppLayout = ({ children }) => {
                 <a href="#" onClick={() => handleNavigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">G&R Consultores</span></a>
                 <nav>{navLinks.map(link => (<a key={link.name} href="#" onClick={() => handleNavigate(link.path)} className="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name={link.icon} className="w-5 h-5"/><span>{link.name}</span></a>))}</nav>
                 
-                {/* --- BOTÓN CERRAR SESIÓN ACTUALIZADO --- */}
+                {/* --- SECCIÓN INFERIOR ACTUALIZADA --- */}
                 <div className="absolute bottom-5 w-full left-0 px-4">
                     <button onClick={handleTimeout} className="w-full text-left py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2">
                         <Icon name="LogOut" className="w-5 h-5"/>
                         <span>Cerrar Sesión</span>
                     </button>
+                    
+                    {/* --- VERSIÓN TÉCNICA --- */}
+                    <div className="mt-6 text-center border-t border-gray-700 pt-4">
+                        <p className="text-xs text-gray-500 font-mono tracking-wider">
+                            v2.0.1 (Stable)
+                        </p>
+                        <p className="text-[10px] text-gray-600 mt-1 uppercase font-bold tracking-widest">
+                            Powered by Gemini AI ✦
+                        </p>
+                    </div>
                 </div>
             </div>
             
@@ -767,7 +783,6 @@ const AppLayout = ({ children }) => {
         </div>
     );
 };
-
         // --- COMPONENTE DE IA ---
         const AIAnalyzer = () => {
             const [operations, setOperations] = useState([]);
