@@ -3939,6 +3939,240 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
         </div>
     );
 };
+        
+        const BillingRequestsPage = () => {
+            const { user, userData } = useAuth();
+            const { db, storage } = useFirebase(); 
+            
+            const [requests, setRequests] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showModal, setShowModal] = useState(false);
+            
+            // Estado para nueva solicitud
+            const [newRequestFile, setNewRequestFile] = useState(null);
+            const [newRequestNote, setNewRequestNote] = useState('');
+            const [uploading, setUploading] = useState(false);
+
+            // Estado para cerrar solicitud (Subir factura)
+            const [completingId, setCompletingId] = useState(null);
+            const [invoiceFile, setInvoiceFile] = useState(null);
+
+            // 1. Leer Solicitudes
+            useEffect(() => {
+                if (!user) return;
+                setLoading(true);
+                
+                let q;
+                if (userData?.isAdmin) {
+                    q = query(collection(db, 'billing_requests'), orderBy('status', 'desc'), orderBy('timestamp', 'desc'));
+                } else {
+                    q = query(collection(db, 'billing_requests'), where('userId', '==', user.uid), orderBy('timestamp', 'desc'));
+                }
+
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setRequests(docs);
+                    setLoading(false);
+                }, (error) => {
+                    console.error("Error fetching requests:", error);
+                    setLoading(false);
+                });
+
+                return () => unsubscribe();
+            }, [user, userData, db]);
+
+            // 2. Crear Solicitud
+            const handleCreateRequest = async (e) => {
+                e.preventDefault();
+                if (!newRequestFile || !user) return;
+                
+                setUploading(true);
+                try {
+                    const fileRef = ref(storage, `billing_requests/${user.uid}/${Date.now()}_${newRequestFile.name}`);
+                    await uploadBytes(fileRef, newRequestFile);
+                    const url = await getDownloadURL(fileRef);
+
+                    const modo = userData.modoFacturacion || 'estudio';
+
+                    await addDoc(collection(db, 'billing_requests'), {
+                        userId: user.uid,
+                        userName: userData.nombre || user.email,
+                        userPhone: userData.telefono || '', 
+                        userModoFacturacion: modo,
+                        status: 'pending', 
+                        requestImageUrl: url,
+                        note: newRequestNote,
+                        timestamp: Timestamp.now(),
+                        invoiceUrl: null
+                    });
+
+                    setShowModal(false);
+                    setNewRequestFile(null);
+                    setNewRequestNote('');
+                } catch (error) {
+                    console.error("Error creating request:", error);
+                    alert("Error al crear la solicitud.");
+                } finally {
+                    setUploading(false);
+                }
+            };
+
+            // 3. Completar Solicitud
+            const handleCompleteRequest = async () => {
+                if (!invoiceFile || !completingId) return;
+                setUploading(true);
+                try {
+                    const req = requests.find(r => r.id === completingId);
+                    const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`);
+                    await uploadBytes(fileRef, invoiceFile);
+                    const url = await getDownloadURL(fileRef);
+
+                    await updateDoc(doc(db, 'billing_requests', completingId), {
+                        status: 'completed',
+                        invoiceUrl: url,
+                        completedAt: Timestamp.now()
+                    });
+
+                    setCompletingId(null);
+                    setInvoiceFile(null);
+                } catch (error) {
+                    console.error("Error completing request:", error);
+                    alert("Error al subir la factura.");
+                } finally {
+                    setUploading(false);
+                }
+            };
+            
+            // 4. Marcar como Hecho
+            const markAsDone = async (reqId) => {
+                if(!window.confirm("¿Confirmas que ya realizaste esta factura en ARCA?")) return;
+                try {
+                    await updateDoc(doc(db, 'billing_requests', reqId), {
+                        status: 'completed',
+                        completedAt: Timestamp.now()
+                    });
+                } catch(error) { console.error(error); }
+            };
+
+            // Helpers
+            const copyDataToClipboard = (data) => {
+                if(!data) return;
+                const text = `Fecha: ${data.fecha_pago}\nMonto: ${data.monto_total}\nCUIT: ${data.cuit_emisor}`;
+                navigator.clipboard.writeText(text);
+                alert("Datos copiados al portapapeles");
+            };
+
+            const sendWhatsAppNotification = (req) => {
+                if (!req.invoiceUrl) return;
+                let phone = req.userPhone.replace(/\D/g, ''); 
+                if (!phone.startsWith('54')) phone = '549' + phone; 
+                const message = `Hola ${req.userName}! 👋 Ya realicé la factura. Descárgala aquí: ${req.invoiceUrl}`;
+                window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+            };
+
+            return (
+                <div className="p-4">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-3xl font-bold">Solicitudes de Facturación</h2>
+                        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center">
+                            <Icon name="PlusCircle" className="w-5 h-5 mr-2"/> Nueva Solicitud
+                        </button>
+                    </div>
+
+                    <div className="grid gap-4">
+                        {loading ? <p>Cargando...</p> : requests.map(req => {
+                            const facturaElEstudio = req.userModoFacturacion === 'estudio';
+                            return (
+                            <div key={req.id} className={`bg-white p-4 rounded-lg shadow border-l-4 ${facturaElEstudio ? 'border-red-500' : 'border-blue-400'}`}>
+                                <div className="flex flex-col md:flex-row justify-between">
+                                    <div className="mb-4 md:mb-0">
+                                        <div className="flex items-center mb-2">
+                                            {facturaElEstudio ? (
+                                                <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-1 rounded mr-2">A FACTURAR POR G&R</span>
+                                            ) : (
+                                                <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded mr-2">AUTOGESTIÓN</span>
+                                            )}
+                                            <span className="text-gray-500 text-sm">{req.timestamp?.toDate().toLocaleString()}</span>
+                                        </div>
+                                        <h4 className="font-bold text-lg">{req.userName}</h4>
+                                        <p className="text-gray-600 text-sm mb-2">{req.note}</p>
+                                        
+                                        {/* Datos IA */}
+                                        {req.aiData && (
+                                            <div className="bg-gray-50 p-2 rounded text-sm mb-2 font-mono">
+                                                <p>Monto IA: ${req.aiData.monto_total}</p>
+                                                <p>CUIT: {req.aiData.cuit_emisor || 'No detectado'}</p>
+                                            </div>
+                                        )}
+
+                                        <div className="flex items-center gap-2">
+                                            <a href={req.requestImageUrl} target="_blank" className="text-blue-600 text-sm hover:underline flex items-center">
+                                                <Icon name="File" className="w-4 h-4 mr-1"/> Ver Comprobante
+                                            </a>
+                                            {req.invoiceUrl && (
+                                                <a href={req.invoiceUrl} target="_blank" className="text-green-600 text-sm hover:underline flex items-center font-bold">
+                                                    <Icon name="Download" className="w-4 h-4 mr-1"/> Ver Factura
+                                                </a>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col gap-2 items-end justify-center">
+                                        {userData.isAdmin && req.status === 'pending' && (
+                                            <div className="flex flex-col items-end gap-2">
+                                                {facturaElEstudio ? (
+                                                    completingId === req.id ? (
+                                                        <div className="flex items-center gap-2 bg-gray-100 p-2 rounded">
+                                                            <input type="file" accept="application/pdf" onChange={(e) => setInvoiceFile(e.target.files[0])} className="text-sm w-48"/>
+                                                            <button onClick={handleCompleteRequest} disabled={uploading || !invoiceFile} className="btn-primary-green text-xs">
+                                                                {uploading ? 'Subiendo...' : 'Subir'}
+                                                            </button>
+                                                            <button onClick={() => setCompletingId(null)} className="text-gray-500">X</button>
+                                                        </div>
+                                                    ) : (
+                                                        <button onClick={() => setCompletingId(req.id)} className="btn-primary text-sm">Subir PDF ARCA</button>
+                                                    )
+                                                ) : (
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => copyDataToClipboard(req.aiData)} className="btn-secondary text-xs"><Icon name="Copy" /> Copiar Datos</button>
+                                                        <button onClick={() => markAsDone(req.id)} className="btn-primary-green text-xs">Archivar</button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                        
+                                        {userData.isAdmin && req.status === 'completed' && req.invoiceUrl && (
+                                            <button onClick={() => sendWhatsAppNotification(req)} className="bg-green-500 text-white px-3 py-2 rounded-md hover:bg-green-600 flex items-center text-sm font-bold">
+                                                <Icon name="MessageCircle" className="w-4 h-4 mr-2"/> WhatsApp
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )})}
+                        {requests.length === 0 && <p className="text-center text-gray-500">No hay solicitudes pendientes.</p>}
+                    </div>
+
+                    {showModal && (
+                        <div className="modal-overlay">
+                            <div className="modal-content">
+                                <h3 className="text-xl font-bold mb-4">Nueva Solicitud</h3>
+                                <form onSubmit={handleCreateRequest}>
+                                    <label className="block mb-2 text-sm font-bold">Comprobante</label>
+                                    <input type="file" onChange={(e) => setNewRequestFile(e.target.files[0])} required className="w-full mb-4 border p-2 rounded"/>
+                                    <label className="block mb-2 text-sm font-bold">Nota</label>
+                                    <textarea value={newRequestNote} onChange={(e) => setNewRequestNote(e.target.value)} className="w-full mb-4 border p-2 rounded"></textarea>
+                                    <div className="flex justify-end gap-2">
+                                        <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button>
+                                        <button type="submit" disabled={uploading} className="btn-primary">{uploading ? 'Enviando...' : 'Crear'}</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
             // --- ROUTER Y APP PRINCIPAL (Actualizado para Proveedores) ---
       const AppContext = createContext();
 
