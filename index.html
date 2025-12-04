@@ -3942,7 +3942,6 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
         
         const BillingRequestsPage = () => {
             const { user, userData } = useAuth();
-            const { db, storage } = useFirebase(); 
             
             const [requests, setRequests] = useState([]);
             const [loading, setLoading] = useState(true);
