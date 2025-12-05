@@ -3942,31 +3942,55 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
         
         const BillingRequestsPage = () => {
             const { user, userData } = useAuth();
+            // const { db, storage } = useFirebase(); // Usamos globales por ahora
             
             const [requests, setRequests] = useState([]);
             const [loading, setLoading] = useState(true);
             const [showModal, setShowModal] = useState(false);
-            
-            // Estado para nueva solicitud
+            const [filterStatus, setFilterStatus] = useState('pending'); 
+            const [expandedRowId, setExpandedRowId] = useState(null); 
+
+            // Estados para acciones
             const [newRequestFile, setNewRequestFile] = useState(null);
             const [newRequestNote, setNewRequestNote] = useState('');
             const [uploading, setUploading] = useState(false);
-
-            // Estado para cerrar solicitud (Subir factura)
             const [completingId, setCompletingId] = useState(null);
             const [invoiceFile, setInvoiceFile] = useState(null);
 
+            // Estados para Edición y Borrado
+            const [requestToDelete, setRequestToDelete] = useState(null);
+            const [editingRequest, setEditingRequest] = useState(null);
+            const [editFormData, setEditFormData] = useState({});
+
+            // --- LÓGICA DE TOTALES DEL MES (Dashboard) ---
+            const metrics = useMemo(() => {
+                const now = new Date();
+                const currentMonth = now.getMonth();
+                const currentYear = now.getFullYear();
+
+                const requestsThisMonth = requests.filter(req => {
+                    if (!req.timestamp) return false;
+                    const reqDate = req.timestamp.toDate();
+                    return reqDate.getMonth() === currentMonth && reqDate.getFullYear() === currentYear;
+                });
+
+                const totalFacturado = requestsThisMonth
+                    .filter(r => r.status === 'completed' && r.aiData?.monto_total)
+                    .reduce((sum, r) => sum + r.aiData.monto_total, 0);
+
+                const totalPendiente = requestsThisMonth
+                    .filter(r => r.status !== 'completed' && r.aiData?.monto_total)
+                    .reduce((sum, r) => sum + r.aiData.monto_total, 0);
+
+                return { totalFacturado, totalPendiente };
+            }, [requests]);
+
             // 1. Leer Solicitudes
             useEffect(() => {
-                if (!user) return;
+                if (!user || !userData?.isAdmin) return; 
                 setLoading(true);
                 
-                let q;
-                if (userData?.isAdmin) {
-                    q = query(collection(db, 'billing_requests'), orderBy('status', 'desc'), orderBy('timestamp', 'desc'));
-                } else {
-                    q = query(collection(db, 'billing_requests'), where('userId', '==', user.uid), orderBy('timestamp', 'desc'));
-                }
+                const q = query(collection(db, 'billing_requests'), orderBy('status', 'desc'), orderBy('timestamp', 'desc'));
 
                 const unsubscribe = onSnapshot(q, (snapshot) => {
                     const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -3978,42 +4002,34 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 });
 
                 return () => unsubscribe();
-            }, [user, userData, db]);
+            }, [user, userData]);
 
-            // 2. Crear Solicitud
+            // 2. Crear Solicitud Manual
             const handleCreateRequest = async (e) => {
                 e.preventDefault();
                 if (!newRequestFile || !user) return;
-                
                 setUploading(true);
                 try {
                     const fileRef = ref(storage, `billing_requests/${user.uid}/${Date.now()}_${newRequestFile.name}`);
                     await uploadBytes(fileRef, newRequestFile);
                     const url = await getDownloadURL(fileRef);
 
-                    const modo = userData.modoFacturacion || 'estudio';
-
                     await addDoc(collection(db, 'billing_requests'), {
                         userId: user.uid,
-                        userName: userData.nombre || user.email,
-                        userPhone: userData.telefono || '', 
-                        userModoFacturacion: modo,
+                        userName: "Carga Manual (Admin)", 
+                        userPhone: "", 
+                        userModoFacturacion: 'estudio',
                         status: 'pending', 
                         requestImageUrl: url,
                         note: newRequestNote,
                         timestamp: Timestamp.now(),
                         invoiceUrl: null
                     });
-
                     setShowModal(false);
                     setNewRequestFile(null);
                     setNewRequestNote('');
-                } catch (error) {
-                    console.error("Error creating request:", error);
-                    alert("Error al crear la solicitud.");
-                } finally {
-                    setUploading(false);
-                }
+                } catch (error) { console.error(error); alert("Error al subir."); } 
+                finally { setUploading(false); }
             };
 
             // 3. Completar Solicitud
@@ -4022,7 +4038,8 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 setUploading(true);
                 try {
                     const req = requests.find(r => r.id === completingId);
-                    const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`);
+                    const targetUserId = req.userId || 'admin_uploads';
+                    const fileRef = ref(storage, `billing_invoices/${targetUserId}/${Date.now()}_${invoiceFile.name}`);
                     await uploadBytes(fileRef, invoiceFile);
                     const url = await getDownloadURL(fileRef);
 
@@ -4031,140 +4048,244 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                         invoiceUrl: url,
                         completedAt: Timestamp.now()
                     });
-
                     setCompletingId(null);
                     setInvoiceFile(null);
-                } catch (error) {
-                    console.error("Error completing request:", error);
-                    alert("Error al subir la factura.");
-                } finally {
-                    setUploading(false);
-                }
+                } catch (error) { console.error(error); alert("Error al subir factura."); } 
+                finally { setUploading(false); }
             };
-            
-            // 4. Marcar como Hecho
-            const markAsDone = async (reqId) => {
-                if(!window.confirm("¿Confirmas que ya realizaste esta factura en ARCA?")) return;
+
+            // 4. Edición de Datos
+            const openEditModal = (req) => {
+                setEditFormData({
+                    fecha_pago: req.aiData?.fecha_pago || '',
+                    monto_total: req.aiData?.monto_total || 0,
+                    tipo_comprobante: req.aiData?.tipo_comprobante || '',
+                    cuit_emisor: req.aiData?.cuit_emisor || '',
+                    nombre_emisor: req.aiData?.nombre_emisor || '',
+                    banco_origen: req.aiData?.banco_origen || '',
+                    cuit_receptor: req.aiData?.cuit_receptor || '',
+                    nombre_receptor: req.aiData?.nombre_receptor || '',
+                    concepto_detectado: req.aiData?.concepto_detectado || ''
+                });
+                setEditingRequest(req);
+            };
+
+            const handleSaveEdits = async (e) => {
+                e.preventDefault();
+                if (!editingRequest) return;
                 try {
-                    await updateDoc(doc(db, 'billing_requests', reqId), {
-                        status: 'completed',
-                        completedAt: Timestamp.now()
+                    await updateDoc(doc(db, 'billing_requests', editingRequest.id), {
+                        aiData: { ...editFormData, monto_total: parseFloat(editFormData.monto_total) }
                     });
+                    setEditingRequest(null);
+                } catch (error) { console.error(error); alert("Error guardando."); }
+            };
+
+            // 5. Borrado y Archivo
+            const handleDeleteRequest = async () => {
+                if (!requestToDelete) return;
+                try { await deleteDoc(doc(db, 'billing_requests', requestToDelete)); setRequestToDelete(null); } 
+                catch (error) { console.error(error); }
+            };
+
+            const markAsDone = async (reqId) => {
+                if(!window.confirm("¿Confirmar que el cliente ya facturó esto?")) return;
+                try {
+                    await updateDoc(doc(db, 'billing_requests', reqId), { status: 'completed', completedAt: Timestamp.now() });
                 } catch(error) { console.error(error); }
             };
 
             // Helpers
-            const copyDataToClipboard = (data) => {
-                if(!data) return;
-                const text = `Fecha: ${data.fecha_pago}\nMonto: ${data.monto_total}\nCUIT: ${data.cuit_emisor}`;
-                navigator.clipboard.writeText(text);
-                alert("Datos copiados al portapapeles");
-            };
-
+            const toggleDetails = (id) => setExpandedRowId(expandedRowId === id ? null : id);
+            
             const sendWhatsAppNotification = (req) => {
                 if (!req.invoiceUrl) return;
-                let phone = req.userPhone.replace(/\D/g, ''); 
-                if (!phone.startsWith('54')) phone = '549' + phone; 
-                const message = `Hola ${req.userName}! 👋 Ya realicé la factura. Descárgala aquí: ${req.invoiceUrl}`;
+                let phone = req.userPhone;
+                if (!phone) { phone = prompt("Ingresa número (ej: 381...):"); if(!phone) return; }
+                phone = phone.replace(/\D/g, '');
+                if (!phone.startsWith('54')) phone = '549' + phone;
+                const message = `Hola! 👋 Ya está lista tu factura. \n\nPuedes verla aquí: ${req.invoiceUrl} \n\nSaludos!`;
                 window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
             };
 
+            const copyData = (text) => { navigator.clipboard.writeText(text); alert("Copiado!"); };
+
+            if (!userData?.isAdmin) return <div className="p-8 text-center text-red-600">Acceso restringido.</div>;
+
             return (
                 <div className="p-4">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-3xl font-bold">Solicitudes de Facturación</h2>
-                        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center">
-                            <Icon name="PlusCircle" className="w-5 h-5 mr-2"/> Nueva Solicitud
-                        </button>
-                    </div>
-
-                    <div className="grid gap-4">
-                        {loading ? <p>Cargando...</p> : requests.map(req => {
-                            const facturaElEstudio = req.userModoFacturacion === 'estudio';
-                            return (
-                            <div key={req.id} className={`bg-white p-4 rounded-lg shadow border-l-4 ${facturaElEstudio ? 'border-red-500' : 'border-blue-400'}`}>
-                                <div className="flex flex-col md:flex-row justify-between">
-                                    <div className="mb-4 md:mb-0">
-                                        <div className="flex items-center mb-2">
-                                            {facturaElEstudio ? (
-                                                <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-1 rounded mr-2">A FACTURAR POR G&R</span>
-                                            ) : (
-                                                <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded mr-2">AUTOGESTIÓN</span>
-                                            )}
-                                            <span className="text-gray-500 text-sm">{req.timestamp?.toDate().toLocaleString()}</span>
-                                        </div>
-                                        <h4 className="font-bold text-lg">{req.userName}</h4>
-                                        <p className="text-gray-600 text-sm mb-2">{req.note}</p>
-                                        
-                                        {/* Datos IA */}
-                                        {req.aiData && (
-                                            <div className="bg-gray-50 p-2 rounded text-sm mb-2 font-mono">
-                                                <p>Monto IA: ${req.aiData.monto_total}</p>
-                                                <p>CUIT: {req.aiData.cuit_emisor || 'No detectado'}</p>
-                                            </div>
-                                        )}
-
-                                        <div className="flex items-center gap-2">
-                                            <a href={req.requestImageUrl} target="_blank" className="text-blue-600 text-sm hover:underline flex items-center">
-                                                <Icon name="File" className="w-4 h-4 mr-1"/> Ver Comprobante
-                                            </a>
-                                            {req.invoiceUrl && (
-                                                <a href={req.invoiceUrl} target="_blank" className="text-green-600 text-sm hover:underline flex items-center font-bold">
-                                                    <Icon name="Download" className="w-4 h-4 mr-1"/> Ver Factura
-                                                </a>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex flex-col gap-2 items-end justify-center">
-                                        {userData.isAdmin && req.status === 'pending' && (
-                                            <div className="flex flex-col items-end gap-2">
-                                                {facturaElEstudio ? (
-                                                    completingId === req.id ? (
-                                                        <div className="flex items-center gap-2 bg-gray-100 p-2 rounded">
-                                                            <input type="file" accept="application/pdf" onChange={(e) => setInvoiceFile(e.target.files[0])} className="text-sm w-48"/>
-                                                            <button onClick={handleCompleteRequest} disabled={uploading || !invoiceFile} className="btn-primary-green text-xs">
-                                                                {uploading ? 'Subiendo...' : 'Subir'}
-                                                            </button>
-                                                            <button onClick={() => setCompletingId(null)} className="text-gray-500">X</button>
-                                                        </div>
-                                                    ) : (
-                                                        <button onClick={() => setCompletingId(req.id)} className="btn-primary text-sm">Subir PDF ARCA</button>
-                                                    )
-                                                ) : (
-                                                    <div className="flex gap-2">
-                                                        <button onClick={() => copyDataToClipboard(req.aiData)} className="btn-secondary text-xs"><Icon name="Copy" /> Copiar Datos</button>
-                                                        <button onClick={() => markAsDone(req.id)} className="btn-primary-green text-xs">Archivar</button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                        
-                                        {userData.isAdmin && req.status === 'completed' && req.invoiceUrl && (
-                                            <button onClick={() => sendWhatsAppNotification(req)} className="bg-green-500 text-white px-3 py-2 rounded-md hover:bg-green-600 flex items-center text-sm font-bold">
-                                                <Icon name="MessageCircle" className="w-4 h-4 mr-2"/> WhatsApp
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
+                    {/* --- DASHBOARD MENSUAL --- */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div className="bg-white p-4 rounded-lg shadow border-l-4 border-green-500 flex justify-between items-center">
+                            <div>
+                                <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Facturado este Mes</p>
+                                <h3 className="text-2xl font-bold text-green-700">
+                                    {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(metrics.totalFacturado)}
+                                </h3>
                             </div>
-                        )})}
-                        {requests.length === 0 && <p className="text-center text-gray-500">No hay solicitudes pendientes.</p>}
+                            <div className="bg-green-100 p-2 rounded-full text-green-600"><Icon name="CheckCircle" className="w-6 h-6"/></div>
+                        </div>
+                        <div className="bg-white p-4 rounded-lg shadow border-l-4 border-yellow-500 flex justify-between items-center">
+                            <div>
+                                <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendiente de Facturar</p>
+                                <h3 className="text-2xl font-bold text-yellow-700">
+                                    {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(metrics.totalPendiente)}
+                                </h3>
+                            </div>
+                            <div className="bg-yellow-100 p-2 rounded-full text-yellow-600"><Icon name="Clock" className="w-6 h-6"/></div>
+                        </div>
                     </div>
 
+                    {/* MODAL EDICIÓN */}
+                    {editingRequest && (
+                        <div className="modal-overlay">
+                            <div className="modal-content sm:max-w-2xl">
+                                <h3 className="text-xl font-bold mb-4">Editar Datos (IA)</h3>
+                                <form onSubmit={handleSaveEdits} className="space-y-4">
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <div><label className="text-xs font-bold text-gray-500">Fecha Pago</label><input type="text" value={editFormData.fecha_pago} onChange={e => setEditFormData({...editFormData, fecha_pago: e.target.value})} className="w-full border p-2 rounded"/></div>
+                                        <div><label className="text-xs font-bold text-gray-500">Monto ($)</label><input type="number" step="0.01" value={editFormData.monto_total} onChange={e => setEditFormData({...editFormData, monto_total: e.target.value})} className="w-full border p-2 rounded font-bold"/></div>
+                                        <div><label className="text-xs font-bold text-gray-500">Tipo Comp.</label><input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full border p-2 rounded"/></div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-2 rounded">
+                                        <div>
+                                            <p className="text-xs font-bold text-red-800 uppercase mb-2">Emisor (Paga)</p>
+                                            <input placeholder="Nombre" value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full border p-1 rounded text-sm mb-1"/>
+                                            <input placeholder="CUIT" value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full border p-1 rounded text-sm mb-1"/>
+                                            <input placeholder="Banco" value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full border p-1 rounded text-sm"/>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-bold text-green-800 uppercase mb-2">Receptor (Tu Cliente)</p>
+                                            <input placeholder="Nombre" value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full border p-1 rounded text-sm mb-1"/>
+                                            <input placeholder="CUIT" value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full border p-1 rounded text-sm"/>
+                                        </div>
+                                    </div>
+                                    <div><label className="text-xs font-bold text-gray-500">Concepto</label><input type="text" value={editFormData.concepto_detectado} onChange={e => setEditFormData({...editFormData, concepto_detectado: e.target.value})} className="w-full border p-2 rounded"/></div>
+                                    <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
+                                        <button type="button" onClick={() => setEditingRequest(null)} className="btn-secondary">Cancelar</button>
+                                        <button type="submit" className="btn-primary">Guardar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* CABECERA Y FILTROS */}
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-3xl font-bold text-gray-800">Centro de Facturación</h2>
+                        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center shadow-lg"><Icon name="PlusCircle" className="w-5 h-5 mr-2"/> Carga Manual</button>
+                    </div>
+                    <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-lg px-4 pt-2">
+                        <button onClick={() => setFilterStatus('pending')} className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors ${filterStatus === 'pending' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Pendientes ({requests.filter(r => r.status === 'pending' || r.status === 'analyzed').length})</button>
+                        <button onClick={() => setFilterStatus('completed')} className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors ${filterStatus === 'completed' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Historial</button>
+                    </div>
+
+                    {/* TABLA PRINCIPAL */}
+                    <div className="bg-white rounded-lg shadow overflow-hidden">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Fecha</th>
+                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Origen</th>
+                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Resumen IA</th>
+                                    <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase">Estado</th>
+                                    <th className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase"></th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {loading ? <tr><td colSpan="5" className="text-center py-10">Cargando...</td></tr> : 
+                                requests.filter(req => filterStatus === 'completed' ? req.status === 'completed' : req.status !== 'completed').map(req => (
+                                    <React.Fragment key={req.id}>
+                                        <tr className={`hover:bg-blue-50 transition-colors cursor-pointer ${expandedRowId === req.id ? 'bg-blue-50' : ''}`} onClick={() => toggleDetails(req.id)}>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{req.timestamp?.toDate().toLocaleDateString()}</td>
+                                            <td className="px-6 py-4"><div className="text-sm font-bold text-gray-900">{req.userName}</div></td>
+                                            <td className="px-6 py-4">
+                                                {req.aiData ? (
+                                                    <div className="text-sm">
+                                                        <span className="font-bold text-green-700 block">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(req.aiData.monto_total)}</span>
+                                                        <span className="text-xs text-gray-500">{req.aiData.nombre_emisor || 'Emisor desconocido'}</span>
+                                                    </div>
+                                                ) : <span className="text-xs text-gray-400 italic">Procesando...</span>}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${req.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{req.status === 'completed' ? 'FACTURADO' : 'PENDIENTE'}</span>
+                                            </td>
+                                            <td className="px-6 py-4 text-center text-gray-400">{expandedRowId === req.id ? <Icon name="ChevronUp" className="w-5 h-5"/> : <Icon name="ChevronDown" className="w-5 h-5"/>}</td>
+                                        </tr>
+                                        
+                                        {/* DETALLE EXPANDIDO */}
+                                        {expandedRowId === req.id && (
+                                            <tr className="bg-gray-50 shadow-inner">
+                                                <td colSpan="5" className="px-6 py-4">
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                        {/* LADO A: DATOS COMPLETOS */}
+                                                        <div className="bg-white p-4 rounded border border-blue-200 relative">
+                                                            <div className="flex justify-between items-center mb-4 border-b pb-2">
+                                                                <h4 className="font-bold text-blue-800 text-sm uppercase flex items-center"><Icon name="Sparkles" className="w-4 h-4 mr-2"/> Datos para ARCA</h4>
+                                                                <button onClick={() => openEditModal(req)} className="text-blue-600 hover:text-blue-800 text-xs font-bold border border-blue-200 px-2 py-1 rounded bg-blue-50 flex items-center"><Icon name="Edit" className="w-3 h-3 mr-1"/> Editar</button>
+                                                            </div>
+                                                            {req.aiData ? (
+                                                                <div className="space-y-3 text-sm">
+                                                                    <div className="grid grid-cols-2 gap-4">
+                                                                        <div><span className="text-xs text-gray-500 block">Fecha Pago</span><span className="font-mono font-bold">{req.aiData.fecha_pago}</span></div>
+                                                                        <div><span className="text-xs text-gray-500 block">Tipo</span><span className="font-medium">{req.aiData.tipo_comprobante}</span></div>
+                                                                    </div>
+                                                                    <div className="bg-gray-50 p-2 rounded border border-gray-100">
+                                                                        <span className="text-xs text-gray-400 block uppercase mb-1">De (Quien Paga):</span>
+                                                                        <div className="font-bold text-gray-800">{req.aiData.nombre_emisor}</div>
+                                                                        <div className="flex items-center text-gray-600 mt-1"><span className="font-mono mr-2 bg-white px-1 border rounded">{req.aiData.cuit_emisor || 'S/D'}</span><span className="text-xs">({req.aiData.banco_origen})</span><button onClick={() => copyData(req.aiData.cuit_emisor)} className="ml-2 text-blue-500"><Icon name="Copy" className="w-3 h-3"/></button></div>
+                                                                    </div>
+                                                                    <div className="bg-blue-50 p-2 rounded border border-blue-100">
+                                                                        <span className="text-xs text-blue-400 block uppercase mb-1">Para (Tu Cliente):</span>
+                                                                        <div className="font-bold text-blue-900">{req.aiData.nombre_receptor || req.userName}</div>
+                                                                        <div className="font-mono text-blue-700 mt-1 bg-white px-1 border border-blue-200 rounded w-max">{req.aiData.cuit_receptor || 'S/D'}</div>
+                                                                    </div>
+                                                                    <div><span className="text-xs text-gray-500 block">Concepto</span><span className="italic text-gray-600">{req.aiData.concepto_detectado}</span></div>
+                                                                </div>
+                                                            ) : <p className="text-sm text-gray-500 animate-pulse">Esperando IA...</p>}
+                                                            <div className="mt-4 pt-3 border-t text-center"><a href={req.requestImageUrl} target="_blank" className="text-blue-600 text-xs font-bold hover:underline flex items-center justify-center"><Icon name="File" className="w-3 h-3 mr-1"/> Ver Comprobante Original</a></div>
+                                                        </div>
+
+                                                        {/* LADO B: ACCIONES */}
+                                                        <div className="flex flex-col justify-between bg-gray-100 p-4 rounded border relative">
+                                                            <button onClick={() => setRequestToDelete(req.id)} className="absolute top-2 right-2 text-gray-400 hover:text-red-600" title="Eliminar"><Icon name="Trash2" className="w-4 h-4"/></button>
+                                                            <div>
+                                                                <h4 className="font-bold text-gray-800 mb-3 text-sm uppercase">Gestión</h4>
+                                                                {req.status !== 'completed' ? (
+                                                                    req.userModoFacturacion === 'estudio' ? (
+                                                                        <div>
+                                                                            <label className="block text-xs font-bold mb-2 text-gray-600">Subir PDF Generado (ARCA):</label>
+                                                                            <div className="flex gap-2">
+                                                                                <input type="file" accept="application/pdf" onChange={(e) => setInvoiceFile(e.target.files[0])} className="text-xs bg-white border rounded p-1 w-full"/>
+                                                                                <button onClick={() => { setCompletingId(req.id); handleCompleteRequest(); }} disabled={uploading || !invoiceFile} className="btn-primary text-xs shrink-0">{uploading ? '...' : 'Subir'}</button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <button onClick={() => markAsDone(req.id)} className="w-full btn-primary-green text-xs flex items-center justify-center"><Icon name="CheckCircle" className="w-4 h-4 mr-2"/> Cliente ya facturó (Archivar)</button>
+                                                                    )
+                                                                ) : <div className="text-center py-2"><p className="text-green-600 font-bold text-sm mb-2">✅ Facturado</p><a href={req.invoiceUrl} target="_blank" className="text-xs text-blue-600 underline">Ver Factura</a></div>}
+                                                            </div>
+                                                            {req.status === 'completed' && req.invoiceUrl && <button onClick={() => sendWhatsAppNotification(req)} className="w-full mt-3 bg-green-500 text-white px-3 py-2 rounded flex items-center justify-center text-sm font-bold hover:bg-green-600"><Icon name="MessageCircle" className="w-4 h-4 mr-2"/> Avisar WhatsApp</button>}
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
+                                ))
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    {requestToDelete && <ConfirmModal message="¿Eliminar?" confirmText="Eliminar" isDestructive={true} onConfirm={handleDeleteRequest} onCancel={() => setRequestToDelete(null)} />}
                     {showModal && (
                         <div className="modal-overlay">
                             <div className="modal-content">
-                                <h3 className="text-xl font-bold mb-4">Nueva Solicitud</h3>
+                                <h3 className="text-xl font-bold mb-4">Carga Manual</h3>
                                 <form onSubmit={handleCreateRequest}>
-                                    <label className="block mb-2 text-sm font-bold">Comprobante</label>
                                     <input type="file" onChange={(e) => setNewRequestFile(e.target.files[0])} required className="w-full mb-4 border p-2 rounded"/>
-                                    <label className="block mb-2 text-sm font-bold">Nota</label>
                                     <textarea value={newRequestNote} onChange={(e) => setNewRequestNote(e.target.value)} className="w-full mb-4 border p-2 rounded"></textarea>
-                                    <div className="flex justify-end gap-2">
-                                        <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button>
-                                        <button type="submit" disabled={uploading} className="btn-primary">{uploading ? 'Enviando...' : 'Crear'}</button>
-                                    </div>
+                                    <div className="flex justify-end gap-2"><button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button><button type="submit" disabled={uploading} className="btn-primary">Procesar</button></div>
                                 </form>
                             </div>
                         </div>
