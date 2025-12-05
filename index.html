@@ -701,31 +701,28 @@ const InactivityWarningModal = ({ isOpen, onKeepActive, countdown }) => {
     );
 };
 
-// --- LAYOUT PRINCIPAL (CON VERSIÓN) ---
+// --- LAYOUT PRINCIPAL (CON DISEÑO GLASSMORPHISM) ---
 const AppLayout = ({ children }) => {
     const [sidebarOpen, setSidebarOpen] = React.useState(false);
     
-    // Solo traemos 'userData' de useAuth. 'auth' y 'signOut' son globales.
+    // Traemos datos y navegación del contexto
     const { userData } = useAuth(); 
-    const { navigate } = React.useContext(AppContext);
+    // AGREGADO: Traemos 'route' para saber qué botón pintar de azul
+    const { route, navigate } = React.useContext(AppContext); 
     
     // --- LÓGICA DE INACTIVIDAD ---
     const handleTimeout = () => {
-        // Usamos las variables GLOBALES 'signOut' y 'auth'
         signOut(auth); 
     };
 
-    // 1 hora = 3600000 ms.
     const { showWarning, keepActive, countdown } = useInactivityTimer({
         onTimeout: handleTimeout,
         timeout: 3600000, 
         warningTime: 60000  
     });
-    // --- FIN LÓGICA DE INACTIVIDAD ---
 
     const navLinks = [
         { name: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' },
-        // Agregamos el enlace a Facturación (Solicitudes) aquí si ya tienes el código listo, sino puedes dejarlo comentado
         { name: 'Facturación', icon: 'File', path: '/billing-requests' },
         { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
         { name: 'Gestión', icon: 'ClipboardList', path: '/gestion'},
@@ -738,47 +735,104 @@ const AppLayout = ({ children }) => {
     
     const handleNavigate = (path) => {
         navigate(path);
-        setSidebarOpen(false); // Cierra el menú al navegar
+        setSidebarOpen(false);
     };
 
     return (
-        <div className="flex h-screen bg-gray-100">
-            {/* --- RENDERIZADO DEL MODAL DE ADVERTENCIA --- */}
+        <div className="flex h-screen bg-gray-100 font-sans">
+            {/* Modal de Inactividad */}
             <InactivityWarningModal 
                 isOpen={showWarning} 
                 onKeepActive={keepActive} 
                 countdown={countdown} 
             />
 
-            {/* Overlay para cerrar el menú en móvil */}
-            {sidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setSidebarOpen(false)}></div>}
+            {/* --- OVERLAY MÓVIL (FONDO BORROSO) --- */}
+            <div 
+                className={`fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-40 transition-opacity duration-300 lg:hidden ${sidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} 
+                onClick={() => setSidebarOpen(false)}
+            ></div>
 
-            <div className={`fixed inset-y-0 left-0 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out bg-gray-800 text-white w-64 space-y-6 py-7 px-2 z-30 no-print`}>
-                <a href="#" onClick={() => handleNavigate('/dashboard')} className="text-white flex items-center space-x-2 px-4"><Icon name="BarChart3" className="w-8 h-8"/><span className="text-2xl font-bold">G&R Consultores</span></a>
-                <nav>{navLinks.map(link => (<a key={link.name} href="#" onClick={() => handleNavigate(link.path)} className="block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2"><Icon name={link.icon} className="w-5 h-5"/><span>{link.name}</span></a>))}</nav>
+            {/* --- SIDEBAR (BARRA LATERAL) --- */}
+            <div className={`fixed inset-y-0 left-0 w-64 z-50 flex flex-col transition-transform duration-300 ease-out transform 
+                ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
+                lg:translate-x-0 lg:static lg:inset-0
+                bg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl no-print`}
+            >
+                {/* Logo */}
+                <div className="flex items-center justify-center h-20 border-b border-white/10 bg-gradient-to-b from-white/5 to-transparent">
+                    <a href="#" onClick={() => handleNavigate('/dashboard')} className="flex items-center space-x-3 group">
+                        <div className="bg-blue-600/20 p-2 rounded-lg group-hover:bg-blue-600/30 transition-colors">
+                            <Icon name="BarChart3" className="w-8 h-8 text-blue-400"/>
+                        </div>
+                        <div>
+                            <span className="block text-lg font-bold text-white tracking-tight leading-none">G&R</span>
+                            <span className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">Consultores</span>
+                        </div>
+                    </a>
+                </div>
+
+                {/* Menú de Navegación */}
+                <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto custom-scrollbar">
+                    {navLinks.map(link => {
+                        const isActive = route === link.path;
+                        return (
+                            <a 
+                                key={link.name} 
+                                href="#" 
+                                onClick={() => handleNavigate(link.path)} 
+                                className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 relative overflow-hidden
+                                    ${isActive 
+                                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
+                                        : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                                    }`}
+                            >
+                                {/* Brillo sutil al hacer hover */}
+                                {!isActive && <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>}
+                                
+                                <Icon 
+                                    name={link.icon} 
+                                    className={`mr-3 h-5 w-5 transition-transform duration-200 ${isActive ? 'text-white scale-110' : 'text-gray-500 group-hover:text-gray-300'}`}
+                                />
+                                {link.name}
+                            </a>
+                        );
+                    })}
+                </nav>
                 
-                {/* --- SECCIÓN INFERIOR ACTUALIZADA --- */}
-                <div className="absolute bottom-5 w-full left-0 px-4">
-                    <button onClick={handleTimeout} className="w-full text-left py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 flex items-center space-x-2">
-                        <Icon name="LogOut" className="w-5 h-5"/>
-                        <span>Cerrar Sesión</span>
+                {/* Footer del Sidebar */}
+                <div className="p-4 border-t border-white/10 bg-black/20">
+                    <button onClick={handleTimeout} className="w-full flex items-center justify-center px-4 py-2 text-xs font-bold text-gray-400 rounded-lg hover:bg-red-500/10 hover:text-red-400 transition-all border border-transparent hover:border-red-500/20 group">
+                        <Icon name="LogOut" className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform"/>
+                        Cerrar Sesión
                     </button>
                     
-                    {/* --- VERSIÓN TÉCNICA --- */}
-                    <div className="mt-6 text-center border-t border-gray-700 pt-4">
-                        <p className="text-xs text-gray-500 font-mono tracking-wider">
-                            v2.0.1 (Stable)
-                        </p>
-                        <p className="text-[10px] text-gray-600 mt-1 uppercase font-bold tracking-widest">
-                            Powered by Gemini AI ✦
+                    <div className="mt-4 text-center">
+                        <p className="text-[10px] text-gray-600 font-mono tracking-wider">v2.0.1 (Stable)</p>
+                        <p className="text-[9px] text-blue-900/60 mt-1 uppercase font-bold tracking-widest flex items-center justify-center gap-1">
+                            Powered by Gemini AI <Icon name="Sparkles" className="w-2 h-2"/>
                         </p>
                     </div>
                 </div>
             </div>
             
+            {/* Contenido Principal */}
             <div className="flex-1 flex flex-col overflow-hidden">
-                <header className="flex justify-between items-center p-4 bg-white border-b no-print"><button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 focus:outline-none md:hidden"><Icon name="Menu" className="h-6 w-6"/></button><h1 className="text-2xl font-semibold text-gray-800">Bienvenido, {userData?.nombre || 'Cliente'}!</h1><div></div></header>
-                <main className="flex-1 overflow-y-auto bg-gray-100 p-6"><div className="fade-in">{children}</div></main>
+                <header className="flex justify-between items-center p-4 bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-10 no-print">
+                    <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 hover:text-gray-700 focus:outline-none lg:hidden p-2 rounded-md hover:bg-gray-100">
+                        <Icon name="Menu" className="h-6 w-6"/>
+                    </button>
+                    <h1 className="text-xl md:text-2xl font-bold text-gray-800 truncate ml-2">
+                        Bienvenido, <span className="text-blue-600">{userData?.nombre || 'Cliente'}</span>!
+                    </h1>
+                    <div className="w-8"></div> {/* Espaciador para centrar título en móvil si hiciera falta */}
+                </header>
+                
+                <main className="flex-1 overflow-y-auto bg-gray-50 p-4 md:p-6 relative">
+                    <div className="fade-in max-w-7xl mx-auto">
+                        {children}
+                    </div>
+                </main>
             </div>
         </div>
     );
@@ -4213,7 +4267,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                     </div>
 
                     {/* TABLA */}
-                    <div className="bg-white rounded-lg shadow overflow-hidden">
+                    <div className="bg-white rounded-lg shadow overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
