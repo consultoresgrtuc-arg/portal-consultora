@@ -723,6 +723,12 @@ const AppLayout = ({ children }) => {
 
     const navLinks = [
         { name: 'Dashboard', icon: 'LayoutDashboard', path: '/dashboard' },
+
+        // Lógica Condicional: Se muestra SI es Admin O SI tiene servicioFacturacion: true
+        ...((userData?.isAdmin || userData?.servicioFacturacion) ? [
+            { name: 'Facturación', icon: 'File', path: '/billing-requests' }
+        ] : []),
+        
         { name: 'Facturación', icon: 'File', path: '/billing-requests' },
         { name: 'Operaciones', icon: 'PlusCircle', path: '/operations' },
         { name: 'Gestión', icon: 'ClipboardList', path: '/gestion'},
@@ -1696,219 +1702,189 @@ const AppLayout = ({ children }) => {
                 </div>
             );
         };
+
         const AdminPage = () => {
-            const { userData } = useAuth();
-            const [users, setUsers] = React.useState([]);
-            const [error, setError] = React.useState('');
-            const { navigate } = React.useContext(AppContext);
+    const { userData } = useAuth();
+    const [users, setUsers] = React.useState([]);
+    const [error, setError] = React.useState('');
+    const { navigate } = React.useContext(AppContext);
 
-            // --- Nuevos estados para el "Botón de Arranque" (Custom Claims) ---
-            const [claimMessage, setClaimMessage] = React.useState('');
-            const [isClaiming, setIsClaiming] = React.useState(false);
-            const functions = getFunctions();
-            // --- Nuevos estados para el "Botón de Eliminar" ---
-            const [isDeleting, setIsDeleting] = React.useState(false);
-            const [userToDelete, setUserToDelete] = React.useState(null); // Guarda el {id, nombre} del usuario
-            const [deleteMessage, setDeleteMessage] = React.useState('');
+    // --- Estados para acciones ---
+    const [claimMessage, setClaimMessage] = React.useState('');
+    const [isClaiming, setIsClaiming] = React.useState(false);
+    const functions = getFunctions(); // Mantenemos tu definición original
+    
+    const [isDeleting, setIsDeleting] = React.useState(false);
+    const [userToDelete, setUserToDelete] = React.useState(null); 
+    const [deleteMessage, setDeleteMessage] = React.useState('');
 
-            // --- Nueva función para el "Botón de Eliminar" ---
-            const handleDeleteUser = async () => {
-                if (!userToDelete) return;
-                
-                setIsDeleting(true);
-                setDeleteMessage('Eliminando usuario y todos sus datos...');
+    // 1. Cargar Usuarios (Tu código original)
+    const handleDeleteUser = async () => {
+        if (!userToDelete) return;
+        setIsDeleting(true); setDeleteMessage('Eliminando usuario y todos sus datos...');
+        try {
+            const deleteUserAndData = httpsCallable(functions, 'deleteUserAndData');
+            const result = await deleteUserAndData({ uid: userToDelete.id });
+            setDeleteMessage(`¡Éxito! ${result.data.message}`);
+            // Recargamos la lista
+            const q = query(collection(db, "users"));
+            const querySnapshot = await getDocs(q);
+            setUsers(querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+        } catch (err) {
+            console.error("Error al llamar a deleteUserAndData:", err);
+            setDeleteMessage(`Error: ${err.message}`);
+        } finally {
+            setIsDeleting(false);
+            setTimeout(() => { setUserToDelete(null); setDeleteMessage(''); }, 4000);
+        }
+    };
 
-                try {
-                    // 1. Preparamos la Cloud Function (la que desplegamos en 2.A)
-                    const deleteUserAndData = httpsCallable(functions, 'deleteUserAndData');
-                    
-                    // 2. Llamamos a la Cloud Function pasándole el UID
-                    const result = await deleteUserAndData({ uid: userToDelete.id });
-        
-                    setDeleteMessage(`¡Éxito! ${result.data.message}`);
-                    
-                    // 3. Forzamos un refresco de la lista de usuarios en el frontend
-                    // (Simulamos un re-fetch llamando a la lógica del useEffect)
-                    const q = query(collection(db, "users"));
-                    const querySnapshot = await getDocs(q);
-                    setUsers(querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
-                    
-                } catch (err) {
-                    console.error("Error al llamar a deleteUserAndData:", err);
-                    setDeleteMessage(`Error: ${err.message}`);
-                } finally {
-                    setIsDeleting(false);
-                    // Cerramos el modal después de unos segundos
-                    setTimeout(() => {
-                        setUserToDelete(null);
-                        setDeleteMessage('');
-                    }, 4000);
-                }
-            };
+    React.useEffect(() => {
+        const fetchUsers = async () => {
+            setError('');
+            try {
+                const q = query(collection(db, "users")); // Tu query original
+                const querySnapshot = await getDocs(q);
+                setUsers(querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+            } catch (err) {
+                console.error("Error fetching users:", err);
+                setError("No se pudieron cargar los clientes.");
+            }
+        };
+        if(userData?.isAdmin) fetchUsers();
+    }, [userData]);
 
-            React.useEffect(() => {
-                const fetchUsers = async () => {
-                    setError('');
-                    try {
-                        const q = query(collection(db, "users"));
-                        const querySnapshot = await getDocs(q);
-                        setUsers(querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
-                    } catch (err) {
-                        console.error("Error fetching users:", err);
-                        setError("No se pudieron cargar los clientes. Es probable que las reglas de seguridad de Firestore no permitan listar usuarios. Asegúrate de que un administrador tenga permiso de 'list' sobre la colección 'users'.");
-                    }
-                };
-                if(userData?.isAdmin) {
-                    fetchUsers();
-                }
-            }, [userData]);
-            // --- NUEVO: Función para activar/desactivar facturación ---
-            const toggleBillingService = async (targetUser) => {
-                const newState = !targetUser.servicioFacturacion;
-                try {
-                    // Actualizamos en Firestore usando 'db' global
-                    await updateDoc(doc(db, "users", targetUser.id), {
-                        servicioFacturacion: newState,
-                        // Si se activa, por defecto es 'estudio' (delegado), si no tenía modo asignado
-                        modoFacturacion: newState ? (targetUser.modoFacturacion || 'estudio') : targetUser.modoFacturacion
-                    });
-                    
-                    // Actualizamos la lista localmente para que se vea rápido
-                    setUsers(users.map(u => u.id === targetUser.id ? {...u, servicioFacturacion: newState} : u));
-                    
-                } catch (err) {
-                    console.error("Error updating service:", err);
-                    alert("Error al cambiar el estado del servicio.");
-                }
-            };
-        // --- Nueva función para el "Botón de Arranque" (Custom Claims) ---
-            const handleMakeAdmin = async () => {
-                setIsClaiming(true);
-                setClaimMessage('Procesando...');
-                
-                try {
-                    // 1. Preparamos la Cloud Function
-                    const makeMeAdmin = httpsCallable(functions, 'makeMeAdmin');
-                    
-                    // 2. Llamamos a la Cloud Function (no necesita enviar datos)
-                    await makeMeAdmin();
-        
-                    // 3. ¡Punto Crítico! Forzamos el refresco del token
-                    if (auth.currentUser) {
-                        await auth.currentUser.getIdTokenResult(true);
-                    }
-        
-                    setClaimMessage('¡Éxito! Token actualizado. Por favor, CIERRA SESIÓN y VUELVE A INGRESAR.');
-                    
-                } catch (err) {
-                    console.error("Error al llamar a makeMeAdmin:", err);
-                    setClaimMessage(`Error: ${err.message}`);
-                } finally {
-                    setIsClaiming(false);
-                }
-            };
+    // --- 2. FUNCIÓN MEJORADA: ACTIVAR SERVICIO ---
+    const toggleBillingService = async (targetUser) => {
+        const newState = !targetUser.servicioFacturacion;
+        try {
+            await updateDoc(doc(db, "users", targetUser.id), {
+                servicioFacturacion: newState,
+                // Al activar, si no tiene modo, le ponemos 'estudio' por defecto
+                modoFacturacion: newState ? (targetUser.modoFacturacion || 'estudio') : targetUser.modoFacturacion
+            });
+            setUsers(users.map(u => u.id === targetUser.id ? {...u, servicioFacturacion: newState} : u));
+        } catch (err) {
+            console.error("Error updating service:", err);
+            alert("Error al cambiar el estado del servicio.");
+        }
+    };
+
+    // --- 3. NUEVA FUNCIÓN (LA QUE FALTABA): CAMBIAR MODO ---
+    const changeBillingMode = async (targetUser, newMode) => {
+        try {
+            await updateDoc(doc(db, "users", targetUser.id), {
+                modoFacturacion: newMode
+            });
+            setUsers(users.map(u => u.id === targetUser.id ? {...u, modoFacturacion: newMode} : u));
+        } catch (err) {
+            console.error(err);
+            alert("Error al cambiar el modo.");
+        }
+    };
+
+    // --- Funciones de Admin originales ---
+    const handleMakeAdmin = async () => {
+        setIsClaiming(true); setClaimMessage('Procesando...');
+        try {
+            const makeMeAdmin = httpsCallable(functions, 'makeMeAdmin');
+            await makeMeAdmin();
+            if (auth.currentUser) await auth.currentUser.getIdTokenResult(true);
+            setClaimMessage('¡Éxito! Token actualizado. Por favor, CIERRA SESIÓN.');
+        } catch (err) {
+            console.error(err);
+            setClaimMessage(`Error: ${err.message}`);
+        } finally {
+            setIsClaiming(false);
+        }
+    };
+
+    if (!userData?.isAdmin) return <div><h2 className="text-3xl font-bold text-red-600">Acceso Denegado</h2><p>Esta sección es solo para administradores.</p></div>;
+
+    return (
+        <div className="p-6">
+            {userToDelete && <ConfirmModal message={`¿Estás seguro de eliminar a ${userToDelete.nombre}?`} confirmText="Sí, Eliminar" isDestructive={true} onConfirm={handleDeleteUser} onCancel={() => setUserToDelete(null)} />}
             
-            if (!userData?.isAdmin) return <div><h2 className="text-3xl font-bold text-red-600">Acceso Denegado</h2><p>Esta sección es solo para administradores.</p></div>;
+            <h2 className="text-3xl font-bold mb-6">Panel de Administración</h2>
+            
+            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md mb-6 shadow-sm">
+                <h3 className="text-lg font-bold text-yellow-800 flex items-center"><Icon name="AlertTriangle" className="w-5 h-5 mr-2"/> Configuración Admin</h3>
+                <div className="mt-2 flex items-center gap-4">
+                    <button onClick={handleMakeAdmin} disabled={isClaiming} className="mt-2 bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 disabled:bg-gray-400 font-semibold text-xs">
+                        {isClaiming ? 'Procesando...' : "Restaurar mi Rol de Admin"}
+                    </button>
+                    <span className="text-xs text-yellow-600">{claimMessage}</span>
+                </div>
+            </div>
+            
+            {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6">{error}</div>}
 
-            return (
-  <div>
-    {/* --- Modal de Confirmación para Eliminar --- */}
-    {userToDelete && (
-        <ConfirmModal
-            title="Confirmar Eliminación"
-            message={`¿Estás seguro de que quieres eliminar a ${userToDelete.nombre}? Esta acción es irreversible y borrará su cuenta, perfil y todos sus archivos permanentemente.`}
-            confirmText="Sí, Eliminar Permanentemente"
-            onConfirm={handleDeleteUser}
-            onCancel={() => setUserToDelete(null)}
-            isLoading={isDeleting}
-            messageApi={deleteMessage}
-        />
-    )}
-    
-    <h2 className="text-3xl font-bold mb-6">Panel de Administración</h2>
-    
-    {/* --- Bloque Temporal para el "Botón de Arranque" (Custom Claims) --- */}
-    <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md mb-6 shadow-md">
-        <h3 className="text-lg font-bold text-yellow-800 flex items-center">
-            <Icon name="AlertTriangle" className="w-5 h-5 mr-2"/> Acción de Administrador (Primer Uso)
-        </h3>
-        <p className="text-sm text-yellow-700 mt-2">
-            Haz clic en este botón **una sola vez** para asignarte los permisos de administrador (Custom Claim).
-            Después de hacerlo, **debes cerrar sesión y volver a ingresar** para que los cambios surtan efecto.
-            (Una vez hecho, este panel se puede borrar del código fuente).
-        </p>
-        <button
-            onClick={handleMakeAdmin}
-            disabled={isClaiming}
-            className="mt-4 bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 disabled:bg-gray-400 font-semibold"
-        >
-            {isClaiming ? 'Procesando...' : "Asignarme 'Custom Claim' de Admin"}
-        </button>
-        {claimMessage && (
-            <p className={`mt-3 text-sm font-semibold ${claimMessage.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
-                {claimMessage}
-            </p>
-        )}
-    </div>
-    {/* --- Fin del Bloque Temporal --- */}
-    
-    {error && (
-        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6" role="alert">
-            <p className="font-bold">Error de Permisos</p>
-            <p>{error}</p>
-        </div>
-    )}
+            <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
+                <h3 className="text-xl font-bold mb-4 flex items-center"><Icon name="Users" className="w-6 h-6 mr-2"/> Lista de Clientes</h3>
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Nombre</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Email / CUIT</th>
+                            {/* TÍTULO COLUMNA NUEVO */}
+                            <th className="px-6 py-3 text-center text-xs font-bold uppercase text-gray-500">Servicio Facturación</th>
+                            <th className="px-6 py-3 text-center text-xs font-medium uppercase text-gray-500">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {users.map(user => (
+                            <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{user.nombre || '-'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <div>{user.email}</div>
+                                    <div className="font-mono text-xs text-gray-400">{user.cuit || 'S/D'}</div>
+                                </td>
+                                
+                                {/* --- CELDA NUEVA (INTERRUPTOR + SELECTOR) --- */}
+                                <td className="px-6 py-4 text-center align-top">
+                                    <div className="flex flex-col items-center gap-2">
+                                        <div className="flex items-center gap-2">
+                                            <button 
+                                                onClick={() => toggleBillingService(user)}
+                                                className={`relative inline-flex items-center h-5 rounded-full w-9 transition-colors focus:outline-none ${user.servicioFacturacion ? 'bg-green-500' : 'bg-gray-300'}`}
+                                            >
+                                                <span className={`inline-block w-3 h-3 transform bg-white rounded-full transition-transform ${user.servicioFacturacion ? 'translate-x-5' : 'translate-x-1'}`}/>
+                                            </button>
+                                            <span className="text-[10px] font-bold text-gray-500 w-10 text-left">{user.servicioFacturacion ? 'ON' : 'OFF'}</span>
+                                        </div>
 
-    <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
-        <h3 className="text-xl font-bold mb-4 flex items-center"><Icon name="Users" className="w-6 h-6 mr-2"/> Lista de Clientes</h3>
-        <table className="min-w-full divide-y">
-            <thead className="bg-gray-50"><tr>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Nombre</th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase">CUIT</th>
-                <th className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase">Servicio Facturación</th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Acciones</th>
-            </tr></thead>
-            <tbody className="bg-white divide-y">{users.map(user => (
-                <tr key={user.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">{user.nombre || '-'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{user.email}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{user.cuit || '-'}</td>
-                    {/* --- NUEVO: INTERRUPTOR --- */}
-                                <td className="px-6 py-4 text-center">
-                                    <button 
-                                        onClick={() => toggleBillingService(user)}
-                                        className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors focus:outline-none ${user.servicioFacturacion ? 'bg-green-500' : 'bg-gray-300'}`}
-                                    >
-                                        <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${user.servicioFacturacion ? 'translate-x-6' : 'translate-x-1'}`}/>
-                                    </button>
-                                    <div className="text-[10px] mt-1 font-bold text-gray-500">
-                                        {user.servicioFacturacion ? 'ACTIVO' : 'INACTIVO'}
+                                        {/* EL SELECTOR QUE FALTABA */}
+                                        {user.servicioFacturacion && (
+                                            <select 
+                                                value={user.modoFacturacion || 'estudio'}
+                                                onChange={(e) => changeBillingMode(user, e.target.value)}
+                                                className={`text-[10px] font-bold py-1 px-1 rounded border cursor-pointer outline-none w-full max-w-[120px]
+                                                    ${(user.modoFacturacion || 'estudio') === 'estudio' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-purple-50 text-purple-700 border-purple-200'}`}
+                                            >
+                                                <option value="estudio">Gestiono YO</option>
+                                                <option value="cliente">Autogestión</option>
+                                            </select>
+                                        )}
                                     </div>
                                 </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {/* Botón Gestionar (Existente) */}
-                        <button 
-                            onClick={() => navigate(`/admin/manage/${user.id}`)} 
-                            className="bg-blue-500 text-white px-3 py-1 rounded-md hover:bg-blue-600"
-                        >
-                            Gestionar
-                        </button>
-                        {/* Botón Eliminar (NUEVO) */}
-                        <button 
-                            onClick={() => setUserToDelete({ id: user.id, nombre: user.nombre || user.email })} 
-                            className="text-red-600 hover:text-red-800 ml-4"
-                            title="Eliminar Usuario Permanentemente"
-                        >
-                            <Icon name="Trash2" className="w-5 h-5"/>
-                        </button>
-                    </td>
-                </tr>
-            ))}</tbody>
-        </table>
-    </div>
-</div>
-);
+
+                                <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                                    <div className="flex items-center justify-center gap-2">
+                                        <button onClick={() => navigate(`/admin/manage/${user.id}`)} className="bg-blue-100 text-blue-600 px-3 py-1 rounded hover:bg-blue-200 text-xs font-bold">
+                                            Gestionar
+                                        </button>
+                                        <button onClick={() => setUserToDelete({ id: user.id, nombre: user.nombre || user.email })} className="text-red-600 hover:text-red-800" title="Eliminar">
+                                            <Icon name="Trash2" className="w-5 h-5"/>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
 };
 
         const AdminClientManagementPage = ({ userId }) => {
@@ -4035,8 +4011,6 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             const [showModal, setShowModal] = useState(false);
             const [filterStatus, setFilterStatus] = useState('pending'); 
             const [expandedRowId, setExpandedRowId] = useState(null); 
-            
-            // --- NUEVO: ESTADO PARA EL FILTRO DE CLIENTE ---
             const [selectedClient, setSelectedClient] = useState('todos');
 
             // Estados para acciones
@@ -4051,148 +4025,172 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             const [editingRequest, setEditingRequest] = useState(null);
             const [editFormData, setEditFormData] = useState({});
 
-            // 1. Leer Solicitudes
-            useEffect(() => {
-                if (!user || !userData?.isAdmin) return; 
-                setLoading(true);
-                
-                const q = query(collection(db, 'billing_requests'), orderBy('status', 'desc'), orderBy('timestamp', 'desc'));
+            // 1. SEGURIDAD
+            if (!loading && !userData?.isAdmin && !userData?.servicioFacturacion) {
+                return (
+                    <div className="p-10 text-center">
+                        <div className="bg-white p-8 rounded-lg shadow-md inline-block border-t-4 border-red-500">
+                            <Icon name="Shield" className="w-12 h-12 text-red-500 mx-auto mb-4"/>
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Servicio No Habilitado</h2>
+                            <p className="text-gray-600">Este módulo no está activo en tu cuenta.</p>
+                        </div>
+                    </div>
+                );
+            }
 
+            // 2. LECTURA DE DATOS
+            useEffect(() => {
+                if (!user) return;
+                setLoading(true);
+                let q;
+                if (userData?.isAdmin) {
+                    // ADMIN: Ve todo
+                    q = query(collection(db, 'billing_requests'), orderBy('status', 'desc'), orderBy('timestamp', 'desc'));
+                } else {
+                    // USUARIO: Ve solo lo suyo
+                    q = query(collection(db, 'billing_requests'), where('userId', '==', user.uid), orderBy('timestamp', 'desc'));
+                }
                 const unsubscribe = onSnapshot(q, (snapshot) => {
                     const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     setRequests(docs);
                     setLoading(false);
                 }, (error) => {
-                    console.error("Error fetching requests:", error);
+                    console.error("Error:", error);
                     setLoading(false);
                 });
-
                 return () => unsubscribe();
             }, [user, userData]);
 
-            // --- LÓGICA DE FILTRADO ---
+            // 3. FILTRADO INTELIGENTE (VISIBLE REQUESTS)
+            const visibleRequests = useMemo(() => {
+                if (!userData?.isAdmin) return requests; 
+                // El Admin ve todo lo que NO sea autogestión pura (o podrías quitar el filtro si quieres auditar todo)
+                return requests.filter(req => req.userModoFacturacion !== 'cliente');
+            }, [requests, userData]);
+
+            // 4. LISTA DE CLIENTES (SELECTOR SIMÉTRICO)
             const uniqueClients = useMemo(() => {
                 const names = new Set();
-                requests.forEach(req => {
-                    const name = req.aiData?.nombre_receptor || req.userName;
+                const sourceList = userData?.isAdmin ? visibleRequests : requests;
+                
+                sourceList.forEach(req => {
+                    let name;
+                    if (userData?.isAdmin) {
+                        // ADMIN ve a SUS clientes (Receptores del dinero)
+                        name = req.aiData?.nombre_receptor || req.userName;
+                    } else {
+                        // USUARIO ve a SUS clientes (Emisores del dinero / Pagadores)
+                        name = req.aiData?.nombre_emisor || 'Desconocido';
+                    }
                     if (name && name !== 'Carga Manual (Admin)') names.add(name);
                 });
                 return Array.from(names).sort();
-            }, [requests]);
+            }, [visibleRequests, requests, userData]);
 
+            // 5. FILTRADO FINAL
             const filteredRequests = useMemo(() => {
-                if (selectedClient === 'todos') return requests;
-                return requests.filter(req => {
-                    const clientName = req.aiData?.nombre_receptor || req.userName;
-                    return clientName === selectedClient;
-                });
-            }, [requests, selectedClient]);
+                const sourceList = userData?.isAdmin ? visibleRequests : requests;
+                let data = sourceList;
+                
+                // Filtro por Nombre
+                if (selectedClient !== 'todos') {
+                    data = data.filter(req => {
+                        if (userData?.isAdmin) {
+                            return (req.aiData?.nombre_receptor || req.userName) === selectedClient;
+                        } else {
+                            return (req.aiData?.nombre_emisor || 'Desconocido') === selectedClient;
+                        }
+                    });
+                }
+                
+                // Filtro por Estado
+                if (filterStatus === 'completed') {
+                    return data.filter(r => r.status === 'completed');
+                } else {
+                    return data.filter(r => r.status !== 'completed');
+                }
+            }, [visibleRequests, requests, selectedClient, filterStatus, userData]);
 
-            // --- LÓGICA DE TOTALES (DASHBOARD) ---
+            // --- DASHBOARD TOTALES ---
             const metrics = useMemo(() => {
                 const now = new Date();
                 const currentMonth = now.getMonth();
                 const currentYear = now.getFullYear();
-
-                const requestsThisMonth = filteredRequests.filter(req => {
+                const monthReqs = filteredRequests.filter(req => {
                     if (!req.timestamp) return false;
-                    const reqDate = req.timestamp.toDate();
-                    return reqDate.getMonth() === currentMonth && reqDate.getFullYear() === currentYear;
+                    const d = req.timestamp.toDate();
+                    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
                 });
-
-                const totalFacturado = requestsThisMonth
-                    .filter(r => r.status === 'completed' && r.aiData?.monto_total)
-                    .reduce((sum, r) => sum + r.aiData.monto_total, 0);
-
-                const totalPendiente = requestsThisMonth
-                    .filter(r => r.status !== 'completed' && r.status !== 'duplicate' && r.aiData?.monto_total)
-                    .reduce((sum, r) => sum + r.aiData.monto_total, 0);
-
-                return { totalFacturado, totalPendiente };
+                return {
+                    totalFacturado: monthReqs.filter(r => r.status === 'completed').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0),
+                    totalPendiente: monthReqs.filter(r => r.status !== 'completed' && r.status !== 'duplicate').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0)
+                };
             }, [filteredRequests]);
 
-            // 2. Crear Solicitud Manual
+            // --- FUNCIONES DE ACCIÓN ---
             const handleCreateRequest = async (e) => {
-                e.preventDefault();
-                if (!newRequestFile || !user) return;
-                setUploading(true);
+                e.preventDefault(); if (!newRequestFile || !user) return; setUploading(true);
                 try {
                     const fileRef = ref(storage, `billing_requests/${user.uid}/${Date.now()}_${newRequestFile.name}`);
                     await uploadBytes(fileRef, newRequestFile);
                     const url = await getDownloadURL(fileRef);
+                    // Si es Admin es 'estudio', si no usa el modo del usuario (autonomo o estudio)
+                    const modo = userData?.isAdmin ? 'estudio' : (userData.modoFacturacion || 'estudio');
                     await addDoc(collection(db, 'billing_requests'), {
-                        userId: user.uid,
-                        userName: "Carga Manual (Admin)", 
-                        userPhone: "", 
-                        userModoFacturacion: 'estudio',
-                        status: 'pending', 
-                        requestImageUrl: url,
-                        note: newRequestNote,
-                        timestamp: Timestamp.now(),
-                        invoiceUrl: null
+                        userId: user.uid, userName: userData.nombre || user.email, userPhone: userData.telefono || "", 
+                        userModoFacturacion: modo, status: 'pending', requestImageUrl: url, note: newRequestNote, 
+                        timestamp: Timestamp.now(), invoiceUrl: null
                     });
                     setShowModal(false); setNewRequestFile(null); setNewRequestNote('');
-                } catch (error) { console.error(error); alert("Error al subir."); } 
-                finally { setUploading(false); }
+                } catch (e) { alert("Error al subir."); } finally { setUploading(false); }
             };
 
-            // 3. Completar Solicitud
             const handleCompleteRequest = async () => {
-                if (!invoiceFile || !completingId) return;
-                setUploading(true);
+                if (!invoiceFile || !completingId) return; setUploading(true);
                 try {
                     const req = requests.find(r => r.id === completingId);
-                    const targetUserId = req.userId || 'admin_uploads';
-                    const fileRef = ref(storage, `billing_invoices/${targetUserId}/${Date.now()}_${invoiceFile.name}`);
+                    const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`);
                     await uploadBytes(fileRef, invoiceFile);
                     const url = await getDownloadURL(fileRef);
-                    await updateDoc(doc(db, 'billing_requests', completingId), {
-                        status: 'completed',
-                        invoiceUrl: url,
-                        completedAt: Timestamp.now()
-                    });
+                    await updateDoc(doc(db, 'billing_requests', completingId), { status: 'completed', invoiceUrl: url, completedAt: Timestamp.now() });
                     setCompletingId(null); setInvoiceFile(null);
-                } catch (error) { console.error(error); alert("Error al subir."); } 
-                finally { setUploading(false); }
+                } catch (e) { alert("Error al completar."); } finally { setUploading(false); }
             };
-
-            // 4. Edición de Datos
+            
+            // --- FUNCIÓN CRÍTICA: CARGAR TODOS LOS DATOS PARA EDICIÓN ---
             const openEditModal = (req) => {
                 setEditFormData({
                     fecha_pago: req.aiData?.fecha_pago || '',
                     monto_total: req.aiData?.monto_total || 0,
                     tipo_comprobante: req.aiData?.tipo_comprobante || '',
+                    // EMISOR
                     cuit_emisor: req.aiData?.cuit_emisor || '',
                     nombre_emisor: req.aiData?.nombre_emisor || '',
                     banco_origen: req.aiData?.banco_origen || '',
+                    // RECEPTOR
                     cuit_receptor: req.aiData?.cuit_receptor || '',
                     nombre_receptor: req.aiData?.nombre_receptor || '',
+                    // CONCEPTOS
                     concepto_detectado: req.aiData?.concepto_detectado || ''
                 });
                 setEditingRequest(req);
             };
 
             const handleSaveEdits = async (e) => {
-                e.preventDefault();
-                if (!editingRequest) return;
-                try {
-                    await updateDoc(doc(db, 'billing_requests', editingRequest.id), {
-                        aiData: { ...editFormData, monto_total: parseFloat(editFormData.monto_total) }
-                    });
-                    setEditingRequest(null);
-                } catch (error) { console.error(error); alert("Error guardando."); }
+                e.preventDefault(); if (!editingRequest) return;
+                try { 
+                    await updateDoc(doc(db, 'billing_requests', editingRequest.id), { 
+                        aiData: { ...editFormData, monto_total: parseFloat(editFormData.monto_total) } 
+                    }); 
+                    setEditingRequest(null); 
+                } catch (e) { alert("Error al guardar edición."); }
             };
 
-            // 5. Borrado y Archivo
-            const handleDeleteRequest = async () => {
-                if (!requestToDelete) return;
-                try { await deleteDoc(doc(db, 'billing_requests', requestToDelete)); setRequestToDelete(null); } 
-                catch (error) { console.error(error); }
-            };
-
+            const handleDeleteRequest = async () => { if(requestToDelete) { await deleteDoc(doc(db, 'billing_requests', requestToDelete)); setRequestToDelete(null); } };
+            
             const markAsDone = async (reqId) => {
-                if(!window.confirm("¿Confirmar?")) return;
-                try { await updateDoc(doc(db, 'billing_requests', reqId), { status: 'completed', completedAt: Timestamp.now() }); } catch(e) {}
+                if(!window.confirm("¿Confirmar que esta operación ya fue facturada?")) return;
+                try { await updateDoc(doc(db, 'billing_requests', reqId), { status: 'completed', completedAt: Timestamp.now() }); } catch(e) { console.error(e); }
             };
 
             const toggleDetails = (id) => setExpandedRowId(expandedRowId === id ? null : id);
@@ -4200,35 +4198,44 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             const sendWhatsAppNotification = (req) => {
                 if (!req.invoiceUrl) return;
                 let phone = req.userPhone;
-                if (!phone) { phone = prompt("Ingresa número:"); if(!phone) return; }
+                if (!phone) { phone = prompt("Ingresa número de destino:"); if(!phone) return; }
                 phone = phone.replace(/\D/g, '');
                 if (!phone.startsWith('54')) phone = '549' + phone;
-                window.open(`https://wa.me/${phone}?text=${encodeURIComponent(`Hola! Tu factura: ${req.invoiceUrl}`)}`, '_blank');
+                const message = `Hola! 👋 Aquí tienes tu factura: ${req.invoiceUrl}`;
+                window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
             };
 
-            const copyData = (text) => { navigator.clipboard.writeText(text); alert("Copiado!"); };
+            const copyData = (text) => { navigator.clipboard.writeText(text); alert("Copiado al portapapeles"); };
 
-            if (!userData?.isAdmin) return <div className="p-8 text-center text-red-600">Acceso restringido.</div>;
 
+            // --- RENDER ---
             return (
                 <div className="p-4">
                     <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                        <h2 className="text-3xl font-bold text-gray-800">Centro de Facturación</h2>
+                        <h2 className="text-3xl font-bold text-gray-800">
+                            {userData?.isAdmin ? 'Centro de Facturación (Admin)' : 'Mis Facturaciones'}
+                        </h2>
                         
-                        {/* SELECTOR DE CLIENTES */}
                         <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-gray-500">Filtrar Cliente:</span>
+                            <span className="text-sm font-bold text-gray-500 hidden md:inline">
+                                {userData?.isAdmin ? 'Filtrar Cliente:' : 'Filtrar Pagador:'}
+                            </span>
                             <select 
                                 value={selectedClient} 
                                 onChange={(e) => setSelectedClient(e.target.value)}
-                                className="border border-gray-300 rounded-md p-2 text-sm bg-white shadow-sm focus:ring-2 focus:ring-blue-500"
+                                className="border border-gray-300 rounded-md p-2 text-sm bg-white shadow-sm focus:ring-2 focus:ring-blue-500 max-w-[150px] md:max-w-xs"
                             >
                                 <option value="todos">Mostrar Todos</option>
                                 {uniqueClients.map(client => (
                                     <option key={client} value={client}>{client}</option>
                                 ))}
                             </select>
-                            <button onClick={() => setShowModal(true)} className="btn-primary flex items-center shadow-lg ml-2"><Icon name="PlusCircle" className="w-5 h-5 mr-2"/> Carga Manual</button>
+                            
+                            <button onClick={() => setShowModal(true)} className="btn-primary flex items-center shadow-lg ml-2">
+                                <Icon name="PlusCircle" className="w-5 h-5 mr-2"/> 
+                                <span className="hidden md:inline">{userData?.isAdmin ? 'Carga Manual' : 'Subir Comprobante'}</span>
+                                <span className="md:hidden">Subir</span>
+                            </button>
                         </div>
                     </div>
 
@@ -4237,7 +4244,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-green-500 flex justify-between items-center">
                             <div>
                                 <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">
-                                    {selectedClient === 'todos' ? 'Total Facturado (Global)' : `Facturado a: ${selectedClient}`}
+                                    {selectedClient === 'todos' ? 'Total Facturado (Mes)' : `Facturado a: ${selectedClient}`}
                                 </p>
                                 <h3 className="text-2xl font-bold text-green-700">
                                     {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(metrics.totalFacturado)}
@@ -4247,7 +4254,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                         </div>
                         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-yellow-500 flex justify-between items-center">
                             <div>
-                                <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendiente de Facturar</p>
+                                <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendiente</p>
                                 <h3 className="text-2xl font-bold text-yellow-700">
                                     {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(metrics.totalPendiente)}
                                 </h3>
@@ -4256,7 +4263,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                         </div>
                     </div>
 
-                    {/* PESTAÑAS DE ESTADO */}
+                    {/* PESTAÑAS */}
                     <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-lg px-4 pt-2">
                         <button onClick={() => setFilterStatus('pending')} className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors ${filterStatus === 'pending' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                             Pendientes ({filteredRequests.filter(r => r.status === 'pending' || r.status === 'analyzed' || r.status === 'duplicate').length})
@@ -4272,33 +4279,46 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                             <thead className="bg-gray-50">
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Fecha</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Cliente / Beneficiario</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Detalle IA</th>
+                                    {/* COLUMNA DINÁMICA */}
+                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">
+                                        {userData?.isAdmin ? 'Tu Cliente (Receptor)' : 'Pagador (Emisor)'}
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Resumen IA</th>
                                     <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase">Monto</th>
                                     <th className="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase"></th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {loading ? <tr><td colSpan="5" className="text-center py-10">Cargando...</td></tr> : 
-                                filteredRequests.filter(req => filterStatus === 'completed' ? req.status === 'completed' : req.status !== 'completed').length === 0 ? 
-                                <tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay comprobantes para {selectedClient === 'todos' ? 'mostrar' : selectedClient}.</td></tr> :
+                                filteredRequests.length === 0 ? <tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay comprobantes para {selectedClient === 'todos' ? 'mostrar' : selectedClient}.</td></tr> :
                                 filteredRequests.filter(req => filterStatus === 'completed' ? req.status === 'completed' : req.status !== 'completed').map(req => (
                                     <React.Fragment key={req.id}>
                                         <tr className={`hover:bg-blue-50 transition-colors cursor-pointer ${expandedRowId === req.id ? 'bg-blue-50' : ''}`} onClick={() => toggleDetails(req.id)}>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{req.timestamp?.toDate().toLocaleDateString()}</td>
                                             
-                                            {/* COLUMNA CLIENTE INTELIGENTE */}
+                                            {/* COLUMNA INTELIGENTE */}
                                             <td className="px-6 py-4">
                                                 <div className="text-sm font-bold text-blue-900">
-                                                    {req.aiData?.nombre_receptor || req.userName}
+                                                    {userData?.isAdmin 
+                                                        ? (req.aiData?.nombre_receptor || req.userName) // Admin ve "Pedro"
+                                                        : (req.aiData?.nombre_emisor || 'Desconocido')  // Pedro ve "José"
+                                                    }
                                                 </div>
-                                                {req.aiData?.cuit_receptor && <div className="text-xs text-gray-500 font-mono">{req.aiData.cuit_receptor}</div>}
+                                                {/* Admin ve CUIT Receptor, Pedro ve CUIT Emisor */}
+                                                <div className="text-xs text-gray-500 font-mono">
+                                                    {userData?.isAdmin ? req.aiData?.cuit_receptor : req.aiData?.cuit_emisor}
+                                                </div>
                                             </td>
 
                                             <td className="px-6 py-4">
                                                 {req.aiData ? (
                                                     <div className="text-sm">
-                                                        <span className="text-gray-600 block">De: <strong>{req.aiData.nombre_emisor || 'Desconocido'}</strong></span>
+                                                        <span className="text-gray-600 block">
+                                                            {userData?.isAdmin 
+                                                                ? `De: ${req.aiData.nombre_emisor || '?'}` 
+                                                                : `Concepto: ${req.aiData.concepto_detectado || 'Varios'}`
+                                                            }
+                                                        </span>
                                                         <span className="text-xs text-gray-500">({req.aiData.banco_origen})</span>
                                                     </div>
                                                 ) : <span className="text-xs text-gray-400 italic">Procesando...</span>}
@@ -4323,6 +4343,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                                             <tr className="bg-gray-50 shadow-inner">
                                                 <td colSpan="5" className="px-6 py-4">
                                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                        {/* LADO A: DATOS */}
                                                         <div className="bg-white p-4 rounded border border-blue-200 relative">
                                                             <div className="flex justify-between items-center mb-4 border-b pb-2">
                                                                 <h4 className="font-bold text-blue-800 text-sm uppercase flex items-center"><Icon name="Sparkles" className="w-4 h-4 mr-2"/> Datos Detectados</h4>
@@ -4348,12 +4369,21 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                                                             ) : <p className="text-sm text-gray-500 animate-pulse">Esperando IA...</p>}
                                                             <div className="mt-4 pt-3 border-t text-center"><a href={req.requestImageUrl} target="_blank" className="text-blue-600 text-xs font-bold hover:underline flex items-center justify-center"><Icon name="File" className="w-3 h-3 mr-1"/> Ver Imagen Original</a></div>
                                                         </div>
+
+                                                        {/* LADO B: ACCIONES */}
                                                         <div className="flex flex-col justify-between bg-gray-100 p-4 rounded border relative">
                                                             <button onClick={() => setRequestToDelete(req.id)} className="absolute top-2 right-2 text-gray-400 hover:text-red-600" title="Eliminar"><Icon name="Trash2" className="w-4 h-4"/></button>
                                                             <div>
                                                                 <h4 className="font-bold text-gray-800 mb-3 text-sm uppercase">Acciones</h4>
                                                                 {req.status !== 'completed' ? (
-                                                                    req.userModoFacturacion === 'estudio' ? (
+                                                                    // LOGICA DE PODERES TOTALES: Si es 'cliente' (autogestión) TIENE LOS MISMOS BOTONES
+                                                                    (req.userModoFacturacion === 'estudio' && !userData?.isAdmin) ? (
+                                                                        <div className="text-center py-4 bg-yellow-50 rounded border border-yellow-200 text-yellow-800 text-sm">
+                                                                            <Icon name="Clock" className="w-6 h-6 mx-auto mb-2"/>
+                                                                            Tu contador está procesando esto.
+                                                                        </div>
+                                                                    ) : (
+                                                                        // AQUÍ ENTRAN: ADMIN (SIEMPRE) Y CLIENTE (SI ES AUTOGESTIÓN)
                                                                         <div>
                                                                             <label className="block text-xs font-bold mb-2 text-gray-600">Subir PDF Generado:</label>
                                                                             <div className="flex gap-2">
@@ -4361,11 +4391,10 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                                                                                 <button onClick={() => { setCompletingId(req.id); handleCompleteRequest(); }} disabled={uploading || !invoiceFile} className="btn-primary text-xs shrink-0">{uploading ? '...' : 'Subir'}</button>
                                                                             </div>
                                                                         </div>
-                                                                    ) : (
-                                                                        <button onClick={() => markAsDone(req.id)} className="w-full btn-primary-green text-xs flex items-center justify-center"><Icon name="CheckCircle" className="w-4 h-4 mr-2"/> Cliente ya facturó (Archivar)</button>
                                                                     )
                                                                 ) : <div className="text-center py-2"><p className="text-green-600 font-bold text-sm mb-2">✅ Facturado</p><a href={req.invoiceUrl} target="_blank" className="text-xs text-blue-600 underline">Ver Factura</a></div>}
                                                             </div>
+                                                            
                                                             {req.status === 'completed' && req.invoiceUrl && <button onClick={() => sendWhatsAppNotification(req)} className="w-full mt-3 bg-green-500 text-white px-3 py-2 rounded flex items-center justify-center text-sm font-bold hover:bg-green-600"><Icon name="MessageCircle" className="w-4 h-4 mr-2"/> Avisar WhatsApp</button>}
                                                         </div>
                                                     </div>
@@ -4373,13 +4402,11 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                                             </tr>
                                         )}
                                     </React.Fragment>
-                                ))
-                                }
+                                ))}
                             </tbody>
                         </table>
                     </div>
-                    {/* Modales de Editar, Eliminar y Crear siguen igual... */}
-                    {requestToDelete && <ConfirmModal message="¿Eliminar solicitud?" confirmText="Eliminar" isDestructive={true} onConfirm={handleDeleteRequest} onCancel={() => setRequestToDelete(null)} />}
+                    {requestToDelete && <ConfirmModal message="¿Eliminar?" confirmText="Eliminar" isDestructive={true} onConfirm={handleDeleteRequest} onCancel={() => setRequestToDelete(null)} />}
                     {showModal && (
                         <div className="modal-overlay">
                             <div className="modal-content">
@@ -4392,7 +4419,8 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                             </div>
                         </div>
                     )}
-                    {/* Modal de Edición que ya tenías */}
+                    
+                    {/* --- MODAL DE EDICIÓN CON TODOS LOS CAMPOS --- */}
                     {editingRequest && (
                         <div className="modal-overlay">
                             <div className="modal-content sm:max-w-2xl">
@@ -4403,10 +4431,22 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                                         <div><label className="text-xs font-bold text-gray-500">Monto</label><input type="number" step="0.01" value={editFormData.monto_total} onChange={e => setEditFormData({...editFormData, monto_total: e.target.value})} className="w-full border p-2 rounded"/></div>
                                         <div><label className="text-xs font-bold text-gray-500">Tipo</label><input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full border p-2 rounded"/></div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <input placeholder="Nombre Emisor" value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="border p-2 rounded"/>
-                                        <input placeholder="Nombre Receptor" value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="border p-2 rounded"/>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {/* EMISOR */}
+                                        <div className="bg-gray-50 p-2 rounded">
+                                            <p className="text-xs font-bold text-gray-500 uppercase mb-2">Emisor (Pagador)</p>
+                                            <input placeholder="Nombre Emisor" value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full border p-2 rounded mb-2"/>
+                                            <input placeholder="CUIT Emisor" value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full border p-2 rounded mb-2"/>
+                                            <input placeholder="Banco" value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full border p-2 rounded"/>
+                                        </div>
+                                        {/* RECEPTOR */}
+                                        <div className="bg-blue-50 p-2 rounded">
+                                            <p className="text-xs font-bold text-blue-500 uppercase mb-2">Receptor (Beneficiario)</p>
+                                            <input placeholder="Nombre Receptor" value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full border p-2 rounded mb-2"/>
+                                            <input placeholder="CUIT Receptor" value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full border p-2 rounded"/>
+                                        </div>
                                     </div>
+                                    <div><label className="text-xs font-bold text-gray-500">Concepto</label><input type="text" value={editFormData.concepto_detectado} onChange={e => setEditFormData({...editFormData, concepto_detectado: e.target.value})} className="w-full border p-2 rounded"/></div>
                                     <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setEditingRequest(null)} className="btn-secondary">Cancelar</button><button type="submit" className="btn-primary">Guardar</button></div>
                                 </form>
                             </div>
