@@ -4110,21 +4110,45 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 }
             }, [visibleRequests, requests, selectedClient, filterStatus, userData]);
 
-            // --- DASHBOARD TOTALES ---
+            // --- LÓGICA DE TOTALES (DASHBOARD CORREGIDO) ---
             const metrics = useMemo(() => {
                 const now = new Date();
                 const currentMonth = now.getMonth();
                 const currentYear = now.getFullYear();
-                const monthReqs = filteredRequests.filter(req => {
+
+                // 1. Usamos 'visibleRequests' (Todo lo disponible) en lugar de 'filteredRequests' (Lo que se ve en tabla)
+                let baseData = visibleRequests;
+
+                // 2. Aplicamos MANUALMENTE el filtro de Cliente aquí también
+                // Para que los números respeten al cliente seleccionado, pero ignoren la pestaña Pendiente/Historial
+                if (selectedClient !== 'todos') {
+                    baseData = baseData.filter(req => {
+                        if (userData?.isAdmin) {
+                            return (req.aiData?.nombre_receptor || req.userName) === selectedClient;
+                        } else {
+                            return (req.aiData?.nombre_emisor || 'Desconocido') === selectedClient;
+                        }
+                    });
+                }
+
+                // 3. Filtramos por Mes Actual
+                const requestsThisMonth = baseData.filter(req => {
                     if (!req.timestamp) return false;
-                    const d = req.timestamp.toDate();
-                    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+                    const reqDate = req.timestamp.toDate();
+                    return reqDate.getMonth() === currentMonth && reqDate.getFullYear() === currentYear;
                 });
-                return {
-                    totalFacturado: monthReqs.filter(r => r.status === 'completed').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0),
-                    totalPendiente: monthReqs.filter(r => r.status !== 'completed' && r.status !== 'duplicate').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0)
-                };
-            }, [filteredRequests]);
+
+                // 4. Calculamos Totales (Ahora sí sumará todo, aunque no se vea en la tabla)
+                const totalFacturado = requestsThisMonth
+                    .filter(r => r.status === 'completed' && r.aiData?.monto_total)
+                    .reduce((sum, r) => sum + r.aiData.monto_total, 0);
+
+                const totalPendiente = requestsThisMonth
+                    .filter(r => r.status !== 'completed' && r.status !== 'duplicate' && r.aiData?.monto_total)
+                    .reduce((sum, r) => sum + r.aiData.monto_total, 0);
+
+                return { totalFacturado, totalPendiente };
+            }, [visibleRequests, selectedClient]); // Se recalcula si cambian los datos o el cliente, NO si cambia la pestaña
 
             // --- FUNCIONES DE ACCIÓN ---
             const handleCreateRequest = async (e) => {
