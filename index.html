@@ -4060,7 +4060,16 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 return () => unsubscribe();
             }, [user, userData]);
 
-            const visibleRequests = useMemo(() => requests, [requests]);
+            // 3. FILTROS
+            const visibleRequests = useMemo(() => {
+                // Si soy Admin, SOLO quiero ver lo que gestiono YO (modo 'estudio').
+                // Oculto las que el cliente hace por su cuenta ('cliente').
+                if (userData?.isAdmin) {
+                    return requests.filter(req => req.userModoFacturacion !== 'cliente');
+                }
+                // Si soy Cliente, veo todo lo mío
+                return requests;
+            }, [requests, userData]);
 
             // --- CEREBRO DE UNIFICACIÓN (SOLUCIÓN PROBLEMA 1) ---
             // Crea un diccionario CUIT -> Mejor Nombre
