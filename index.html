@@ -4005,7 +4005,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
         
         const BillingRequestsPage = () => {
             const { user, userData } = useAuth();
-            // const { db, storage } = useFirebase(); // Usamos las variables globales
+            // const { db, storage } = useFirebase(); 
 
             const [requests, setRequests] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -4014,99 +4014,74 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             const [expandedRowId, setExpandedRowId] = useState(null); 
             const [selectedClient, setSelectedClient] = useState('todos');
 
-            // --- ESTADOS: CARGA MANUAL VS ARCHIVO (MODAL HÍBRIDO) ---
-            const [createMode, setCreateMode] = useState('file'); // 'file' o 'manual'
+            // Estados Carga
+            const [createMode, setCreateMode] = useState('file'); 
             const [manualData, setManualData] = useState({
-                monto: '', 
-                fecha: new Date().toISOString().split('T')[0], 
-                concepto: 'Pago en Efectivo', 
-                nombreCliente: '' 
+                monto: '', fecha: new Date().toISOString().split('T')[0], concepto: 'Pago en Efectivo', nombreCliente: '' 
             });
 
-            // --- ESTADOS: ACCIONES Y DESCARGAS ---
             const [newRequestFile, setNewRequestFile] = useState(null);
             const [newRequestNote, setNewRequestNote] = useState('');
             const [uploading, setUploading] = useState(false);
-            const [isZipping, setIsZipping] = useState(false); // Estado para el spinner de descarga ZIP
+            const [isZipping, setIsZipping] = useState(false);
 
-            // Estados para edición, borrado y completar factura
+            // Estados Auxiliares
             const [completingId, setCompletingId] = useState(null);
             const [invoiceFile, setInvoiceFile] = useState(null);
             const [requestToDelete, setRequestToDelete] = useState(null);
             const [editingRequest, setEditingRequest] = useState(null);
             const [editFormData, setEditFormData] = useState({});
 
-            // 1. SEGURIDAD DE ACCESO
+            // 1. SEGURIDAD
             if (!loading && !userData?.isAdmin && !userData?.servicioFacturacion) {
-                return (
-                    <div className="p-10 text-center">
-                        <div className="bg-white p-8 rounded-lg shadow-md inline-block border-t-4 border-red-500">
-                            <Icon name="Shield" className="w-12 h-12 text-red-500 mx-auto mb-4"/>
-                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Acceso Restringido</h2>
-                            <p className="text-gray-600">No tienes permisos para acceder al módulo de facturación.</p>
-                        </div>
-                    </div>
-                );
+                return <div className="p-10 text-center"><h2 className="text-2xl font-bold text-gray-800">Acceso Restringido</h2></div>;
             }
 
-            // 2. LECTURA DE DATOS (Protegida por Firestore Rules)
+            // 2. LECTURA
             useEffect(() => {
                 if (!user) return;
                 setLoading(true);
                 let q;
                 if (userData?.isAdmin) {
-                    // Admin ve todo ordenado por estado y fecha
                     q = query(collection(db, 'billing_requests'), orderBy('status', 'desc'), orderBy('timestamp', 'desc'));
                 } else {
-                    // Usuario ve solo lo suyo
                     q = query(collection(db, 'billing_requests'), where('userId', '==', user.uid), orderBy('timestamp', 'desc'));
                 }
                 const unsubscribe = onSnapshot(q, (snapshot) => {
                     const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     setRequests(docs);
                     setLoading(false);
-                }, (error) => {
-                    console.error("Error de seguridad:", error);
-                    setLoading(false);
-                });
+                }, (error) => setLoading(false));
                 return () => unsubscribe();
             }, [user, userData]);
 
-            // 3. FILTROS INTELIGENTES
-            // visibleRequests: Filtra lo que el Admin no debe ver si es "autogestión pura" (opcional)
-            const visibleRequests = useMemo(() => {
-                if (!userData?.isAdmin) return requests; 
-                return requests.filter(req => req.userModoFacturacion !== 'cliente');
-            }, [requests, userData]);
+            // 3. FILTROS (LÓGICA ESPEJO: Siempre miramos al RECEPTOR)
+            const visibleRequests = useMemo(() => requests, [requests]);
 
-            // Lista única de clientes para el selector
             const uniqueClients = useMemo(() => {
                 const names = new Set();
-                const sourceList = userData?.isAdmin ? visibleRequests : requests;
-                sourceList.forEach(req => {
-                    let name;
-                    if (userData?.isAdmin) name = req.aiData?.nombre_receptor || req.userName;
-                    else name = req.aiData?.nombre_emisor || 'Desconocido';
-                    if (name && name !== 'Carga Manual (Admin)') names.add(name);
+                visibleRequests.forEach(req => {
+                    // LÓGICA DE NEGOCIO UNIFICADA:
+                    // El dato más importante siempre es el RECEPTOR (El Cliente a quien se factura).
+                    const name = req.aiData?.nombre_receptor || 'Desconocido';
+                    if (name && name !== 'Carga Manual') names.add(name);
                 });
                 return Array.from(names).sort();
-            }, [visibleRequests, requests, userData]);
+            }, [visibleRequests]);
 
-            // filteredRequests: La lista final que se muestra en la tabla según filtros visuales
             const filteredRequests = useMemo(() => {
-                const sourceList = userData?.isAdmin ? visibleRequests : requests;
-                let data = sourceList;
+                let data = visibleRequests;
                 if (selectedClient !== 'todos') {
                     data = data.filter(req => {
-                        if (userData?.isAdmin) return (req.aiData?.nombre_receptor || req.userName) === selectedClient;
-                        else return (req.aiData?.nombre_emisor || 'Desconocido') === selectedClient;
+                        const clientName = req.aiData?.nombre_receptor || 'Desconocido';
+                        return clientName === selectedClient;
                     });
                 }
                 if (filterStatus === 'completed') return data.filter(r => r.status === 'completed');
                 else return data.filter(r => r.status !== 'completed');
-            }, [visibleRequests, requests, selectedClient, filterStatus, userData]);
+            }, [visibleRequests, selectedClient, filterStatus]);
 
-            // 4. MÉTRICAS (Dashboard) - Calcula totales reales del mes sin importar la pestaña
+            // 4. MÉTRICAS
             const metrics = useMemo(() => {
                 const now = new Date();
                 const currentMonth = now.getMonth();
@@ -4114,326 +4089,203 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 
                 let baseData = visibleRequests;
                 if (selectedClient !== 'todos') {
-                    baseData = baseData.filter(req => {
-                        if (userData?.isAdmin) return (req.aiData?.nombre_receptor || req.userName) === selectedClient;
-                        else return (req.aiData?.nombre_emisor || 'Desconocido') === selectedClient;
-                    });
+                    baseData = baseData.filter(req => (req.aiData?.nombre_receptor || 'Desconocido') === selectedClient);
                 }
                 const reqs = baseData.filter(req => req.timestamp && req.timestamp.toDate().getMonth() === currentMonth && req.timestamp.toDate().getFullYear() === currentYear);
                 return {
                     totalFacturado: reqs.filter(r => r.status === 'completed').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0),
                     totalPendiente: reqs.filter(r => r.status !== 'completed' && r.status !== 'duplicate').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0)
                 };
-            }, [visibleRequests, selectedClient, userData]);
+            }, [visibleRequests, selectedClient]);
 
-            // --- 5. FUNCIÓN DE DESCARGA DE RESPALDO LEGAL (ZIP) ---
+            // --- 5. DESCARGA ZIP ---
             const downloadYearlyBackup = async (year) => {
-                if (!window.JSZip) return alert("Error de entorno: Librería JSZip no cargada en index.html.");
-                
-                if (!window.confirm(`¿Iniciar descarga segura del Respaldo Legal ${year}?`)) return;
+                if (!window.JSZip) return alert("Librería JSZip no cargada.");
+                if (!window.confirm(`¿Descargar respaldo ${year}?`)) return;
 
                 setIsZipping(true);
                 try {
                     const zip = new JSZip();
-                    const rootFolder = zip.folder(`Respaldo_Legal_${year}`);
+                    const rootFolder = zip.folder(`Respaldo_${year}`);
+                    const targetRequests = visibleRequests.filter(req => req.timestamp && req.timestamp.toDate().getFullYear() === parseInt(year));
 
-                    // Filtramos solo los archivos del año solicitado
-                    const targetRequests = visibleRequests.filter(req => 
-                        req.timestamp && req.timestamp.toDate().getFullYear() === parseInt(year)
-                    );
+                    if (targetRequests.length === 0) throw new Error("No hay datos.");
 
-                    if (targetRequests.length === 0) throw new Error(`No hay registros para el año ${year}.`);
-
-                    // Procesamos descargas en paralelo
-                    const downloadPromises = targetRequests.map(async (req) => {
+                    const promises = targetRequests.map(async (req) => {
                         const date = req.timestamp.toDate();
-                        // Estructura Carpeta: 2025 / 01_Enero / ...
-                        const monthFolder = rootFolder.folder(
-                            `${String(date.getMonth() + 1).padStart(2, '0')}_${date.toLocaleString('es-AR', { month: 'long' })}`
-                        );
+                        const monthName = `${String(date.getMonth() + 1).padStart(2, '0')}_${date.toLocaleString('es-AR', { month: 'long' })}`;
+                        const folder = rootFolder.folder(monthName);
                         
-                        const clientName = userData?.isAdmin 
-                            ? (req.aiData?.nombre_receptor || req.userName) 
-                            : (req.aiData?.nombre_emisor || 'Desconocido');
-                        
+                        // Nombre archivo basado en RECEPTOR (El Cliente)
+                        const clientName = req.aiData?.nombre_receptor || 'Cliente';
                         const safeName = clientName.replace(/[^a-z0-9]/gi, '_').substring(0, 15);
-                        const fileNameBase = `${date.toISOString().split('T')[0]}_$${Math.round(req.aiData?.monto_total || 0)}_${safeName}`;
+                        const fileName = `${date.toISOString().split('T')[0]}_$${Math.round(req.aiData?.monto_total||0)}_${safeName}`;
 
-                        // Definimos qué archivo bajar
                         let fileUrl = req.invoiceUrl || req.requestImageUrl;
-                        
                         if (fileUrl) {
                             try {
-                                const response = await fetch(fileUrl);
-                                if (!response.ok) throw new Error("Acceso denegado");
-                                const blob = await response.blob();
-                                
-                                let ext = "pdf"; 
-                                if (fileUrl.includes('.jpg')) ext = "jpg";
-                                else if (fileUrl.includes('.png')) ext = "png";
-                                else if (fileUrl.includes('.jpeg')) ext = "jpg";
-                                
-                                monthFolder.file(`${fileNameBase}.${ext}`, blob);
-                            } catch (err) {
-                                monthFolder.file(`${fileNameBase}_ERROR.txt`, `Error descarga: ${err.message}`);
-                            }
+                                const res = await fetch(fileUrl);
+                                const blob = await res.blob();
+                                let ext = "pdf";
+                                if (fileUrl.includes('.jpg')) ext = "jpg"; else if (fileUrl.includes('.png')) ext = "png";
+                                folder.file(`${fileName}.${ext}`, blob);
+                            } catch (e) { folder.file(`${fileName}_ERROR.txt`, e.message); }
                         } else {
-                            // Si es manual, creamos un comprobante de texto
-                            const txtContent = `COMPROBANTE DIGITAL (Carga Manual)\n\nFecha: ${req.aiData?.fecha_pago}\nMonto: $${req.aiData?.monto_total}\nConcepto: ${req.aiData?.concepto_detectado}\nCliente: ${clientName}\nNota: ${req.note || ''}\n\nGenerado por G&R Consultores App`;
-                            monthFolder.file(`${fileNameBase}_Manual.txt`, txtContent);
+                            folder.file(`${fileName}_Manual.txt`, `MANUAL\nCliente: ${clientName}\nMonto: ${req.aiData?.monto_total}`);
                         }
                     });
-
-                    await Promise.all(downloadPromises);
-
+                    await Promise.all(promises);
                     const content = await zip.generateAsync({ type: "blob" });
-                    saveAs(content, `Respaldo_Legal_${year}_${userData.nombre || 'G&R'}.zip`);
-
-                } catch (err) {
-                    console.error(err);
-                    alert("Error generando el ZIP: " + err.message);
-                } finally {
-                    setIsZipping(false);
-                }
+                    saveAs(content, `Respaldo_${year}.zip`);
+                } catch (e) { alert(e.message); } finally { setIsZipping(false); }
             };
 
-            // --- 6. FUNCIÓN DE CREACIÓN UNIFICADA (HÍBRIDA) ---
+            // --- 6. CREAR SOLICITUD (LÓGICA ESPEJO UNIFICADA) ---
             const handleCreateRequest = async (e) => {
                 e.preventDefault();
                 if (!user) return;
-                
-                if (createMode === 'file' && !newRequestFile) return alert("Falta seleccionar el archivo.");
-                if (createMode === 'manual' && (!manualData.monto || !manualData.nombreCliente)) return alert("Faltan datos obligatorios.");
+                if (createMode === 'file' && !newRequestFile) return alert("Falta archivo");
+                if (createMode === 'manual' && (!manualData.monto || !manualData.nombreCliente)) return alert("Faltan datos");
 
                 setUploading(true);
                 try {
                     let url = null;
                     let finalAiData = null;
 
-                    // CASO A: Archivo (IA)
                     if (createMode === 'file') {
                         const fileRef = ref(storage, `billing_requests/${user.uid}/${Date.now()}_${newRequestFile.name}`);
                         await uploadBytes(fileRef, newRequestFile);
                         url = await getDownloadURL(fileRef);
-                        // aiData queda null, la Cloud Function lo llenará
-                    } 
-                    // CASO B: Manual (Efectivo)
-                    else {
+                    } else {
+                        // LÓGICA MANUAL (ESPEJO):
+                        // "Si soy Admin, cargo a mi cliente (Receptor)."
+                        // "Si soy Usuario, cargo a mi cliente (Receptor)."
                         finalAiData = {
                             monto_total: parseFloat(manualData.monto),
                             fecha_pago: manualData.fecha,
                             tipo_comprobante: 'Efectivo/Manual',
                             concepto_detectado: manualData.concepto,
-                            nombre_emisor: userData?.isAdmin ? 'Carga Manual' : manualData.nombreCliente,
-                            nombre_receptor: userData?.isAdmin ? manualData.nombreCliente : userData.nombre,
-                            banco_origen: 'Efectivo/Caja',
-                            cuit_emisor: '', cuit_receptor: ''
+                            
+                            // YO (Usuario actual) soy el Emisor/Proveedor
+                            nombre_emisor: userData.nombre || user.email, 
+                            
+                            // MI CLIENTE es el Receptor
+                            nombre_receptor: manualData.nombreCliente,    
+                            
+                            banco_origen: 'Efectivo/Caja'
                         };
                     }
 
                     const modo = userData?.isAdmin ? 'estudio' : (userData.modoFacturacion || 'estudio');
 
                     await addDoc(collection(db, 'billing_requests'), {
-                        userId: user.uid,
-                        userName: userData.nombre || user.email,
-                        userPhone: userData.telefono || "",
-                        userModoFacturacion: modo,
-                        status: 'pending',
-                        requestImageUrl: url,
-                        aiData: finalAiData, // Si es manual, ya tiene datos. Si es archivo, null.
-                        note: newRequestNote,
-                        timestamp: Timestamp.now(),
-                        invoiceUrl: null,
-                        isManualEntry: createMode === 'manual'
+                        userId: user.uid, userName: userData.nombre || user.email, userPhone: userData.telefono || "",
+                        userModoFacturacion: modo, status: 'pending', requestImageUrl: url, aiData: finalAiData,
+                        note: newRequestNote, timestamp: Timestamp.now(), invoiceUrl: null, isManualEntry: createMode === 'manual'
                     });
 
-                    // Resetear formulario
                     setShowModal(false); setNewRequestFile(null); setNewRequestNote('');
                     setManualData({ monto: '', fecha: new Date().toISOString().split('T')[0], concepto: 'Pago en Efectivo', nombreCliente: '' });
                     setCreateMode('file');
-                } catch (e) { alert("Error al guardar la solicitud."); } finally { setUploading(false); }
+                } catch (e) { alert("Error"); } finally { setUploading(false); }
             };
 
-            // --- FUNCIONES AUXILIARES (Completar, Editar, Borrar, WhatsApp) ---
-            const handleCompleteRequest = async () => { if (!invoiceFile || !completingId) return; setUploading(true); try { const req = requests.find(r => r.id === completingId); const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`); await uploadBytes(fileRef, invoiceFile); const url = await getDownloadURL(fileRef); await updateDoc(doc(db, 'billing_requests', completingId), { status: 'completed', invoiceUrl: url, completedAt: Timestamp.now() }); setCompletingId(null); setInvoiceFile(null); } catch (e) { alert("Error al subir factura."); } finally { setUploading(false); } };
-            
-            const openEditModal = (req) => { setEditFormData({ fecha_pago: req.aiData?.fecha_pago||'', monto_total: req.aiData?.monto_total||0, tipo_comprobante: req.aiData?.tipo_comprobante||'', cuit_emisor: req.aiData?.cuit_emisor||'', nombre_emisor: req.aiData?.nombre_emisor||'', banco_origen: req.aiData?.banco_origen||'', cuit_receptor: req.aiData?.cuit_receptor||'', nombre_receptor: req.aiData?.nombre_receptor||'', concepto_detectado: req.aiData?.concepto_detectado||'' }); setEditingRequest(req); };
-            
-            const handleSaveEdits = async (e) => { e.preventDefault(); if (!editingRequest) return; try { await updateDoc(doc(db, 'billing_requests', editingRequest.id), { aiData: { ...editFormData, monto_total: parseFloat(editFormData.monto_total) } }); setEditingRequest(null); } catch (e) { alert("Error guardando cambios."); } };
-            
+            // Helpers (Iguales)
+            const handleCompleteRequest = async () => { if (!invoiceFile || !completingId) return; setUploading(true); try { const req = requests.find(r => r.id === completingId); const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`); await uploadBytes(fileRef, invoiceFile); const url = await getDownloadURL(fileRef); await updateDoc(doc(db, 'billing_requests', completingId), { status: 'completed', invoiceUrl: url, completedAt: Timestamp.now() }); setCompletingId(null); setInvoiceFile(null); } catch (e) {} finally { setUploading(false); } };
+            const openEditModal = (req) => { setEditFormData({ ...req.aiData }); setEditingRequest(req); };
+            const handleSaveEdits = async (e) => { e.preventDefault(); if (!editingRequest) return; try { await updateDoc(doc(db, 'billing_requests', editingRequest.id), { aiData: { ...editFormData, monto_total: parseFloat(editFormData.monto_total) } }); setEditingRequest(null); } catch (e) {} };
             const handleDeleteRequest = async () => { if(requestToDelete) { await deleteDoc(doc(db, 'billing_requests', requestToDelete)); setRequestToDelete(null); } };
-            
-            const markAsDone = async (reqId) => { if(!window.confirm("¿Confirmar que esta operación ya fue facturada manualmente?")) return; try { await updateDoc(doc(db, 'billing_requests', reqId), { status: 'completed', completedAt: Timestamp.now() }); } catch(e) {} };
-            
+            const markAsDone = async (reqId) => { if(!confirm("¿Confirmar?")) return; try { await updateDoc(doc(db, 'billing_requests', reqId), { status: 'completed', completedAt: Timestamp.now() }); } catch(e) {} };
             const toggleDetails = (id) => setExpandedRowId(expandedRowId === id ? null : id);
-            
-            const sendWhatsAppNotification = (req) => { if (!req.invoiceUrl) return; let phone = req.userPhone; if (!phone) { phone = prompt("Ingresa número celular (con cód. área):"); if(!phone) return; } phone = phone.replace(/\D/g, ''); if (!phone.startsWith('54')) phone = '549' + phone; window.open(`https://wa.me/${phone}?text=${encodeURIComponent(`Hola! 👋 Aquí tienes tu factura: ${req.invoiceUrl}`)}`, '_blank'); };
-            
-            const copyData = (text) => { navigator.clipboard.writeText(text); alert("Copiado al portapapeles"); };
+            const sendWhatsAppNotification = (req) => { if (!req.invoiceUrl) return; let phone = req.userPhone; if (!phone) phone = prompt("Celular:"); if(!phone) return; window.open(`https://wa.me/${phone}?text=${encodeURIComponent(`Factura: ${req.invoiceUrl}`)}`, '_blank'); };
 
-            // --- RENDERIZADO VISUAL ---
             return (
                 <div className="p-4">
-                    {/* CABECERA */}
                     <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                        <h2 className="text-3xl font-bold text-gray-800">
-                            {userData?.isAdmin ? 'Centro de Facturación (Admin)' : 'Mis Facturaciones'}
-                        </h2>
-                        
+                        <h2 className="text-3xl font-bold text-gray-800">{userData?.isAdmin ? 'Centro de Facturación' : 'Mis Facturaciones'}</h2>
                         <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-gray-500 hidden md:inline">
-                                {userData?.isAdmin ? 'Filtrar Cliente:' : 'Filtrar Pagador:'}
-                            </span>
-                            <select 
-                                value={selectedClient} 
-                                onChange={(e) => setSelectedClient(e.target.value)}
-                                className="border border-gray-300 rounded-md p-2 text-sm bg-white shadow-sm focus:ring-2 focus:ring-blue-500 max-w-[150px] md:max-w-xs"
-                            >
+                            <span className="text-sm font-bold text-gray-500 hidden md:inline">Cliente (Receptor):</span>
+                            <select value={selectedClient} onChange={(e) => setSelectedClient(e.target.value)} className="border rounded p-2 text-sm">
                                 <option value="todos">Mostrar Todos</option>
-                                {uniqueClients.map(client => <option key={client} value={client}>{client}</option>)}
+                                {uniqueClients.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
-                            
-                            <button onClick={() => setShowModal(true)} className="btn-primary flex items-center shadow-lg ml-2">
-                                <Icon name="PlusCircle" className="w-5 h-5 mr-2"/> 
-                                <span className="hidden md:inline">{userData?.isAdmin ? 'Nueva Facturación' : 'Subir Comprobante'}</span>
-                                <span className="md:hidden">Subir</span>
-                            </button>
+                            <button onClick={() => setShowModal(true)} className="btn-primary ml-2"><Icon name="PlusCircle" className="w-5 h-5 mr-1"/> Nuevo</button>
                         </div>
                     </div>
 
-                    {/* DASHBOARD DE TOTALES */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        <div className="bg-white p-4 rounded-lg shadow border-l-4 border-green-500 flex justify-between items-center">
-                            <div><p className="text-gray-500 text-xs font-bold uppercase tracking-wider">{selectedClient === 'todos' ? 'Total Facturado (Mes)' : `Facturado a: ${selectedClient}`}</p><h3 className="text-2xl font-bold text-green-700">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(metrics.totalFacturado)}</h3></div>
-                            <div className="bg-green-100 p-2 rounded-full text-green-600"><Icon name="CheckCircle" className="w-6 h-6"/></div>
+                        <div className="bg-white p-4 rounded shadow border-l-4 border-green-500">
+                            <p className="text-gray-500 text-xs font-bold uppercase">Total Facturado</p>
+                            <h3 className="text-2xl font-bold text-green-700">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(metrics.totalFacturado)}</h3>
                         </div>
-                        <div className="bg-white p-4 rounded-lg shadow border-l-4 border-yellow-500 flex justify-between items-center">
-                            <div><p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendiente</p><h3 className="text-2xl font-bold text-yellow-700">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(metrics.totalPendiente)}</h3></div>
-                            <div className="bg-yellow-100 p-2 rounded-full text-yellow-600"><Icon name="Clock" className="w-6 h-6"/></div>
-                        </div>
-                    </div>
-
-                    {/* ZONA DE AUDITORÍA Y RESPALDO LEGAL (NUEVO) */}
-                    <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-4 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-indigo-100 p-2 rounded-full text-indigo-600"><Icon name="Archive" className="w-6 h-6"/></div>
-                            <div>
-                                <h4 className="font-bold text-indigo-900 text-sm">Respaldo Legal Mensual/Anual</h4>
-                                <p className="text-xs text-indigo-700">Descarga carpetas organizadas con comprobantes originales para auditoría.</p>
-                            </div>
-                        </div>
-                        <div className="flex gap-2 items-center">
-                            <select id="yearSelect" className="border border-indigo-200 rounded p-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500">
-                                <option value="2025">Año 2025</option>
-                                <option value="2024">Año 2024</option>
-                            </select>
-                            <button 
-                                onClick={() => downloadYearlyBackup(document.getElementById('yearSelect').value)} 
-                                disabled={isZipping}
-                                className={`px-4 py-2 rounded text-sm font-bold flex items-center shadow-sm text-white transition-all ${isZipping ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-md'}`}
-                            >
-                                {isZipping ? <><Icon name="Loader" className="w-4 h-4 mr-2 animate-spin"/> Generando ZIP...</> : <><Icon name="Download" className="w-4 h-4 mr-2"/> Descargar Respaldo</>}
-                            </button>
+                        <div className="bg-white p-4 rounded shadow border-l-4 border-yellow-500">
+                            <p className="text-gray-500 text-xs font-bold uppercase">Pendiente</p>
+                            <h3 className="text-2xl font-bold text-yellow-700">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(metrics.totalPendiente)}</h3>
                         </div>
                     </div>
 
-                    {/* PESTAÑAS DE TABLA */}
-                    <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-lg px-4 pt-2">
-                        <button onClick={() => setFilterStatus('pending')} className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors ${filterStatus === 'pending' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Pendientes ({filteredRequests.filter(r => r.status !== 'completed').length})</button>
-                        <button onClick={() => setFilterStatus('completed')} className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors ${filterStatus === 'completed' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Historial</button>
+                    <div className="bg-indigo-50 border border-indigo-100 rounded p-4 mb-6 flex justify-between items-center">
+                        <div className="flex items-center gap-3"><div className="bg-indigo-100 p-2 rounded-full text-indigo-600"><Icon name="Archive" className="w-6 h-6"/></div><div><h4 className="font-bold text-indigo-900 text-sm">Respaldo Legal</h4><p className="text-xs text-indigo-700">Descarga ZIP anual.</p></div></div>
+                        <div className="flex gap-2"><select id="y" className="border rounded p-1"><option value="2025">2025</option><option value="2024">2024</option></select><button onClick={() => downloadYearlyBackup(document.getElementById('y').value)} disabled={isZipping} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm font-bold hover:bg-indigo-700">{isZipping ? '...' : 'Descargar'}</button></div>
                     </div>
 
-                    {/* TABLA PRINCIPAL */}
-                    <div className="bg-white rounded-lg shadow overflow-x-auto">
+                    <div className="flex border-b mb-6 bg-white rounded-t px-4 pt-2">
+                        <button onClick={() => setFilterStatus('pending')} className={`py-3 px-6 border-b-2 font-medium text-sm ${filterStatus === 'pending' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>Pendientes ({filteredRequests.filter(r => r.status !== 'completed').length})</button>
+                        <button onClick={() => setFilterStatus('completed')} className={`py-3 px-6 border-b-2 font-medium text-sm ${filterStatus === 'completed' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'}`}>Historial</button>
+                    </div>
+
+                    <div className="bg-white rounded shadow overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Fecha</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">{userData?.isAdmin ? 'Tu Cliente (Receptor)' : 'Pagador (Emisor)'}</th>
+                                    {/* CABECERA UNIFICADA: SIEMPRE "CLIENTE (RECEPTOR)" */}
+                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Cliente (Receptor)</th>
                                     <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Resumen</th>
                                     <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase">Monto</th>
-                                    <th className="px-6 py-3 text-center"></th>
+                                    <th className="px-6 py-3"></th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {loading ? <tr><td colSpan="5" className="text-center py-10">Cargando...</td></tr> : 
-                                filteredRequests.length === 0 ? <tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay datos para mostrar.</td></tr> :
+                                filteredRequests.length === 0 ? <tr><td colSpan="5" className="text-center py-10 text-gray-500">Sin datos.</td></tr> :
                                 filteredRequests.map(req => (
                                     <React.Fragment key={req.id}>
-                                        <tr className={`hover:bg-blue-50 transition-colors cursor-pointer ${expandedRowId === req.id ? 'bg-blue-50' : ''}`} onClick={() => toggleDetails(req.id)}>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{req.timestamp?.toDate().toLocaleDateString()}</td>
-                                            <td className="px-6 py-4"><div className="text-sm font-bold text-blue-900">{userData?.isAdmin ? (req.aiData?.nombre_receptor || req.userName) : (req.aiData?.nombre_emisor || 'S/D')}</div><div className="text-xs text-gray-500 font-mono">{userData?.isAdmin ? req.aiData?.cuit_receptor : req.aiData?.cuit_emisor}</div></td>
-                                            <td className="px-6 py-4"><div className="text-sm"><span className="text-gray-600 block">{userData?.isAdmin ? `De: ${req.aiData?.nombre_emisor || '?'}` : `Concepto: ${req.aiData?.concepto_detectado || 'Varios'}`}</span><span className="text-xs text-gray-500">{req.isManualEntry ? '(Manual/Efectivo)' : `(${req.aiData?.banco_origen || 'Banco'})`}</span></div></td>
-                                            <td className="px-6 py-4 text-right">{req.status === 'duplicate' ? <span className="px-2 py-1 rounded text-xs font-bold bg-gray-200 text-gray-600 border border-gray-400">⚠ DUPLICADO</span> : <span className="text-lg font-bold text-green-700">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(req.aiData?.monto_total || 0)}</span>}</td>
-                                            <td className="px-6 py-4 text-center text-gray-400"><Icon name={expandedRowId === req.id ? "ChevronUp" : "ChevronDown"} className="w-5 h-5"/></td>
-                                        </tr>
-                                        
-                                        {/* DETALLE EXPANDIDO (TODO EL BLOQUE DE DETALLE) */}
-                                        {expandedRowId === req.id && (
-                                            <tr className="bg-gray-50 shadow-inner">
-                                                <td colSpan="5" className="px-6 py-4">
-                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                        {/* COLUMNA A: DATOS DETECTADOS / MANUALES */}
-                                                        <div className="bg-white p-4 rounded border border-blue-200 relative">
-                                                            <div className="flex justify-between items-center mb-4 border-b pb-2">
-                                                                <h4 className="font-bold text-blue-800 text-sm uppercase flex items-center"><Icon name="Sparkles" className="w-4 h-4 mr-2"/> Datos del Pago</h4>
-                                                                <button onClick={() => openEditModal(req)} className="text-blue-600 hover:text-blue-800 text-xs font-bold border border-blue-200 px-2 py-1 rounded bg-blue-50 flex items-center"><Icon name="Edit" className="w-3 h-3 mr-1"/> Editar</button>
-                                                            </div>
-                                                            {req.aiData ? (
-                                                                <div className="space-y-3 text-sm">
-                                                                    <div className="grid grid-cols-2 gap-4">
-                                                                        <div><span className="text-xs text-gray-500 block">Fecha</span><span className="font-mono font-bold">{req.aiData.fecha_pago}</span></div>
-                                                                        <div><span className="text-xs text-gray-500 block">Tipo</span><span className="font-medium">{req.aiData.tipo_comprobante}</span></div>
-                                                                    </div>
-                                                                    <div className="bg-gray-50 p-2 rounded border border-gray-100">
-                                                                        <span className="text-xs text-gray-400 block uppercase mb-1">Emisor (Quién Pagó):</span>
-                                                                        <div className="font-bold text-gray-800">{req.aiData.nombre_emisor}</div>
-                                                                        <div className="flex items-center text-gray-600 mt-1"><span className="font-mono mr-2 bg-white px-1 border rounded">{req.aiData.cuit_emisor || 'S/D'}</span><button onClick={() => copyData(req.aiData.cuit_emisor)} className="ml-2 text-blue-500"><Icon name="Copy" className="w-3 h-3"/></button></div>
-                                                                    </div>
-                                                                    <div className="bg-blue-50 p-2 rounded border border-blue-100">
-                                                                        <span className="text-xs text-blue-400 block uppercase mb-1">Receptor (Beneficiario):</span>
-                                                                        <div className="font-bold text-blue-900">{req.aiData.nombre_receptor || req.userName}</div>
-                                                                        <div className="font-mono text-blue-700 mt-1 bg-white px-1 border border-blue-200 rounded w-max">{req.aiData.cuit_receptor || 'S/D'}</div>
-                                                                    </div>
-                                                                </div>
-                                                            ) : <p className="text-sm text-gray-500 animate-pulse">Procesando...</p>}
-                                                            
-                                                            <div className="mt-4 pt-3 border-t text-center">
-                                                                {req.requestImageUrl ? (
-                                                                    <a href={req.requestImageUrl} target="_blank" className="text-blue-600 text-xs font-bold hover:underline flex items-center justify-center"><Icon name="File" className="w-3 h-3 mr-1"/> Ver Imagen Original</a>
-                                                                ) : (
-                                                                    <span className="text-xs text-gray-500 flex items-center justify-center"><Icon name="PenTool" className="w-3 h-3 mr-1"/> Carga Manual (Sin Comprobante)</span>
-                                                                )}
-                                                            </div>
-                                                        </div>
+                                        <tr className={`hover:bg-blue-50 cursor-pointer ${expandedRowId === req.id ? 'bg-blue-50' : ''}`} onClick={() => toggleDetails(req.id)}>
+                                            <td className="px-6 py-4 text-sm text-gray-500">{req.timestamp?.toDate().toLocaleDateString()}</td>
+                                            
+                                            {/* CELDA UNIFICADA: SIEMPRE MOSTRAMOS AL RECEPTOR */}
+                                            <td className="px-6 py-4">
+                                                <div className="text-sm font-bold text-blue-900">{req.aiData?.nombre_receptor || 'S/D'}</div>
+                                                <div className="text-xs text-gray-500 font-mono">{req.aiData?.cuit_receptor || ''}</div>
+                                            </td>
 
-                                                        {/* COLUMNA B: ACCIONES DE FACTURACIÓN */}
-                                                        <div className="flex flex-col justify-between bg-gray-100 p-4 rounded border relative">
-                                                            <button onClick={() => setRequestToDelete(req.id)} className="absolute top-2 right-2 text-gray-400 hover:text-red-600" title="Eliminar Registro"><Icon name="Trash2" className="w-4 h-4"/></button>
-                                                            <div>
-                                                                <h4 className="font-bold text-gray-800 mb-3 text-sm uppercase">Gestión</h4>
-                                                                {req.status !== 'completed' ? (
-                                                                    (req.userModoFacturacion === 'estudio' && !userData?.isAdmin) ? (
-                                                                        <div className="text-center py-4 bg-yellow-50 rounded border border-yellow-200 text-yellow-800 text-sm"><Icon name="Clock" className="w-6 h-6 mx-auto mb-2"/> Tu contador está procesando esto.</div>
-                                                                    ) : (
-                                                                        <div>
-                                                                            <label className="block text-xs font-bold mb-2 text-gray-600">Subir Factura Final (PDF):</label>
-                                                                            <div className="flex gap-2 mb-3">
-                                                                                <input type="file" accept="application/pdf" onChange={(e) => setInvoiceFile(e.target.files[0])} className="text-xs bg-white border rounded p-1 w-full"/>
-                                                                                <button onClick={() => { setCompletingId(req.id); handleCompleteRequest(); }} disabled={uploading || !invoiceFile} className="btn-primary text-xs shrink-0">{uploading ? '...' : 'Subir'}</button>
-                                                                            </div>
-                                                                            <div className="border-t pt-2">
-                                                                                 <button onClick={() => markAsDone(req.id)} className="w-full btn-secondary text-xs flex items-center justify-center text-gray-600 hover:text-green-700"><Icon name="CheckCircle" className="w-4 h-4 mr-2"/> Marcar como lista (Sin PDF)</button>
-                                                                            </div>
-                                                                        </div>
-                                                                    )
-                                                                ) : <div className="text-center py-2"><p className="text-green-600 font-bold text-sm mb-2">✅ Facturado</p><a href={req.invoiceUrl} target="_blank" className="text-xs text-blue-600 underline">Ver Factura PDF</a></div>}
-                                                            </div>
-                                                            {req.status === 'completed' && req.invoiceUrl && <button onClick={() => sendWhatsAppNotification(req)} className="w-full mt-3 bg-green-500 text-white px-3 py-2 rounded flex items-center justify-center text-sm font-bold hover:bg-green-600"><Icon name="MessageCircle" className="w-4 h-4 mr-2"/> Avisar WhatsApp</button>}
+                                            <td className="px-6 py-4 text-sm text-gray-600">{req.isManualEntry ? 'Carga Manual' : (req.aiData?.banco_origen || 'Banco')}</td>
+                                            <td className="px-6 py-4 text-right font-bold text-green-700">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(req.aiData?.monto_total || 0)}</td>
+                                            <td className="px-6 py-4 text-center"><Icon name="ChevronDown" className="w-5 h-5 text-gray-400"/></td>
+                                        </tr>
+                                        {expandedRowId === req.id && (
+                                            <tr className="bg-gray-50"><td colSpan="5" className="px-6 py-4">
+                                                <div className="grid grid-cols-2 gap-6">
+                                                    <div className="bg-white p-4 rounded border">
+                                                        <div className="flex justify-between mb-2"><h4 className="font-bold text-blue-800 text-sm">Datos</h4><button onClick={() => openEditModal(req)} className="text-blue-600 text-xs font-bold">Editar</button></div>
+                                                        <div className="text-sm space-y-2">
+                                                            {/* DETALLE */}
+                                                            <div><span className="text-gray-500 text-xs">Emisor (Proveedor/Usuario):</span> <span className="font-bold">{req.aiData?.nombre_emisor}</span></div>
+                                                            <div><span className="text-gray-500 text-xs">Receptor (Cliente):</span> <span className="font-bold">{req.aiData?.nombre_receptor}</span></div>
+                                                            {req.requestImageUrl && <a href={req.requestImageUrl} target="_blank" className="text-blue-600 underline text-xs">Ver Comprobante</a>}
                                                         </div>
                                                     </div>
-                                                </td>
-                                            </tr>
+                                                    <div className="bg-gray-100 p-4 rounded border">
+                                                        {req.status !== 'completed' ? (
+                                                            (req.userModoFacturacion === 'estudio' && !userData?.isAdmin) ? <p className="text-center text-sm text-gray-500">Procesando...</p> :
+                                                            <div><label className="text-xs font-bold">Subir Factura:</label><div className="flex gap-2"><input type="file" onChange={(e) => setInvoiceFile(e.target.files[0])} className="text-xs w-full"/><button onClick={() => { setCompletingId(req.id); handleCompleteRequest(); }} className="btn-primary text-xs">Subir</button></div></div>
+                                                        ) : <p className="text-green-600 font-bold text-center">✅ Facturado</p>}
+                                                        {req.invoiceUrl && <button onClick={() => sendWhatsAppNotification(req)} className="w-full mt-2 bg-green-500 text-white text-xs py-2 rounded font-bold">WhatsApp</button>}
+                                                        <button onClick={() => setRequestToDelete(req.id)} className="w-full mt-4 text-red-500 text-xs hover:underline">Eliminar</button>
+                                                    </div>
+                                                </div>
+                                            </td></tr>
                                         )}
                                     </React.Fragment>
                                 ))}
@@ -4441,81 +4293,29 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                         </table>
                     </div>
 
-                    {/* --- MODALES --- */}
-                    {requestToDelete && <ConfirmModal message="¿Eliminar esta solicitud?" confirmText="Eliminar" isDestructive={true} onConfirm={handleDeleteRequest} onCancel={() => setRequestToDelete(null)} />}
-                    
-                    {/* MODAL HÍBRIDO DE CREACIÓN */}
+                    {requestToDelete && <ConfirmModal message="¿Eliminar?" confirmText="Eliminar" isDestructive={true} onConfirm={handleDeleteRequest} onCancel={() => setRequestToDelete(null)} />}
                     {showModal && (
                         <div className="modal-overlay">
                             <div className="modal-content sm:max-w-lg">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h3 className="text-xl font-bold text-gray-800">Nueva Facturación</h3>
-                                    <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><Icon name="X" className="w-6 h-6"/></button>
-                                </div>
-
-                                {/* Selector de Modo */}
-                                <div className="flex bg-gray-100 p-1 rounded-lg mb-4">
-                                    <button onClick={() => setCreateMode('file')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all flex items-center justify-center gap-2 ${createMode === 'file' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Icon name="UploadCloud" className="w-4 h-4"/> Subir Comprobante</button>
-                                    <button onClick={() => setCreateMode('manual')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all flex items-center justify-center gap-2 ${createMode === 'manual' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Icon name="PenTool" className="w-4 h-4"/> Carga Manual</button>
-                                </div>
-
+                                <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">Nuevo</h3><button onClick={() => setShowModal(false)}><Icon name="X" className="w-5 h-5"/></button></div>
+                                <div className="flex bg-gray-100 p-1 rounded mb-4"><button onClick={() => setCreateMode('file')} className={`flex-1 py-1 text-sm font-bold rounded ${createMode==='file'?'bg-white shadow':''}`}>Archivo</button><button onClick={() => setCreateMode('manual')} className={`flex-1 py-1 text-sm font-bold rounded ${createMode==='manual'?'bg-white shadow':''}`}>Manual</button></div>
                                 <form onSubmit={handleCreateRequest}>
-                                    {createMode === 'file' ? (
-                                        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-blue-50 transition-colors">
-                                                <Icon name="Image" className="w-12 h-12 text-gray-400 mx-auto mb-2"/>
-                                                <p className="text-sm text-gray-500 mb-2">Sube la captura de la transferencia o PDF</p>
-                                                <input type="file" onChange={(e) => setNewRequestFile(e.target.files[0])} accept="image/*,application/pdf" className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
-                                            </div>
+                                    {createMode === 'file' ? <div className="border-2 border-dashed p-6 text-center"><input type="file" onChange={(e)=>setNewRequestFile(e.target.files[0])}/></div> : 
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-gray-600">Cliente (Receptor)</label>
+                                        <input type="text" placeholder="Nombre del Cliente" value={manualData.nombreCliente} onChange={e=>setManualData({...manualData,nombreCliente:e.target.value})} className="border p-2 w-full rounded"/>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <input type="date" value={manualData.fecha} onChange={e=>setManualData({...manualData,fecha:e.target.value})} className="border p-2 w-full rounded"/>
+                                            <input type="number" placeholder="Monto" value={manualData.monto} onChange={e=>setManualData({...manualData,monto:e.target.value})} className="border p-2 w-full rounded"/>
                                         </div>
-                                    ) : (
-                                        <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                            <div className="bg-yellow-50 p-3 rounded border border-yellow-100 text-xs text-yellow-800 mb-2 flex items-start"><Icon name="Info" className="w-4 h-4 mr-2 shrink-0 mt-0.5"/>Ingresa los datos del pago en efectivo o manual.</div>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div><label className="text-xs font-bold text-gray-600">Fecha</label><input type="date" required value={manualData.fecha} onChange={e => setManualData({...manualData, fecha: e.target.value})} className="w-full border p-2 rounded text-sm"/></div>
-                                                <div><label className="text-xs font-bold text-gray-600">Monto ($)</label><input type="number" step="0.01" required placeholder="0.00" value={manualData.monto} onChange={e => setManualData({...manualData, monto: e.target.value})} className="w-full border p-2 rounded text-sm font-mono"/></div>
-                                            </div>
-                                            <div><label className="text-xs font-bold text-gray-600">{userData?.isAdmin ? 'Nombre del Cliente (Receptor)' : 'Nombre de quien pagó (Emisor)'}</label><input type="text" required placeholder="Ej: Juan Pérez" value={manualData.nombreCliente} onChange={e => setManualData({...manualData, nombreCliente: e.target.value})} className="w-full border p-2 rounded text-sm"/></div>
-                                            <div><label className="text-xs font-bold text-gray-600">Concepto / Detalle</label><input type="text" value={manualData.concepto} onChange={e => setManualData({...manualData, concepto: e.target.value})} className="w-full border p-2 rounded text-sm"/></div>
-                                        </div>
-                                    )}
-
-                                    <div className="mt-4"><label className="text-xs font-bold text-gray-600">Nota Interna (Opcional)</label><textarea value={newRequestNote} onChange={(e) => setNewRequestNote(e.target.value)} placeholder="Instrucciones para la factura..." className="w-full border p-2 rounded text-sm h-20 resize-none"></textarea></div>
-                                    <div className="flex justify-end gap-2 mt-6 border-t pt-4"><button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button><button type="submit" disabled={uploading} className={`btn-primary ${createMode === 'manual' ? 'bg-green-600 hover:bg-green-700' : ''}`}>{uploading ? 'Procesando...' : (createMode === 'file' ? 'Subir y Analizar' : 'Guardar Manual')}</button></div>
+                                    </div>}
+                                    <button className="btn-primary w-full mt-4" disabled={uploading}>Guardar</button>
                                 </form>
                             </div>
                         </div>
                     )}
-
-                    {/* MODAL DE EDICIÓN */}
                     {editingRequest && (
-                        <div className="modal-overlay">
-                            <div className="modal-content sm:max-w-2xl">
-                                <h3 className="text-xl font-bold mb-4">Editar Datos</h3>
-                                <form onSubmit={handleSaveEdits} className="space-y-4">
-                                    <div className="grid grid-cols-3 gap-3">
-                                        <div><label className="text-xs font-bold text-gray-500">Fecha</label><input type="text" value={editFormData.fecha_pago} onChange={e => setEditFormData({...editFormData, fecha_pago: e.target.value})} className="w-full border p-2 rounded"/></div>
-                                        <div><label className="text-xs font-bold text-gray-500">Monto</label><input type="number" step="0.01" value={editFormData.monto_total} onChange={e => setEditFormData({...editFormData, monto_total: e.target.value})} className="w-full border p-2 rounded"/></div>
-                                        <div><label className="text-xs font-bold text-gray-500">Tipo</label><input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full border p-2 rounded"/></div>
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="bg-gray-50 p-2 rounded">
-                                            <p className="text-xs font-bold text-gray-500 uppercase mb-2">Emisor (Pagador)</p>
-                                            <input placeholder="Nombre Emisor" value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full border p-2 rounded mb-2"/>
-                                            <input placeholder="CUIT Emisor" value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full border p-2 rounded mb-2"/>
-                                            <input placeholder="Banco" value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full border p-2 rounded"/>
-                                        </div>
-                                        <div className="bg-blue-50 p-2 rounded">
-                                            <p className="text-xs font-bold text-blue-500 uppercase mb-2">Receptor (Beneficiario)</p>
-                                            <input placeholder="Nombre Receptor" value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full border p-2 rounded mb-2"/>
-                                            <input placeholder="CUIT Receptor" value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full border p-2 rounded"/>
-                                        </div>
-                                    </div>
-                                    <div><label className="text-xs font-bold text-gray-500">Concepto</label><input type="text" value={editFormData.concepto_detectado} onChange={e => setEditFormData({...editFormData, concepto_detectado: e.target.value})} className="w-full border p-2 rounded"/></div>
-                                    <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setEditingRequest(null)} className="btn-secondary">Cancelar</button><button type="submit" className="btn-primary">Guardar</button></div>
-                                </form>
-                            </div>
-                        </div>
+                        <div className="modal-overlay"><div className="modal-content"><form onSubmit={handleSaveEdits}><input value={editFormData.nombre_receptor} onChange={e=>setEditFormData({...editFormData,nombre_receptor:e.target.value})} className="border p-2 w-full mb-2" placeholder="Receptor"/><button className="btn-primary">Guardar</button><button type="button" onClick={()=>setEditingRequest(null)} className="btn-secondary ml-2">Cancelar</button></form></div></div>
                     )}
                 </div>
             );
