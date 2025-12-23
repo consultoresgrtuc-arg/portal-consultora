@@ -4067,7 +4067,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 return requests;
             }, [requests, userData]);
 
-            // --- CEREBRO DE UNIFICACIÓN ---
+            // --- CEREBRO DE UNIFICACIÓN (NOMBRES) ---
             const clientDictionary = useMemo(() => {
                 const dict = {}; 
                 visibleRequests.forEach(req => {
@@ -4077,6 +4077,24 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                     if (cuit && cuit.length > 5) {
                         if (!dict[cuit] || name.length > dict[cuit].length) {
                             dict[cuit] = name;
+                        }
+                    }
+                });
+                return dict;
+            }, [visibleRequests]);
+
+            // --- CEREBRO DE UNIFICACIÓN (TELÉFONOS) - NUEVO ---
+            // Recuerda el último teléfono usado para cada CUIT
+            const clientPhoneDictionary = useMemo(() => {
+                const dict = {}; 
+                // visibleRequests viene ordenado por fecha (desc), así que el primero que encontramos es el más reciente.
+                visibleRequests.forEach(req => {
+                    const rawCuit = req.aiData?.cuit_receptor || '';
+                    const cuit = rawCuit.replace(/\D/g, ''); 
+                    // Si tiene teléfono guardado y CUIT válido
+                    if (cuit && cuit.length > 5 && req.userPhone) {
+                        if (!dict[cuit]) {
+                            dict[cuit] = req.userPhone;
                         }
                     }
                 });
@@ -4214,8 +4232,17 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             // Helpers
             const handleCompleteRequest = async () => { if (!invoiceFile || !completingId) return; setUploading(true); try { const req = requests.find(r => r.id === completingId); const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`); await uploadBytes(fileRef, invoiceFile); const url = await getDownloadURL(fileRef); await updateDoc(doc(db, 'billing_requests', completingId), { status: 'completed', invoiceUrl: url, completedAt: Timestamp.now() }); setCompletingId(null); setInvoiceFile(null); } catch (e) {} finally { setUploading(false); } };
             
-            // --- MODAL DE EDICIÓN (Con Carga de Teléfono) ---
+            // --- MODAL DE EDICIÓN ACTUALIZADO (Con Auto-Sugerencia de Teléfono) ---
             const openEditModal = (req) => {
+                // 1. Lógica inteligente para el teléfono
+                const rawCuit = req.aiData?.cuit_receptor || '';
+                const cuit = rawCuit.replace(/\D/g, '');
+                // Buscamos si ya tenemos un teléfono "histórico" para este cliente
+                const phoneFromHistory = clientPhoneDictionary[cuit] || '';
+                
+                // Prioridad: El que tiene esta factura > El del historial > Vacío
+                const phoneToShow = req.userPhone || phoneFromHistory || '';
+
                 setEditFormData({
                     // 1. Datos de la Transacción
                     fecha_pago: req.aiData?.fecha_pago || '',
@@ -4234,8 +4261,8 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                     nombre_receptor: req.aiData?.nombre_receptor || '',
                     banco_receptor: req.aiData?.banco_receptor || '',
                     
-                    // 4. NUEVO: Teléfono del Cliente
-                    userPhone: req.userPhone || '', 
+                    // 4. TELÉFONO (Cargamos el inteligente)
+                    userPhone: phoneToShow, 
 
                     // 5. Concepto
                     concepto_detectado: req.aiData?.concepto_detectado || ''
@@ -4243,18 +4270,14 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 setEditingRequest(req);
             };
 
-            // --- GUARDADO DE EDICIÓN (Actualiza Teléfono) ---
             const handleSaveEdits = async (e) => { 
                 e.preventDefault(); 
                 if (!editingRequest) return; 
                 try { 
-                    // Separamos el teléfono (userPhone) de los datos de la IA (aiData)
                     const { userPhone, ...aiDataFields } = editFormData;
 
                     await updateDoc(doc(db, 'billing_requests', editingRequest.id), { 
-                        // Actualizamos aiData por un lado
                         aiData: { ...aiDataFields, monto_total: parseFloat(editFormData.monto_total) },
-                        // Y el teléfono en la raíz del documento por otro
                         userPhone: userPhone 
                     }); 
                     setEditingRequest(null); 
@@ -4265,12 +4288,11 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             const markAsDone = async (reqId) => { if(!confirm("¿Confirmar?")) return; try { await updateDoc(doc(db, 'billing_requests', reqId), { status: 'completed', completedAt: Timestamp.now() }); } catch(e) {} };
             const toggleDetails = (id) => setExpandedRowId(expandedRowId === id ? null : id);
             
-            // --- WHATSAPP MEJORADO (CON CORRECCIÓN DE LINK ROTO) ---
+            // --- WHATSAPP (Con Link Seguro) ---
             const sendWhatsAppNotification = (req) => {
                 if (!req.invoiceUrl) return;
                 
                 let phone = req.userPhone;
-                // Si no hay teléfono guardado, lo pide por única vez
                 if (!phone) phone = prompt("Ingresa el número de celular del cliente (549...):");
                 if (!phone) return;
 
@@ -4278,15 +4300,12 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 const monto = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(req.aiData?.monto_total || 0);
                 const fecha = req.aiData?.fecha_pago || 'la fecha';
                 
-                // 1. Armamos el mensaje en texto plano
                 const mensaje = `Hola *${nombreCliente}*! 👋\n\n` +
                                 `Te envío la factura correspondiente al pago de *${monto}* realizado el día ${fecha}.\n\n` +
                                 `📎 *Podés descargarla desde este link:*\n` +
                                 `${req.invoiceUrl}`; 
 
-                // 2. LA SOLUCIÓN: Usamos encodeURIComponent para que el link NO se rompa
                 const urlWhatsApp = `https://wa.me/${phone}?text=${encodeURIComponent(mensaje)}`;
-
                 window.open(urlWhatsApp, '_blank');
             };
 
