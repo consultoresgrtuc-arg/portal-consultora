@@ -4265,12 +4265,12 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             const markAsDone = async (reqId) => { if(!confirm("¿Confirmar?")) return; try { await updateDoc(doc(db, 'billing_requests', reqId), { status: 'completed', completedAt: Timestamp.now() }); } catch(e) {} };
             const toggleDetails = (id) => setExpandedRowId(expandedRowId === id ? null : id);
             
-            // --- WHATSAPP MEJORADO (Mensaje Bonito) ---
+            // --- WHATSAPP MEJORADO (CON CORRECCIÓN DE LINK ROTO) ---
             const sendWhatsAppNotification = (req) => {
                 if (!req.invoiceUrl) return;
                 
                 let phone = req.userPhone;
-                // Si no hay teléfono guardado, lo pide por única vez (pero mejor editarlo en el modal)
+                // Si no hay teléfono guardado, lo pide por única vez
                 if (!phone) phone = prompt("Ingresa el número de celular del cliente (549...):");
                 if (!phone) return;
 
@@ -4278,12 +4278,16 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 const monto = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(req.aiData?.monto_total || 0);
                 const fecha = req.aiData?.fecha_pago || 'la fecha';
                 
-                const mensaje = `Hola *${nombreCliente}*! 👋%0A%0A` +
-                                `Te envío la factura correspondiente al pago de *${monto}* realizado el día ${fecha}.%0A%0A` +
-                                `📎 *Podés descargarla desde este link:*%0A` +
+                // 1. Armamos el mensaje en texto plano
+                const mensaje = `Hola *${nombreCliente}*! 👋\n\n` +
+                                `Te envío la factura correspondiente al pago de *${monto}* realizado el día ${fecha}.\n\n` +
+                                `📎 *Podés descargarla desde este link:*\n` +
                                 `${req.invoiceUrl}`; 
 
-                window.open(`https://wa.me/${phone}?text=${mensaje}`, '_blank');
+                // 2. LA SOLUCIÓN: Usamos encodeURIComponent para que el link NO se rompa
+                const urlWhatsApp = `https://wa.me/${phone}?text=${encodeURIComponent(mensaje)}`;
+
+                window.open(urlWhatsApp, '_blank');
             };
 
             return (
