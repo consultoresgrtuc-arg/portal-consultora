@@ -4232,23 +4232,33 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
 
             // Helpers
             const handleCompleteRequest = async () => { if (!invoiceFile || !completingId) return; setUploading(true); try { const req = requests.find(r => r.id === completingId); const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`); await uploadBytes(fileRef, invoiceFile); const url = await getDownloadURL(fileRef); await updateDoc(doc(db, 'billing_requests', completingId), { status: 'completed', invoiceUrl: url, completedAt: Timestamp.now() }); setCompletingId(null); setInvoiceFile(null); } catch (e) {} finally { setUploading(false); } };
+            
+            // --- MODIFICADO: FUNCIÓN DE APERTURA DE MODAL CON NUEVOS CAMPOS ---
             const openEditModal = (req) => {
                 setEditFormData({
+                    // 1. Datos de la Transacción
                     fecha_pago: req.aiData?.fecha_pago || '',
+                    hora_pago: req.aiData?.hora_pago || '', // Nuevo
                     monto_total: req.aiData?.monto_total || 0,
                     tipo_comprobante: req.aiData?.tipo_comprobante || '',
-                    // EMISOR
+                    numero_operacion: req.aiData?.numero_operacion || '', // Nuevo
+                    
+                    // 2. Emisor
                     cuit_emisor: req.aiData?.cuit_emisor || '',
                     nombre_emisor: req.aiData?.nombre_emisor || '',
                     banco_origen: req.aiData?.banco_origen || '',
-                    // RECEPTOR
+                    
+                    // 3. Receptor
                     cuit_receptor: req.aiData?.cuit_receptor || '',
                     nombre_receptor: req.aiData?.nombre_receptor || '',
-                    // OTROS
+                    banco_receptor: req.aiData?.banco_receptor || '', // Nuevo
+                    
+                    // 4. Concepto
                     concepto_detectado: req.aiData?.concepto_detectado || ''
                 });
                 setEditingRequest(req);
             };
+
             const handleSaveEdits = async (e) => { e.preventDefault(); if (!editingRequest) return; try { await updateDoc(doc(db, 'billing_requests', editingRequest.id), { aiData: { ...editFormData, monto_total: parseFloat(editFormData.monto_total) } }); setEditingRequest(null); } catch (e) {} };
             const handleDeleteRequest = async () => { if(requestToDelete) { await deleteDoc(doc(db, 'billing_requests', requestToDelete)); setRequestToDelete(null); } };
             const markAsDone = async (reqId) => { if(!confirm("¿Confirmar?")) return; try { await updateDoc(doc(db, 'billing_requests', reqId), { status: 'completed', completedAt: Timestamp.now() }); } catch(e) {} };
@@ -4421,31 +4431,86 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                         </div>
                     )}
 
+                    {/* MODAL EDITAR - ACTUALIZADO CON NUEVA ESTRUCTURA */}
                     {editingRequest && (
                         <div className="modal-overlay">
                             <div className="modal-content sm:max-w-2xl">
-                                <h3 className="text-xl font-bold mb-4">Editar Datos</h3>
+                                <div className="flex justify-between items-center mb-4 border-b pb-2">
+                                    <h3 className="text-xl font-bold text-gray-800">Editar Datos Detectados</h3>
+                                    <button onClick={() => setEditingRequest(null)} className="text-gray-400 hover:text-gray-600">
+                                        <Icon name="X" className="w-6 h-6"/>
+                                    </button>
+                                </div>
+                                
                                 <form onSubmit={handleSaveEdits} className="space-y-4">
-                                    <div className="grid grid-cols-3 gap-3">
-                                        <div><label className="text-xs font-bold text-gray-500">Fecha</label><input type="text" value={editFormData.fecha_pago} onChange={e => setEditFormData({...editFormData, fecha_pago: e.target.value})} className="w-full border p-2 rounded"/></div>
-                                        <div><label className="text-xs font-bold text-gray-500">Monto</label><input type="number" step="0.01" value={editFormData.monto_total} onChange={e => setEditFormData({...editFormData, monto_total: e.target.value})} className="w-full border p-2 rounded"/></div>
-                                        <div><label className="text-xs font-bold text-gray-500">Tipo</label><input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full border p-2 rounded"/></div>
+                                    {/* 1. CABECERA: DETALLES DE LA OPERACIÓN */}
+                                    <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
+                                        <p className="text-xs font-bold text-yellow-700 uppercase mb-2">Detalles de la Operación</p>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500">Fecha</label>
+                                                <input type="date" value={editFormData.fecha_pago} onChange={e => setEditFormData({...editFormData, fecha_pago: e.target.value})} className="w-full border p-1.5 rounded text-sm bg-white"/>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500">Hora</label>
+                                                <input type="time" value={editFormData.hora_pago} onChange={e => setEditFormData({...editFormData, hora_pago: e.target.value})} className="w-full border p-1.5 rounded text-sm bg-white"/>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500">Monto Total</label>
+                                                <input type="number" step="0.01" value={editFormData.monto_total} onChange={e => setEditFormData({...editFormData, monto_total: e.target.value})} className="w-full border p-1.5 rounded text-sm font-bold text-gray-800 bg-white"/>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500">Tipo Comp.</label>
+                                                <input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full border p-1.5 rounded text-sm bg-white"/>
+                                            </div>
+                                            <div className="md:col-span-2">
+                                                <label className="text-xs font-bold text-gray-500">N° Operación</label>
+                                                <input type="text" value={editFormData.numero_operacion} onChange={e => setEditFormData({...editFormData, numero_operacion: e.target.value})} className="w-full border p-1.5 rounded text-sm bg-white"/>
+                                            </div>
+                                        </div>
                                     </div>
+
+                                    {/* 2. COLUMNAS: EMISOR vs RECEPTOR */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="bg-gray-50 p-2 rounded">
-                                            <p className="text-xs font-bold text-gray-500 uppercase mb-2">Emisor (Pagador)</p>
-                                            <input placeholder="Nombre" value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full border p-2 rounded mb-2 text-sm"/>
-                                            <input placeholder="CUIT" value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full border p-2 rounded mb-2 text-sm"/>
-                                            <input placeholder="Banco" value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full border p-2 rounded text-sm"/>
+                                        {/* Columna Izquierda: EMISOR */}
+                                        <div className="bg-gray-50 p-3 rounded border border-gray-200">
+                                            <p className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-1">
+                                                <Icon name="ArrowUpRight" className="w-3 h-3"/> Emisor (Origen)
+                                            </p>
+                                            <div className="space-y-2">
+                                                <input placeholder="Nombre Emisor" value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full border p-2 rounded text-sm"/>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <input placeholder="CUIT" value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full border p-2 rounded text-sm"/>
+                                                    <input placeholder="Banco/Billetera" value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full border p-2 rounded text-sm"/>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="bg-blue-50 p-2 rounded">
-                                            <p className="text-xs font-bold text-blue-500 uppercase mb-2">Receptor (Cliente)</p>
-                                            <input placeholder="Nombre" value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full border p-2 rounded mb-2 text-sm"/>
-                                            <input placeholder="CUIT" value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full border p-2 rounded text-sm"/>
+
+                                        {/* Columna Derecha: RECEPTOR */}
+                                        <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                                            <p className="text-xs font-bold text-blue-600 uppercase mb-2 flex items-center gap-1">
+                                                <Icon name="ArrowDownLeft" className="w-3 h-3"/> Receptor (Destino)
+                                            </p>
+                                            <div className="space-y-2">
+                                                <input placeholder="Nombre Receptor" value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full border p-2 rounded text-sm"/>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <input placeholder="CUIT" value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full border p-2 rounded text-sm"/>
+                                                    <input placeholder="Banco/Billetera" value={editFormData.banco_receptor} onChange={e => setEditFormData({...editFormData, banco_receptor: e.target.value})} className="w-full border p-2 rounded text-sm"/>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div><label className="text-xs font-bold text-gray-500">Concepto</label><input type="text" value={editFormData.concepto_detectado} onChange={e => setEditFormData({...editFormData, concepto_detectado: e.target.value})} className="w-full border p-2 rounded"/></div>
-                                    <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setEditingRequest(null)} className="btn-secondary">Cancelar</button><button type="submit" className="btn-primary">Guardar</button></div>
+
+                                    {/* 3. PIE: CONCEPTO */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500">Concepto / Referencia</label>
+                                        <textarea rows="2" value={editFormData.concepto_detectado} onChange={e => setEditFormData({...editFormData, concepto_detectado: e.target.value})} className="w-full border p-2 rounded text-sm bg-gray-50 focus:bg-white transition-colors"></textarea>
+                                    </div>
+
+                                    <div className="flex justify-end gap-3 mt-4 pt-2 border-t">
+                                        <button type="button" onClick={() => setEditingRequest(null)} className="px-4 py-2 rounded text-sm font-bold text-gray-600 hover:bg-gray-100">Cancelar</button>
+                                        <button type="submit" className="px-6 py-2 rounded text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 shadow">Guardar Cambios</button>
+                                    </div>
                                 </form>
                             </div>
                         </div>
