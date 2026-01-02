@@ -4014,6 +4014,11 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             const [expandedRowId, setExpandedRowId] = useState(null); 
             const [selectedClient, setSelectedClient] = useState('todos');
 
+            // --- LÓGICA DE AÑOS AUTOMÁTICA ---
+            // Detectamos el año actual y generamos las opciones (Año actual + 2 anteriores)
+            const currentYear = new Date().getFullYear();
+            const availableYears = [currentYear, currentYear - 1, currentYear - 2];
+
             // Estados Carga
             const [createMode, setCreateMode] = useState('file'); 
             const [manualData, setManualData] = useState({
@@ -4142,7 +4147,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 };
             }, [visibleRequests, selectedClient, clientDictionary]);
 
-            // --- 5. DESCARGA ZIP "AUDITORÍA TOTAL" (Origen + Factura) ---
+            // --- 5. DESCARGA ZIP INTELIGENTE (AUDITORÍA TOTAL) ---
             const downloadYearlyBackup = async (year) => {
                 if (!window.JSZip) return alert("Librería JSZip no cargada.");
                 
@@ -4174,17 +4179,15 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                         
                         const clientName = getUnifiedName(req);
                         const safeName = clientName.replace(/[^a-z0-9]/gi, '_').substring(0, 20);
-                        // Nombre base para ambos archivos
                         const baseName = `${date.toISOString().split('T')[0]}_$${Math.round(req.aiData?.monto_total||0)}_${safeName}`;
 
                         let addedSomething = false;
 
-                        // 1. INTENTAR GUARDAR EL COMPROBANTE ORIGINAL (Lo que subió el cliente)
+                        // 1. ORIGINAL
                         if (req.requestImageUrl) {
                             try {
                                 const res = await fetch(req.requestImageUrl);
                                 const blob = await res.blob();
-                                // Detectar extensión
                                 let ext = "jpg"; 
                                 if (req.requestImageUrl.includes('.png')) ext = "png";
                                 else if (req.requestImageUrl.includes('.pdf')) ext = "pdf";
@@ -4192,22 +4195,22 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
 
                                 folder.file(`${baseName}_ORIGEN.${ext}`, blob);
                                 addedSomething = true;
-                            } catch (e) { folder.file(`${baseName}_ORIGEN_ERROR.txt`, "Error descargando: " + e.message); }
+                            } catch (e) { folder.file(`${baseName}_ORIGEN_ERROR.txt`, "Error: " + e.message); }
                         }
 
-                        // 2. INTENTAR GUARDAR LA FACTURA FINAL (Lo que subiste tú)
+                        // 2. FACTURA
                         if (req.invoiceUrl) {
                             try {
                                 const res = await fetch(req.invoiceUrl);
                                 const blob = await res.blob();
                                 folder.file(`${baseName}_FACTURA.pdf`, blob);
                                 addedSomething = true;
-                            } catch (e) { folder.file(`${baseName}_FACTURA_ERROR.txt`, "Error descargando: " + e.message); }
+                            } catch (e) { folder.file(`${baseName}_FACTURA_ERROR.txt`, "Error: " + e.message); }
                         }
 
-                        // 3. Si es carga manual pura sin archivos
+                        // 3. MANUAL
                         if (!addedSomething) {
-                            folder.file(`${baseName}_MANUAL.txt`, `REGISTRO MANUAL\nCliente: ${clientName}\nCUIT: ${req.aiData?.cuit_receptor}\nMonto: ${req.aiData?.monto_total}\nNota: Sin archivos adjuntos.`);
+                            folder.file(`${baseName}_MANUAL.txt`, `REGISTRO MANUAL\nCliente: ${clientName}\nCUIT: ${req.aiData?.cuit_receptor}\nMonto: ${req.aiData?.monto_total}`);
                         }
                     });
                     
@@ -4362,7 +4365,15 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
 
                     <div className="bg-indigo-50 border border-indigo-100 rounded p-4 mb-6 flex justify-between items-center">
                         <div className="flex items-center gap-3"><div className="bg-indigo-100 p-2 rounded-full text-indigo-600"><Icon name="Archive" className="w-6 h-6"/></div><div><h4 className="font-bold text-indigo-900 text-sm">Respaldo Legal</h4><p className="text-xs text-indigo-700">Descarga ZIP anual.</p></div></div>
-                        <div className="flex gap-2"><select id="y" className="border rounded p-1"><option value="2025">2025</option><option value="2024">2024</option></select><button onClick={() => downloadYearlyBackup(document.getElementById('y').value)} disabled={isZipping} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm font-bold hover:bg-indigo-700">{isZipping ? '...' : 'Descargar'}</button></div>
+                        <div className="flex gap-2">
+                            {/* SELECTOR AUTOMÁTICO DE AÑOS */}
+                            <select id="y" className="border rounded p-1">
+                                {availableYears.map(year => (
+                                    <option key={year} value={year}>{year}</option>
+                                ))}
+                            </select>
+                            <button onClick={() => downloadYearlyBackup(document.getElementById('y').value)} disabled={isZipping} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm font-bold hover:bg-indigo-700">{isZipping ? '...' : 'Descargar'}</button>
+                        </div>
                     </div>
 
                     <div className="flex border-b mb-6 bg-white rounded-t px-4 pt-2">
