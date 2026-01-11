@@ -4270,7 +4270,27 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             };
 
             // Helpers
-            const handleCompleteRequest = async () => { if (!invoiceFile || !completingId) return; setUploading(true); try { const req = requests.find(r => r.id === completingId); const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`); await uploadBytes(fileRef, invoiceFile); const url = await getDownloadURL(fileRef); await updateDoc(doc(db, 'billing_requests', completingId), { status: 'completed', invoiceUrl: url, completedAt: Timestamp.now() }); setCompletingId(null); setInvoiceFile(null); } catch (e) {} finally { setUploading(false); } };
+            const handleCompleteRequest = async (id) => { 
+    if (!invoiceFile || !id) return; 
+    setUploading(true); 
+    try { 
+        const req = requests.find(r => r.id === id); 
+        const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`); 
+        await uploadBytes(fileRef, invoiceFile); 
+        const url = await getDownloadURL(fileRef); 
+        await updateDoc(doc(db, 'billing_requests', id), { 
+            status: 'completed', 
+            invoiceUrl: url, 
+            completedAt: Timestamp.now() 
+        }); 
+        setCompletingId(null); 
+        setInvoiceFile(null); 
+    } catch (e) {
+        alert("Error al subir la factura");
+    } finally { 
+        setUploading(false); 
+    } 
+};
             
             // --- MODAL DE EDICIÓN ---
             const openEditModal = (req) => {
@@ -4494,7 +4514,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                                                                 (req.userModoFacturacion === 'estudio' && !userData?.isAdmin) ? <p className="text-center text-gray-500 text-sm">En proceso...</p> :
                                                                 <div>
                                                                     <label className="text-xs font-bold">Subir Factura Final:</label>
-                                                                    <div className="flex gap-2 mb-2"><input type="file" onChange={(e) => setInvoiceFile(e.target.files[0])} className="text-xs w-full bg-white rounded border"/><button onClick={() => { setCompletingId(req.id); handleCompleteRequest(); }} className="btn-primary text-xs">Subir</button></div>
+                                                                    <div className="flex gap-2 mb-2"><input type="file" onChange={(e) => setInvoiceFile(e.target.files[0])} className="text-xs w-full bg-white rounded border"/><button onClick={() => handleCompleteRequest(req.id)} className="btn-primary text-xs" disabled={uploading}>{uploading ? '...' : 'Subir'}</button></div>
                                                                     <button onClick={() => markAsDone(req.id)} className="w-full btn-secondary text-xs">Marcar lista (Sin PDF)</button>
                                                                 </div>
                                                             ) : (
