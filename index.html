@@ -4123,13 +4123,19 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             }, [visibleRequests, clientDictionary]);
 
             const filteredRequests = useMemo(() => {
-                let data = visibleRequests;
-                if (selectedClient !== 'todos') {
-                    data = data.filter(req => getUnifiedName(req) === selectedClient);
-                }
-                if (filterStatus === 'completed') return data.filter(r => r.status === 'completed');
-                else return data.filter(r => r.status !== 'completed');
-            }, [visibleRequests, selectedClient, filterStatus, clientDictionary]);
+    let data = visibleRequests;
+    if (selectedClient !== 'todos') {
+        data = data.filter(req => getUnifiedName(req) === selectedClient);
+    }
+
+    if (filterStatus === 'completed') {
+        // MODIFICACIÓN: Filtramos y cortamos para mostrar solo los últimos 30
+        return data.filter(r => r.status === 'completed').slice(0, 30);
+    } else {
+        // Para pendientes dejamos que se vean todos, así no se te escapa ninguno por facturar
+        return data.filter(r => r.status !== 'completed');
+    }
+}, [visibleRequests, selectedClient, filterStatus, clientDictionary]);
 
             // 4. MÉTRICAS
             const metrics = useMemo(() => {
@@ -4377,7 +4383,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                     </div>
 
                     <div className="flex border-b mb-6 bg-white rounded-t px-4 pt-2">
-                        <button onClick={() => setFilterStatus('pending')} className={`py-3 px-6 border-b-2 font-medium text-sm ${filterStatus === 'pending' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>Pendientes ({filteredRequests.filter(r => r.status !== 'completed').length})</button>
+                        <button onClick={() => setFilterStatus('pending')} className={`py-3 px-6 border-b-2 font-medium text-sm ${filterStatus === 'pending' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}>Pendientes ({visibleRequests.filter(r => r.status !== 'completed').length})</button>
                         <button onClick={() => setFilterStatus('completed')} className={`py-3 px-6 border-b-2 font-medium text-sm ${filterStatus === 'completed' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'}`}>Historial</button>
                     </div>
 
