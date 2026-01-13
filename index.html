@@ -3127,7 +3127,7 @@ const TerceroModal = ({ tercero, onClose }) => {
             numeroComprobante: '',
             fechaEmision: new Date().toISOString().split('T')[0],
             fechaVencimiento: '',
-            montoTotal: 0,
+            montoTotal: '',
         });
 
         useEffect(() => {
@@ -3147,7 +3147,7 @@ const TerceroModal = ({ tercero, onClose }) => {
             const { name, value, type } = e.target;
             setFormData(prev => ({
                 ...prev,
-                [name]: type === 'number' ? parseFloat(value) || 0 : value
+                [name]: type === 'number' ? (value === '' ? '' : parseFloat(value) || 0) : value
             }));
         };
 
@@ -3223,7 +3223,7 @@ const TerceroModal = ({ tercero, onClose }) => {
                             <label className="label">Monto Total</label>
                             <div className="relative">
                                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
-                                <input type="number" name="montoTotal" value={formData.montoTotal} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                                <input type="number" name="montoTotal" value={formData.montoTotal} onChange={handleChange} onFocus={(e) => e.target.select()} required className="input pl-7" min="0.01" step="0.01"/>
                             </div>
                         </div>
 
@@ -3250,7 +3250,7 @@ const PagoRealizadoModal = ({ isOpen, onClose, proveedorId, proveedorNombre, mov
 
     const [formData, setFormData] = useState({
         fechaPago: new Date().toISOString().split('T')[0],
-        montoPagado: 0,
+        montoPagado: '',
         medioDePago: 'Transferencia',
         referencia: '',
         chequeNumero: '',
@@ -3278,7 +3278,7 @@ const PagoRealizadoModal = ({ isOpen, onClose, proveedorId, proveedorNombre, mov
         const { name, value, type } = e.target;
         setFormData(prev => ({
             ...prev,
-            [name]: type === 'number' ? parseFloat(value) || 0 : value
+            [name]: type === 'number' ? (value === '' ? '' : parseFloat(value) || 0) : value
         }));
     };
 
@@ -3363,7 +3363,7 @@ const PagoRealizadoModal = ({ isOpen, onClose, proveedorId, proveedorNombre, mov
                             <label className="label">Monto Pagado</label>
                             <div className="relative">
                                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
-                                <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                                <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} onFocus={(e) => e.target.select()} required className="input pl-7" min="0.01" step="0.01"/>
                             </div>
                         </div>
                     </div>
@@ -3702,7 +3702,7 @@ const PagoRealizadoModal = ({ isOpen, onClose, proveedorId, proveedorNombre, mov
               numeroComprobante: '',
               fechaEmision: new Date().toISOString().split('T')[0],
               fechaVencimiento: '',
-              montoTotal: 0,
+              montoTotal: '',
           });
 
           // --- CAMBIO: useEffect ahora rellena el formulario si estamos en modo edición ---
@@ -3724,7 +3724,7 @@ const PagoRealizadoModal = ({ isOpen, onClose, proveedorId, proveedorNombre, mov
               const { name, value, type } = e.target;
               setFormData(prev => ({
                   ...prev,
-                  [name]: type === 'number' ? parseFloat(value) || 0 : value
+                  [name]: type === 'number' ? (value === '' ? '' : parseFloat(value) || 0) : value
               }));
           };
 
@@ -3804,7 +3804,7 @@ const PagoRealizadoModal = ({ isOpen, onClose, proveedorId, proveedorNombre, mov
                               <label className="label">Monto Total</label>
                               <div className="relative">
                                   <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
-                                  <input type="number" name="montoTotal" value={formData.montoTotal} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                                  <input type="number" name="montoTotal" value={formData.montoTotal} onChange={handleChange} onFocus={(e) => e.target.select()} required className="input pl-7" min="0.01" step="0.01"/>
                               </div>
                           </div>
 
@@ -3831,7 +3831,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
 
     const [formData, setFormData] = useState({
         fechaPago: new Date().toISOString().split('T')[0],
-        montoPagado: 0,
+        montoPagado: '',
         medioDePago: 'Transferencia',
         referencia: '',
         // --- NUEVOS CAMPOS PARA CHEQUE ---
@@ -3861,7 +3861,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
         const { name, value, type } = e.target;
         setFormData(prev => ({
             ...prev,
-            [name]: type === 'number' ? parseFloat(value) || 0 : value
+            [name]: type === 'number' ? (value === '' ? '' : parseFloat(value) || 0) : value
         }));
     };
 
@@ -3948,7 +3948,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                             <label className="label">Monto Pagado</label>
                             <div className="relative">
                                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
-                                <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} required className="input pl-7" min="0.01" step="0.01"/>
+                                <input type="number" name="montoPagado" value={formData.montoPagado} onChange={handleChange} onFocus={(e) => e.target.select()} required className="input pl-7" min="0.01" step="0.01"/>
                             </div>
                         </div>
                     </div>
