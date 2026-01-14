@@ -1046,243 +1046,312 @@ const AppLayout = ({ children }) => {
         };
         
         const OperationsPage = () => {
-            const { user } = useAuth();
-            const [filterDate, setFilterDate] = useState(new Date());
-            const { data: operations, loading } = useCollection('operations', {
-                year: filterDate.getFullYear(),
-                month: filterDate.getMonth() + 1
+    const { user } = useAuth();
+    const [filterDate, setFilterDate] = useState(new Date());
+    // Asumimos que useCollection es tu hook personalizado que ya funciona
+    const { data: operations, loading } = useCollection('operations', {
+        year: filterDate.getFullYear(),
+        month: filterDate.getMonth() + 1
+    });
+    const [recentOperations, setRecentOperations] = useState([]);
+    
+    useEffect(() => {
+        if (!user) return;
+        const q = query(collection(db, 'users', user.uid, 'operations'), orderBy("fechaEmision", "desc"), limit(5));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setRecentOperations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (error) => console.error("Error en recentOperations:", error));
+        return () => unsubscribe();
+    }, [user]);
+
+    const [showModal, setShowModal] = useState(false);
+    const [editingOp, setEditingOp] = useState(null);
+    const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+    const [operationToDelete, setOperationToDelete] = useState(null);
+    
+    const handleDelete = async () => {
+        if (!operationToDelete || !user) return;
+        try {
+            // CORRECCIÓN: Usamos 'user.uid' directamente
+            await deleteDoc(doc(db, 'users', user.uid, 'operations', operationToDelete));
+            setShowConfirmDelete(false);
+            setOperationToDelete(null);
+        } catch (error) {
+            console.error("Error al eliminar:", error);
+        }
+    };
+
+    const promptDelete = (id) => {
+        setOperationToDelete(id);
+        setShowConfirmDelete(true);
+    };
+    
+    const handleEdit = (op) => {
+        setEditingOp(op);
+        setShowModal(true);
+    };
+    
+    const handleNewOperation = () => {
+        setEditingOp(null);
+        setShowModal(true);
+    };
+
+    const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+
+    return (
+        <div>
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-bold">Operaciones</h2>
+                <button onClick={handleNewOperation} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"><Icon name="PlusCircle" className="w-5 h-5 mr-2"/>Nueva Operación</button>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+                <h3 className="text-xl font-bold mb-4">Últimas Operaciones Agregadas</h3>
+                {recentOperations.length > 0 ? (
+                    <ul className="divide-y divide-gray-200">
+                        {recentOperations.map(op => (
+                            <li key={op.id} className="py-3 flex justify-between items-center">
+                                <div>
+                                    <p className="font-medium capitalize">{op.type}: {op.description}</p>
+                                    <p className="text-sm text-gray-500">{op.fechaEmision?.toDate ? op.fechaEmision.toDate().toLocaleDateString('es-AR') : 'Fecha inválida'}</p>
+                                </div>
+                                <p className={`font-bold text-lg ${['venta','ingreso'].includes(op.type) ? 'text-green-600' : 'text-red-600'}`}>
+                                    {formatCurrency(op.amount)}
+                                </p>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="text-gray-500 text-center">No hay operaciones recientes.</p>
+                )}
+            </div>
+
+            {/* Asumimos que DateFilter y ConfirmModal ya están definidos en tu código */}
+            <DateFilter date={filterDate} setDate={setFilterDate} />
+
+            {showModal && <OperationModal op={editingOp} onClose={() => setShowModal(false)} />}
+            {showConfirmDelete && (
+                <ConfirmModal
+                    message="¿Estás seguro de que quieres eliminar esta operación?"
+                    onConfirm={handleDelete}
+                    onCancel={() => setShowConfirmDelete(false)}
+                />
+            )}
+
+            <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
+                <h3 className="text-xl font-bold mb-4">Operaciones del Período</h3>
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50"><tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium uppercase">Tipo</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium uppercase">Descripción</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium uppercase">Monto</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium uppercase">Acciones</th>
+                    </tr></thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {loading ? (<tr><td colSpan="5" className="text-center py-10">Cargando...</td></tr>) : 
+                        operations.length > 0 ? operations.map(op => (
+                            <tr key={op.id}>
+                                <td className="px-6 py-4 whitespace-nowrap">{op.fechaEmision?.toDate ? op.fechaEmision.toDate().toLocaleDateString('es-AR') : '-'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap capitalize">{op.type}</td>
+                                <td className="px-6 py-4">{op.description}</td>
+                                <td className={`px-6 py-4 whitespace-nowrap font-semibold ${['venta','ingreso'].includes(op.type) ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(op.amount)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <button onClick={() => handleEdit(op)} className="text-indigo-600 hover:text-indigo-900 mr-4"><Icon name="Edit" className="w-5 h-5"/></button>
+                                    <button onClick={() => promptDelete(op.id)} className="text-red-600 hover:text-red-900"><Icon name="Trash2" className="w-5 h-5"/></button>
+                                </td>
+                            </tr>
+                        )) : (<tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay operaciones para el período seleccionado.</td></tr>)}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div className="mt-8">
+                 <FixedDepositCalculator />
+            </div>
+        </div>
+    );
+};
+
+const OperationModal = ({ op, onClose }) => {
+    const { user } = useAuth();
+    const [formData, setFormData] = useState({
+        type: op?.type || 'venta',
+        amount: op?.amount || '',
+        description: op?.description || '',
+        fechaEmision: op?.fechaEmision ? op.fechaEmision.toDate().toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+    });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [message, setMessage] = useState('');
+    
+    const handleChange = e => setFormData({...formData, [e.target.name]: e.target.value});
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!user || isSubmitting) return;
+
+        setIsSubmitting(true);
+        const localDate = new Date(formData.fechaEmision + 'T00:00:00');
+        
+        const dataToSave = {
+            type: formData.type,
+            amount: parseFloat(formData.amount),
+            description: formData.description,
+            fechaEmision: Timestamp.fromDate(localDate),
+            year: localDate.getFullYear(),
+            month: localDate.getMonth() + 1,
+            day: localDate.getDate()
+        };
+
+        try {
+            if (op) { // Editing
+                await updateDoc(doc(db, 'users', user.uid, 'operations', op.id), dataToSave);
+            } else { // Creating
+                await addDoc(collection(db, 'users', user.uid, 'operations'), dataToSave);
+            }
+            onClose();
+        } catch (error) {
+            setMessage('Error al guardar la operación.');
+            console.error(error);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-content">
+                <h2 className="text-2xl font-bold mb-6">{op ? 'Editar' : 'Nueva'} Operación</h2>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="label">Fecha</label>
+                        <input type="date" name="fechaEmision" value={formData.fechaEmision} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"/>
+                    </div>
+                    <div>
+                        <label className="label">Tipo</label>
+                        <select name="type" value={formData.type} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md">
+                            <option value="venta">Venta</option>
+                            <option value="compra">Compra</option>
+                            <option value="ingreso">Ingreso</option>
+                            <option value="gasto">Gasto</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="label">Monto</label>
+                        {/* MEJORA UX: Input con signo $ y autoselección */}
+                        <div className="relative">
+                            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
+                            <input 
+                                type="number" 
+                                step="0.01" 
+                                name="amount" 
+                                value={formData.amount} 
+                                onChange={handleChange} 
+                                onFocus={(e) => e.target.select()}
+                                required 
+                                className="mt-1 w-full pl-7 p-2 border rounded-md" 
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="label">Descripción</label>
+                        <textarea name="description" value={formData.description} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"></textarea>
+                    </div>
+                    <div className="flex justify-end gap-4 pt-4">
+                        <button type="button" onClick={onClose} className="py-2 px-4 bg-gray-200 rounded-md">Cancelar</button>
+                        <button type="submit" disabled={isSubmitting} className="py-2 px-4 bg-blue-600 text-white rounded-md disabled:bg-gray-400">{isSubmitting ? 'Guardando...' : 'Guardar'}</button>
+                    </div>
+                     {message && <p className="text-red-500 text-center">{message}</p>}
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const FixedDepositCalculator = () => {
+    const [capital, setCapital] = useState('');
+    const [days, setDays] = useState(30);
+    const [tna, setTna] = useState('');
+    const [result, setResult] = useState({ interest: 0, total: 0 });
+
+    const formatCurrency = (value) => {
+        if (value === null || typeof value === 'undefined' || isNaN(value)) return '$0,00';
+        return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+    };
+
+    useEffect(() => {
+        const numCapital = parseFloat(capital);
+        const numDays = parseInt(days, 10);
+        const numTna = parseFloat(tna);
+
+        if (numCapital > 0 && numDays > 0 && numTna > 0) {
+            const calculatedInterest = (numCapital * numDays * numTna) / 36500;
+            setResult({
+                interest: calculatedInterest,
+                total: numCapital + calculatedInterest
             });
-            const [recentOperations, setRecentOperations] = useState([]);
-            
-            useEffect(() => {
-                if (!user) return;
-                const q = query(collection(db, 'users', user.uid, 'operations'), orderBy("fechaEmision", "desc"), limit(5));
-                const unsubscribe = onSnapshot(q, (snapshot) => {
-                    setRecentOperations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                });
-                return () => unsubscribe();
-            }, [user]);
+        } else {
+            setResult({ interest: 0, total: numCapital > 0 ? numCapital : 0 });
+        }
+    }, [capital, days, tna]);
 
-            const [showModal, setShowModal] = useState(false);
-            const [editingOp, setEditingOp] = useState(null);
-            const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-            const [operationToDelete, setOperationToDelete] = useState(null);
-            
-            const handleDelete = async () => {
-                if (!operationToDelete) return;
-                await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'operations', operationToDelete));
-                setShowConfirmDelete(false);
-                setOperationToDelete(null);
-            };
-
-            const promptDelete = (id) => {
-                setOperationToDelete(id);
-                setShowConfirmDelete(true);
-            };
-            
-            const handleEdit = (op) => {
-                setEditingOp(op);
-                setShowModal(true);
-            };
-            
-            const handleNewOperation = () => {
-                setEditingOp(null);
-                setShowModal(true);
-            };
-
-            const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
-
-            return (
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h3 className="text-xl font-bold mb-4 text-center">Calculadora de Plazo Fijo</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div>
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-3xl font-bold">Operaciones</h2>
-                        <button onClick={handleNewOperation} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"><Icon name="PlusCircle" className="w-5 h-5 mr-2"/>Nueva Operación</button>
-                    </div>
-
-                    <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-                        <h3 className="text-xl font-bold mb-4">Últimas Operaciones Agregadas</h3>
-                        {recentOperations.length > 0 ? (
-                            <ul className="divide-y divide-gray-200">
-                                {recentOperations.map(op => (
-                                    <li key={op.id} className="py-3 flex justify-between items-center">
-                                        <div>
-                                            <p className="font-medium capitalize">{op.type}: {op.description}</p>
-                                            <p className="text-sm text-gray-500">{op.fechaEmision.toDate().toLocaleDateString('es-AR')}</p>
-                                        </div>
-                                        <p className={`font-bold text-lg ${['venta','ingreso'].includes(op.type) ? 'text-green-600' : 'text-red-600'}`}>
-                                            {formatCurrency(op.amount)}
-                                        </p>
-                                    </li>
-                                ))}
-                            </ul>
-                        ) : (
-                            <p className="text-gray-500 text-center">No hay operaciones recientes.</p>
-                        )}
-                    </div>
-
-                    <DateFilter date={filterDate} setDate={setFilterDate} />
-
-                    {showModal && <OperationModal op={editingOp} onClose={() => setShowModal(false)} />}
-                    {showConfirmDelete && (
-                        <ConfirmModal
-                            message="¿Estás seguro de que quieres eliminar esta operación?"
-                            onConfirm={handleDelete}
-                            onCancel={() => setShowConfirmDelete(false)}
+                    <label className="block text-sm font-medium text-gray-700">Capital a Invertir</label>
+                    <div className="relative mt-1">
+                        <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</span>
+                        <input 
+                            type="number" 
+                            value={capital} 
+                            onChange={e => setCapital(e.target.value)} 
+                            onFocus={(e) => e.target.select()}
+                            placeholder="Ej: 100000" 
+                            className="w-full pl-7 p-2 border rounded-md"
                         />
-                    )}
-
-                    <div className="bg-white p-8 rounded-lg shadow-md overflow-x-auto">
-                        <h3 className="text-xl font-bold mb-4">Operaciones del Período</h3>
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50"><tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Tipo</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Descripción</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Monto</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium uppercase">Acciones</th>
-                            </tr></thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {loading ? (<tr><td colSpan="5" className="text-center py-10">Cargando...</td></tr>) : 
-                                operations.length > 0 ? operations.map(op => (
-                                    <tr key={op.id}>
-                                        <td className="px-6 py-4 whitespace-nowrap">{op.fechaEmision.toDate().toLocaleDateString('es-AR')}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap capitalize">{op.type}</td>
-                                        <td className="px-6 py-4">{op.description}</td>
-                                        <td className={`px-6 py-4 whitespace-nowrap font-semibold ${['venta','ingreso'].includes(op.type) ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(op.amount)}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <button onClick={() => handleEdit(op)} className="text-indigo-600 hover:text-indigo-900 mr-4"><Icon name="Edit" className="w-5 h-5"/></button>
-                                            <button onClick={() => promptDelete(op.id)} className="text-red-600 hover:text-red-900"><Icon name="Trash2" className="w-5 h-5"/></button>
-                                        </td>
-                                    </tr>
-                                )) : (<tr><td colSpan="5" className="text-center py-10 text-gray-500">No hay operaciones para el período seleccionado.</td></tr>)}
-                            </tbody>
-                        </table>
                     </div>
                 </div>
-            );
-        };
-
-        const OperationModal = ({ op, onClose }) => {
-            const { user } = useAuth();
-            const [formData, setFormData] = useState({
-                type: op?.type || 'venta',
-                amount: op?.amount || '',
-                description: op?.description || '',
-                fechaEmision: op?.fechaEmision ? op.fechaEmision.toDate().toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
-            });
-            const [isSubmitting, setIsSubmitting] = useState(false);
-            const [message, setMessage] = useState('');
-            
-            const handleChange = e => setFormData({...formData, [e.target.name]: e.target.value});
-
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                if (!user || isSubmitting) return;
-
-                setIsSubmitting(true);
-                const localDate = new Date(formData.fechaEmision + 'T00:00:00');
-                
-                const dataToSave = {
-                    type: formData.type,
-                    amount: parseFloat(formData.amount),
-                    description: formData.description,
-                    fechaEmision: Timestamp.fromDate(localDate),
-                    year: localDate.getFullYear(),
-                    month: localDate.getMonth() + 1, // JS months are 0-indexed
-                    day: localDate.getDate()
-                };
-
-                try {
-                    if (op) { // Editing
-                        await updateDoc(doc(db, 'users', user.uid, 'operations', op.id), dataToSave);
-                    } else { // Creating
-                        await addDoc(collection(db, 'users', user.uid, 'operations'), dataToSave);
-                    }
-                    onClose();
-                } catch (error) {
-                    setMessage('Error al guardar la operación.');
-                    console.error(error);
-                } finally {
-                    setIsSubmitting(false);
-                }
-            };
-
-            return (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <h2 className="text-2xl font-bold mb-6">{op ? 'Editar' : 'Nueva'} Operación</h2>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div><label>Fecha</label><input type="date" name="fechaEmision" value={formData.fechaEmision} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"/></div>
-                            <div><label>Tipo</label><select name="type" value={formData.type} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md"><option value="venta">Venta</option><option value="compra">Compra</option><option value="ingreso">Ingreso</option><option value="gasto">Gasto</option></select></div>
-                            <div><label>Monto</label><input type="number" step="0.01" name="amount" value={formData.amount} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"/></div>
-                            <div><label>Descripción</label><textarea name="description" value={formData.description} onChange={handleChange} required className="mt-1 w-full p-2 border rounded-md"></textarea></div>
-                            <div className="flex justify-end gap-4 pt-4">
-                                <button type="button" onClick={onClose} className="py-2 px-4 bg-gray-200 rounded-md">Cancelar</button>
-                                <button type="submit" disabled={isSubmitting} className="py-2 px-4 bg-blue-600 text-white rounded-md disabled:bg-gray-400">{isSubmitting ? 'Guardando...' : 'Guardar'}</button>
-                            </div>
-                             {message && <p className="text-red-500 text-center">{message}</p>}
-                        </form>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">Cantidad de Días</label>
+                    <input 
+                        type="number" 
+                        value={days} 
+                        onChange={e => setDays(e.target.value)} 
+                        onFocus={(e) => e.target.select()}
+                        placeholder="Ej: 30" 
+                        className="mt-1 w-full p-2 border rounded-md"
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">T.N.A.</label>
+                    <div className="relative mt-1">
+                        <input 
+                            type="number" 
+                            step="0.01" 
+                            value={tna} 
+                            onChange={e => setTna(e.target.value)} 
+                            onFocus={(e) => e.target.select()}
+                            placeholder="Ej: 75" 
+                            className="w-full p-2 border rounded-md pr-8" 
+                        />
+                        <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500">%</span>
                     </div>
                 </div>
-            );
-        };
-
-        const FixedDepositCalculator = () => {
-            const [capital, setCapital] = useState('');
-            const [days, setDays] = useState(30);
-            const [tna, setTna] = useState('');
-            const [result, setResult] = useState({ interest: 0, total: 0 });
-
-            const formatCurrency = (value) => {
-                if (value === null || typeof value === 'undefined' || isNaN(value)) return '$0,00';
-                return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
-            };
-
-            useEffect(() => {
-                const numCapital = parseFloat(capital);
-                const numDays = parseInt(days, 10);
-                const numTna = parseFloat(tna);
-
-                if (numCapital > 0 && numDays > 0 && numTna > 0) {
-                    const calculatedInterest = (numCapital * numDays * numTna) / 36500;
-                    setResult({
-                        interest: calculatedInterest,
-                        total: numCapital + calculatedInterest
-                    });
-                } else {
-                    setResult({ interest: 0, total: numCapital > 0 ? numCapital : 0 });
-                }
-            }, [capital, days, tna]);
-
-            return (
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-xl font-bold mb-4 text-center">Calculadora de Plazo Fijo</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Capital a Invertir ($)</label>
-                            <input type="number" value={capital} onChange={e => setCapital(e.target.value)} placeholder="Ej: 100000" className="mt-1 w-full p-2 border rounded-md"/>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Cantidad de Días</label>
-                            <input type="number" value={days} onChange={e => setDays(e.target.value)} placeholder="Ej: 30" className="mt-1 w-full p-2 border rounded-md"/>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">T.N.A. (%)</label>
-                            <input type="number" step="0.01" value={tna} onChange={e => setTna(e.target.value)} placeholder="Ej: 75" className="mt-1 w-full p-2 border rounded-md"/>
-                        </div>
-                    </div>
-                    <div className="bg-gray-50 p-6 rounded-lg text-center">
-                        <h4 className="text-lg font-semibold text-gray-800">Resultado</h4>
-                        <div className="mt-4 space-y-2">
-                            <p className="text-gray-600">Intereses Ganados:</p>
-                            <p className="text-3xl font-bold text-green-600">{formatCurrency(result.interest)}</p>
-                            <p className="text-gray-600 mt-2">Monto Total al Finalizar:</p>
-                            <p className="text-3xl font-bold text-blue-600">{formatCurrency(result.total)}</p>
-                        </div>
-                    </div>
+            </div>
+            <div className="bg-gray-50 p-6 rounded-lg text-center">
+                <h4 className="text-lg font-semibold text-gray-800">Resultado</h4>
+                <div className="mt-4 space-y-2">
+                    <p className="text-gray-600">Intereses Ganados:</p>
+                    <p className="text-3xl font-bold text-green-600">{formatCurrency(result.interest)}</p>
+                    <p className="text-gray-600 mt-2">Monto Total al Finalizar:</p>
+                    <p className="text-3xl font-bold text-blue-600">{formatCurrency(result.total)}</p>
                 </div>
-            );
-        };
+            </div>
+        </div>
+    );
+};
 
         const FinancesPage = () => {
             const { user, userData } = useAuth();
