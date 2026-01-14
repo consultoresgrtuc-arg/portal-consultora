@@ -958,92 +958,126 @@ const AppLayout = ({ children }) => {
 
         // --- PÁGINAS ---
         const DashboardPage = () => {
-            const [operations, setOperations] = useState([]);
-            const { user } = useAuth();
-            
-            useEffect(() => {
-                if (!user) return;
-                const now = new Date();
-                const year = now.getFullYear();
-                const month = now.getMonth() + 1;
+    const [operations, setOperations] = useState([]);
+    const { user } = useAuth();
+    
+    useEffect(() => {
+        if (!user) return;
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
 
-                const q = query(
-                    collection(db, 'users', user.uid, 'operations'),
-                    where("year", "==", year),
-                    where("month", "==", month)
-                );
-                const unsubscribe = onSnapshot(q, (snapshot) => {
-                    setOperations(snapshot.docs.map(doc => doc.data()));
-                });
-                return () => unsubscribe();
-            }, [user]);
+        const q = query(
+            collection(db, 'users', user.uid, 'operations'),
+            where("year", "==", year),
+            where("month", "==", month)
+        );
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setOperations(snapshot.docs.map(doc => doc.data()));
+        });
+        return () => unsubscribe();
+    }, [user]);
 
+    const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
 
-            const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+    const metrics = useMemo(() => {
+        let ventas = 0, compras = 0, ingresos = 0, gastos = 0;
+        operations.forEach(op => {
+            switch (op.type) {
+                case 'venta': ventas += op.amount; break;
+                case 'compra': compras += op.amount; break;
+                case 'ingreso': ingresos += op.amount; break;
+                case 'gasto': gastos += op.amount; break;
+            }
+        });
 
-            const metrics = useMemo(() => {
-                let ventas = 0, compras = 0, ingresos = 0, gastos = 0;
-                operations.forEach(op => {
-                    switch (op.type) {
-                        case 'venta': ventas += op.amount; break;
-                        case 'compra': compras += op.amount; break;
-                        case 'ingreso': ingresos += op.amount; break;
-                        case 'gasto': gastos += op.amount; break;
-                    }
-                });
+        const totalIncome = ventas + ingresos;
+        const totalExpense = compras + gastos;
+        const cashFlow = totalIncome - totalExpense;
+        
+        // CÁLCULOS CORREGIDOS CON PRECISIÓN DECIMAL
+        const profitability = totalIncome > 0 ? (cashFlow / totalIncome) * 100 : 0;
+        const expenseToIncomeRatio = ingresos > 0 ? (gastos / ingresos) * 100 : 0;
+        const purchasesToSalesRatio = ventas > 0 ? (compras / ventas) * 100 : 0;
 
-                const totalIncome = ventas + ingresos;
-                const totalExpense = compras + gastos;
-                const cashFlow = totalIncome - totalExpense;
-                const profitability = totalIncome > 0 ? (cashFlow / totalIncome) * 100 : 0;
-                const expenseRatio = totalIncome > 0 ? (totalExpense / totalIncome) * 100 : 0;
-                const purchasesToSalesRatio = ventas > 0 ? (compras / ventas) * 100 : 0;
+        return { ventas, compras, ingresos, gastos, totalIncome, totalExpense, cashFlow, profitability, expenseToIncomeRatio, purchasesToSalesRatio };
+    }, [operations]);
 
-                return { ventas, compras, ingresos, gastos, totalIncome, totalExpense, cashFlow, profitability, expenseRatio, purchasesToSalesRatio };
-            }, [operations]);
+    return (
+        <div className="p-4 space-y-8">
+            <header>
+                <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">Resumen Operativo</h2>
+                <p className="text-gray-500">Métricas correspondientes al período actual.</p>
+            </header>
 
-            return (
-                <div>
-                    <h2 className="text-3xl font-bold mb-6">Resumen del Mes</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
-                       <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Ventas</h3><p className="text-3xl font-bold text-green-600">{formatCurrency(metrics.ventas)}</p></div>
-                       <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Compras</h3><p className="text-3xl font-bold text-red-600">{formatCurrency(metrics.compras)}</p></div>
-                       <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Otros Ingresos</h3><p className="text-3xl font-bold text-green-500">{formatCurrency(metrics.ingresos)}</p></div>
-                       <div className="bg-white p-6 rounded-lg shadow-md"><h3 className="font-bold text-lg mb-2">Otros Gastos</h3><p className="text-3xl font-bold text-red-500">{formatCurrency(metrics.gastos)}</p></div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                        <div className="bg-white p-6 rounded-lg shadow-md flex flex-col justify-between">
-                            <div>
-                                <h3 className="font-bold text-lg mb-2">Flujo de Caja (Mensual)</h3>
-                                <p className={`text-4xl font-bold ${metrics.cashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(metrics.cashFlow)}</p>
-                            </div>
-                            <div className="flex items-center mt-4">
-                                {metrics.cashFlow >= 0 ? <Icon name="ArrowUpRight" className="w-8 h-8 text-green-600"/> : <Icon name="ArrowDownRight" className="w-8 h-8 text-red-600"/>}
-                                <span className="ml-2 text-gray-500">Resultado del mes</span>
-                            </div>
-                        </div>
-                        <div className="bg-white p-6 rounded-lg shadow-md">
-                            <h3 className="font-bold text-lg mb-2">Rentabilidad Neta</h3>
-                            <p className={`text-4xl font-bold ${metrics.profitability >= 0 ? 'text-blue-600' : 'text-red-600'}`}>{metrics.profitability.toFixed(1)}%</p>
-                            <p className="text-gray-500 mt-2">Del total de ingresos</p>
-                        </div>
-                        <div className="bg-white p-6 rounded-lg shadow-md">
-                            <h3 className="font-bold text-lg mb-2">Gastos vs Ingresos</h3>
-                            <p className="text-4xl font-bold text-purple-600">{metrics.expenseRatio.toFixed(0)}%</p>
-                            <p className="text-gray-500 mt-2">Tus gastos representan este % de tus ingresos</p>
-                        </div>
-                        <div className="bg-white p-6 rounded-lg shadow-md">
-                            <h3 className="font-bold text-lg mb-2">Compras vs Ventas</h3>
-                            <p className="text-4xl font-bold text-orange-500">{metrics.purchasesToSalesRatio.toFixed(0)}%</p>
-                            <p className="text-gray-500 mt-2">Porcentaje de ventas destinado a compras</p>
-                        </div>
-                    </div>
-
-                    <AIAnalyzer />
+            {/* TARJETAS PRINCIPALES */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                    <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">Ventas</h3>
+                    <p className="text-3xl font-bold text-green-600">{formatCurrency(metrics.ventas)}</p>
                 </div>
-            );
-        };
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                    <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">Compras</h3>
+                    <p className="text-3xl font-bold text-red-600">{formatCurrency(metrics.compras)}</p>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                    <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">Otros Ingresos</h3>
+                    <p className="text-3xl font-bold text-emerald-500">{formatCurrency(metrics.ingresos)}</p>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                    <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">Otros Gastos</h3>
+                    <p className="text-3xl font-bold text-orange-600">{formatCurrency(metrics.gastos)}</p>
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* FLUJO DE CAJA */}
+                <div className="bg-gradient-to-br from-white to-gray-50 p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between min-h-[200px]">
+                    <div>
+                        <h3 className="text-lg font-bold text-gray-700 mb-1">Flujo de Caja Mensual</h3>
+                        <p className={`text-5xl font-black ${metrics.cashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {formatCurrency(metrics.cashFlow)}
+                        </p>
+                    </div>
+                    <div className="flex items-center mt-6 text-gray-500 font-medium">
+                        <div className={`p-2 rounded-full mr-3 ${metrics.cashFlow >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
+                            {metrics.cashFlow >= 0 ? <Icon name="ArrowUpRight" className="w-6 h-6 text-green-600"/> : <Icon name="ArrowDownRight" className="w-6 h-6 text-red-600"/>}
+                        </div>
+                        Balance neto del mes
+                    </div>
+                </div>
+
+                {/* RENTABILIDAD NETA */}
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 text-center flex flex-col justify-center">
+                    <h3 className="text-lg font-bold text-gray-700 mb-2">Rentabilidad Neta Real</h3>
+                    <p className={`text-6xl font-black ${metrics.profitability >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                        {metrics.profitability.toFixed(1)}%
+                    </p>
+                    <p className="text-gray-400 mt-4 font-medium italic">Margen sobre el total de ingresos ($ {metrics.totalIncome.toLocaleString()})</p>
+                </div>
+            </div>
+
+            {/* COMPARATIVAS SEPARADAS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-l-8 border-l-purple-500 border-gray-100">
+                    <h3 className="text-gray-500 font-bold text-sm uppercase mb-2">Gastos vs Otros Ingresos</h3>
+                    <p className="text-5xl font-black text-purple-600">{metrics.expenseToIncomeRatio.toFixed(1)}%</p>
+                    <p className="text-gray-400 mt-2 text-sm">Incidencia de gastos estructurales sobre ingresos extra</p>
+                </div>
+
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-l-8 border-l-orange-500 border-gray-100">
+                    <h3 className="text-gray-500 font-bold text-sm uppercase mb-2">Compras vs Ventas</h3>
+                    <p className="text-5xl font-black text-orange-500">{metrics.purchasesToSalesRatio.toFixed(1)}%</p>
+                    <p className="text-gray-400 mt-2 text-sm">Costo de mercadería sobre volumen de ventas</p>
+                </div>
+            </div>
+
+            <div className="pt-4">
+                <AIAnalyzer />
+            </div>
+        </div>
+    );
+};
         
         const OperationsPage = () => {
     const { user } = useAuth();
