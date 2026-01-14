@@ -1049,7 +1049,7 @@ const AppLayout = ({ children }) => {
 
                 {/* RENTABILIDAD NETA */}
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 text-center flex flex-col justify-center">
-                    <h3 className="text-lg font-bold text-gray-700 mb-2">Rentabilidad Neta Real</h3>
+                    <h3 className="text-lg font-bold text-gray-700 mb-2">Rentabilidad</h3>
                     <p className={`text-6xl font-black ${metrics.profitability >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
                         {metrics.profitability.toFixed(1)}%
                     </p>
@@ -1060,15 +1060,15 @@ const AppLayout = ({ children }) => {
             {/* COMPARATIVAS SEPARADAS */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-l-8 border-l-purple-500 border-gray-100">
-                    <h3 className="text-gray-500 font-bold text-sm uppercase mb-2">Gastos vs Otros Ingresos</h3>
+                    <h3 className="text-gray-500 font-bold text-sm uppercase mb-2">Gastos vs Ingresos</h3>
                     <p className="text-5xl font-black text-purple-600">{metrics.expenseToIncomeRatio.toFixed(1)}%</p>
-                    <p className="text-gray-400 mt-2 text-sm">Incidencia de gastos estructurales sobre ingresos extra</p>
+                    <p className="text-gray-400 mt-2 text-sm">Incidencia de gastos sobre ingresos extra</p>
                 </div>
 
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-l-8 border-l-orange-500 border-gray-100">
                     <h3 className="text-gray-500 font-bold text-sm uppercase mb-2">Compras vs Ventas</h3>
                     <p className="text-5xl font-black text-orange-500">{metrics.purchasesToSalesRatio.toFixed(1)}%</p>
-                    <p className="text-gray-400 mt-2 text-sm">Costo de mercadería sobre volumen de ventas</p>
+                    <p className="text-gray-400 mt-2 text-sm">Costo sobre volumen de ventas</p>
                 </div>
             </div>
 
