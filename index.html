@@ -2451,7 +2451,6 @@ const ChequesPage = () => {
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
 
     const annualMetrics = useMemo(() => {
-        // Inicializamos las 4 variables base en 0
         let totalVentas = 0;
         let totalCompras = 0;
         let totalOtrosIngresos = 0;
@@ -2459,35 +2458,23 @@ const ChequesPage = () => {
 
         operations.forEach(op => {
             switch (op.type) {
-                case 'venta':
-                    totalVentas += op.amount;
-                    break;
-                case 'compra':
-                    totalCompras += op.amount;
-                    break;
-                case 'ingreso':
-                    totalOtrosIngresos += op.amount;
-                    break;
-                case 'gasto':
-                    totalOtrosGastos += op.amount;
-                    break;
+                case 'venta': totalVentas += op.amount; break;
+                case 'compra': totalCompras += op.amount; break;
+                case 'ingreso': totalOtrosIngresos += op.amount; break;
+                case 'gasto': totalOtrosGastos += op.amount; break;
             }
         });
 
-        // Calculamos totales generales solo para el flujo de caja final
         const totalEntradas = totalVentas + totalOtrosIngresos;
         const totalSalidas = totalCompras + totalOtrosGastos;
         const cashFlow = totalEntradas - totalSalidas;
-        // Agregamos cálculo de rentabilidad simple (Entradas - Salidas / Entradas)
         const profitability = totalEntradas > 0 ? (cashFlow / totalEntradas) * 100 : 0;
 
         return { totalVentas, totalCompras, totalOtrosIngresos, totalOtrosGastos, cashFlow, profitability };
     }, [operations]);
 
     const monthlyBreakdown = useMemo(() => {
-        // Estructura para guardar los 4 datos por mes
         const months = Array.from({ length: 12 }, () => ({ ventas: 0, compras: 0, otrosIngresos: 0, otrosGastos: 0 }));
-        
         operations.forEach(op => {
             const monthIndex = op.month - 1;
             if (monthIndex >= 0 && monthIndex < 12) {
@@ -2512,39 +2499,36 @@ const ChequesPage = () => {
             }
             const ctx = chartRef.current.getContext('2d');
             
-            // CONFIGURACIÓN MODERNA: GRÁFICO APILADO (STACKED)
             chartInstanceRef.current = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
                     datasets: [
-                        // BARRA 1: INGRESOS (Apilados: Ventas abajo, Otros arriba)
                         {
                             label: 'Ventas',
                             data: monthlyBreakdown.map(m => m.ventas),
-                            backgroundColor: '#16a34a', // Green 600
+                            backgroundColor: '#16a34a', 
                             stack: 'Ingresos',
                             borderRadius: 4,
                         },
                         {
                             label: 'Otros Ingresos',
                             data: monthlyBreakdown.map(m => m.otrosIngresos),
-                            backgroundColor: '#4ade80', // Green 400
+                            backgroundColor: '#4ade80', 
                             stack: 'Ingresos',
                             borderRadius: 4,
                         },
-                        // BARRA 2: EGRESOS (Apilados: Compras abajo, Gastos arriba)
                         {
                             label: 'Compras',
                             data: monthlyBreakdown.map(m => m.compras),
-                            backgroundColor: '#dc2626', // Red 600
+                            backgroundColor: '#dc2626', 
                             stack: 'Egresos',
                             borderRadius: 4,
                         },
                         {
                             label: 'Otros Gastos',
                             data: monthlyBreakdown.map(m => m.otrosGastos),
-                            backgroundColor: '#fb923c', // Orange 400
+                            backgroundColor: '#fb923c', 
                             stack: 'Egresos',
                             borderRadius: 4,
                         }
@@ -2561,9 +2545,7 @@ const ChequesPage = () => {
                             callbacks: {
                                 label: function(context) {
                                     let label = context.dataset.label || '';
-                                    if (label) {
-                                        label += ': ';
-                                    }
+                                    if (label) label += ': ';
                                     if (context.parsed.y !== null) {
                                         label += new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', notation: 'compact' }).format(context.parsed.y);
                                     }
@@ -2573,12 +2555,9 @@ const ChequesPage = () => {
                         }
                     },
                     scales: {
-                        x: {
-                            stacked: true, // Clave para el efecto apilado
-                            grid: { display: false }
-                        },
+                        x: { stacked: true, grid: { display: false } },
                         y: {
-                            stacked: true, // Clave para el efecto apilado
+                            stacked: true,
                             beginAtZero: true,
                             ticks: {
                                 callback: (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', notation: 'compact' }).format(value)
@@ -2602,15 +2581,7 @@ const ChequesPage = () => {
             const totalIngresos = monthData.ventas + monthData.otrosIngresos;
             const totalEgresos = monthData.compras + monthData.otrosGastos;
             const result = totalIngresos - totalEgresos;
-            
-            csvContent += [
-                monthNames[index], 
-                monthData.ventas, 
-                monthData.otrosIngresos, 
-                monthData.compras, 
-                monthData.otrosGastos, 
-                result
-            ].join(";") + "\n";
+            csvContent += [monthNames[index], monthData.ventas, monthData.otrosIngresos, monthData.compras, monthData.otrosGastos, result].join(";") + "\n";
         });
         
         csvContent += ["TOTAL ANUAL", annualMetrics.totalVentas, annualMetrics.totalOtrosIngresos, annualMetrics.totalCompras, annualMetrics.totalOtrosGastos, annualMetrics.cashFlow].join(";") + "\n";
@@ -2651,40 +2622,27 @@ const ChequesPage = () => {
                     <div className="flex justify-center py-20"><p className="text-gray-400 animate-pulse">Procesando datos anuales...</p></div>
                 ) : (
                     <>
-                        {/* SECCIÓN DE TARJETAS PURAS (Solo el dato correspondiente) */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-10 text-center">
-                            
-                            {/* Ventas Puras */}
                             <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
                                 <h4 className="text-xs font-bold text-green-800 uppercase mb-1">Total Ventas</h4>
                                 <p className="text-xl font-black text-green-600">{formatCurrency(annualMetrics.totalVentas)}</p>
                             </div>
-
-                            {/* Compras Puras */}
                             <div className="bg-red-50 p-4 rounded-2xl border border-red-100">
                                 <h4 className="text-xs font-bold text-red-800 uppercase mb-1">Total Compras</h4>
                                 <p className="text-xl font-black text-red-600">{formatCurrency(annualMetrics.totalCompras)}</p>
                             </div>
-
-                            {/* Otros Ingresos Puro */}
                             <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
                                 <h4 className="text-xs font-bold text-emerald-800 uppercase mb-1">Otros Ingresos</h4>
                                 <p className="text-xl font-black text-emerald-600">{formatCurrency(annualMetrics.totalOtrosIngresos)}</p>
                             </div>
-
-                            {/* Otros Gastos Puro */}
                             <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100">
                                 <h4 className="text-xs font-bold text-orange-800 uppercase mb-1">Otros Gastos</h4>
                                 <p className="text-xl font-black text-orange-600">{formatCurrency(annualMetrics.totalOtrosGastos)}</p>
                             </div>
-
-                            {/* Flujo de Caja (Resultado Matemático) */}
                             <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
                                 <h4 className="text-xs font-bold text-blue-800 uppercase mb-1">Flujo Neto</h4>
                                 <p className={`text-xl font-black ${annualMetrics.cashFlow >= 0 ? 'text-blue-600' : 'text-red-600'}`}>{formatCurrency(annualMetrics.cashFlow)}</p>
                             </div>
-
-                            {/* Rentabilidad (Porcentual) */}
                             <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
                                 <h4 className="text-xs font-bold text-indigo-800 uppercase mb-1">Rentabilidad</h4>
                                 <p className="text-xl font-black text-indigo-600">{annualMetrics.profitability.toFixed(1)}%</p>
@@ -2695,22 +2653,27 @@ const ChequesPage = () => {
                             <h4 className="text-lg font-bold text-gray-700 mb-6 flex items-center justify-center">
                                 <Icon name="BarChart3" className="w-5 h-5 mr-2 text-blue-500"/> Composición de Ingresos vs Egresos
                             </h4>
-                            <div style={{ position: 'relative', height: '350px' }}>
-                                <canvas ref={chartRef}></canvas>
+                            
+                            {/* CORRECCIÓN 1: Contenedor con scroll para el gráfico en móviles */}
+                            <div className="overflow-x-auto pb-4">
+                                <div style={{ position: 'relative', height: '350px', minWidth: '800px' }}>
+                                    <canvas ref={chartRef}></canvas>
+                                </div>
                             </div>
                             <p className="text-center text-sm text-gray-400 mt-2">Barras Apiladas: Compara el volumen total de Entradas vs Salidas por mes.</p>
                         </div>
                         
-                        <div className="overflow-hidden border border-gray-100 rounded-2xl">
+                        {/* CORRECCIÓN 2: Contenedor con scroll para la tabla en móviles (overflow-x-auto) */}
+                        <div className="overflow-x-auto border border-gray-100 rounded-2xl">
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
                                     <tr>
-                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Mes</th>
-                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Ventas</th>
-                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Compras</th>
-                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Otros Ing.</th>
-                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Otros Gas.</th>
-                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Neto</th>
+                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Mes</th>
+                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Ventas</th>
+                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Compras</th>
+                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Otros Ing.</th>
+                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Otros Gas.</th>
+                                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Neto</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-100">
@@ -2718,14 +2681,14 @@ const ChequesPage = () => {
                                         const totalMes = (monthData.ventas + monthData.otrosIngresos) - (monthData.compras + monthData.otrosGastos);
                                         return (
                                             <tr key={index} className="hover:bg-gray-50 transition-colors">
-                                                <td className="px-6 py-4 text-sm font-bold text-gray-700 capitalize">
+                                                <td className="px-6 py-4 text-sm font-bold text-gray-700 capitalize whitespace-nowrap">
                                                     {new Date(0, index).toLocaleString('es-AR', { month: 'long' })}
                                                 </td>
-                                                <td className="px-6 py-4 text-right text-sm text-green-600 font-medium">{formatCurrency(monthData.ventas)}</td>
-                                                <td className="px-6 py-4 text-right text-sm text-red-600 font-medium">{formatCurrency(monthData.compras)}</td>
-                                                <td className="px-6 py-4 text-right text-sm text-emerald-600">{formatCurrency(monthData.otrosIngresos)}</td>
-                                                <td className="px-6 py-4 text-right text-sm text-orange-600">{formatCurrency(monthData.otrosGastos)}</td>
-                                                <td className={`px-6 py-4 text-right text-sm font-bold ${totalMes >= 0 ? 'text-gray-800' : 'text-red-600'}`}>
+                                                <td className="px-6 py-4 text-right text-sm text-green-600 font-medium whitespace-nowrap">{formatCurrency(monthData.ventas)}</td>
+                                                <td className="px-6 py-4 text-right text-sm text-red-600 font-medium whitespace-nowrap">{formatCurrency(monthData.compras)}</td>
+                                                <td className="px-6 py-4 text-right text-sm text-emerald-600 whitespace-nowrap">{formatCurrency(monthData.otrosIngresos)}</td>
+                                                <td className="px-6 py-4 text-right text-sm text-orange-600 whitespace-nowrap">{formatCurrency(monthData.otrosGastos)}</td>
+                                                <td className={`px-6 py-4 text-right text-sm font-bold whitespace-nowrap ${totalMes >= 0 ? 'text-gray-800' : 'text-red-600'}`}>
                                                     {formatCurrency(totalMes)}
                                                 </td>
                                             </tr>
@@ -2734,12 +2697,12 @@ const ChequesPage = () => {
                                 </tbody>
                                 <tfoot className="bg-gray-800 text-white">
                                     <tr>
-                                        <td className="px-6 py-4 text-sm font-black uppercase">Totales</td>
-                                        <td className="px-6 py-4 text-right text-sm font-black">{formatCurrency(annualMetrics.totalVentas)}</td>
-                                        <td className="px-6 py-4 text-right text-sm font-black">{formatCurrency(annualMetrics.totalCompras)}</td>
-                                        <td className="px-6 py-4 text-right text-sm font-black text-gray-300">{formatCurrency(annualMetrics.totalOtrosIngresos)}</td>
-                                        <td className="px-6 py-4 text-right text-sm font-black text-gray-300">{formatCurrency(annualMetrics.totalOtrosGastos)}</td>
-                                        <td className="px-6 py-4 text-right text-sm font-black text-yellow-400">{formatCurrency(annualMetrics.cashFlow)}</td>
+                                        <td className="px-6 py-4 text-sm font-black uppercase whitespace-nowrap">Totales</td>
+                                        <td className="px-6 py-4 text-right text-sm font-black whitespace-nowrap">{formatCurrency(annualMetrics.totalVentas)}</td>
+                                        <td className="px-6 py-4 text-right text-sm font-black whitespace-nowrap">{formatCurrency(annualMetrics.totalCompras)}</td>
+                                        <td className="px-6 py-4 text-right text-sm font-black text-gray-300 whitespace-nowrap">{formatCurrency(annualMetrics.totalOtrosIngresos)}</td>
+                                        <td className="px-6 py-4 text-right text-sm font-black text-gray-300 whitespace-nowrap">{formatCurrency(annualMetrics.totalOtrosGastos)}</td>
+                                        <td className="px-6 py-4 text-right text-sm font-black text-yellow-400 whitespace-nowrap">{formatCurrency(annualMetrics.cashFlow)}</td>
                                     </tr>
                                 </tfoot>
                             </table>
