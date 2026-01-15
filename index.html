@@ -2203,7 +2203,16 @@ const FixedDepositCalculator = () => {
           // 3. Renderizar la página
           return (
               <div>
-                  <h2 className="text-3xl font-bold mb-6">Deudores por Venta</h2>
+                  <div className="flex items-center gap-3 mb-6">
+    <button 
+        onClick={() => navigate('/gestion')} 
+        className="p-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-colors"
+        title="Volver al Panel de Gestión"
+    >
+        <Icon name="ArrowLeft" className="w-6 h-6"/>
+    </button>
+    <h2 className="text-3xl font-bold text-gray-800">Deudores por Venta</h2>
+</div>
                   {error && <p className="text-red-600 bg-red-100 p-3 rounded mb-4">{error}</p>}
 
                   {/* Tarjetas de Métricas */}
