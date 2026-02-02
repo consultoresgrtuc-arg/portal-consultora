@@ -15,13 +15,13 @@
 
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
     <script>
-        // Esta configuración manual evita que Babel intente adivinar el entorno y falle
+        // Configuración manual para evitar conflictos con navegadores modernos
         Babel.registerPreset("env", {
             presets: [
-                ["env", { "modules": false }]
+                ["env", { "modules": false }] 
             ]
         });
     </script>
@@ -39,108 +39,50 @@
             messagingSenderId: "963315189373",
             appId: "1:963315189373:web:b5f02184412b2e78275314"
         };
+        // Hacemos la config global para usarla más abajo
         window.firebaseConfig = firebaseConfig;
     </script>
     
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
+        body { font-family: 'Inter', sans-serif; }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        .fade-in {
-            animation: fadeIn 0.5s ease-in-out;
-        }
+        
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
         .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background-color: rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             z-index: 50;
         }
         .modal-content {
-            background-color: white;
-            padding: 2rem;
-            border-radius: 0.5rem;
-            max-width: 500px;
-            width: 90%;
-            max-height: 90vh;
-            overflow-y: auto;
+            background-color: white; padding: 2rem; border-radius: 0.5rem;
+            max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;
         }
-        /* Ocultar la barra de scroll en el carrusel */
-        .scrollbar-hide::-webkit-scrollbar {
-            display: none;
-        }
-        .scrollbar-hide {
-            -ms-overflow-style: none;  /* IE and Edge */
-            scrollbar-width: none;  /* Firefox */
-        }
-        /* --- ESTILOS DE BOTONES PARA MODALES --- */
-        .btn-primary {
-            background-color: #3b82f6; /* bg-blue-500 */
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 0.375rem; /* rounded-md */
-            font-weight: 600;
-        }
-        .btn-primary:hover {
-            background-color: #2563eb; /* bg-blue-600 */
-        }
-        .btn-primary:disabled {
-            background-color: #9ca3af; /* bg-gray-400 */
-        }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Botones G&R */
+        .btn-primary { background-color: #3b82f6; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; }
+        .btn-primary:hover { background-color: #2563eb; }
+        .btn-primary:disabled { background-color: #9ca3af; }
 
-        .btn-primary-green {
-            background-color: #16a34a; /* bg-green-600 */
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 0.375rem; /* rounded-md */
-            font-weight: 600;
-        }
-        .btn-primary-green:hover {
-            background-color: #15803d; /* bg-green-700 */
-        }
-        .btn-primary-green:disabled {
-            background-color: #9ca3af; /* bg-gray-400 */
-        }
+        .btn-primary-green { background-color: #16a34a; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; }
+        .btn-primary-green:hover { background-color: #15803d; }
+        .btn-primary-green:disabled { background-color: #9ca3af; }
 
-        .btn-secondary {
-            background-color: #e5e7eb; /* bg-gray-200 */
-            color: #1f2937; /* text-gray-800 */
-            padding: 0.5rem 1rem;
-            border-radius: 0.375rem; /* rounded-md */
-            font-weight: 600;
-        }
-        .btn-secondary:hover {
-            background-color: #d1d5db; /* bg-gray-300 */
-        }
+        .btn-secondary { background-color: #e5e7eb; color: #1f2937; padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; }
+        .btn-secondary:hover { background-color: #d1d5db; }
+        
         @media print {
-            body {
-                background-color: white;
-            }
-            .no-print {
-                display: none !important;
-            }
-            main {
-                padding: 0;
-                overflow: visible;
-            }
-            .print-container {
-                box-shadow: none;
-                border: 1px solid #e5e7eb;
-                margin: 0;
-            }
-            .page-break {
-                page-break-after: always;
-            }
+            body { background-color: white; }
+            .no-print { display: none !important; }
+            main { padding: 0; overflow: visible; }
+            .print-container { box-shadow: none; border: 1px solid #e5e7eb; margin: 0; }
+            .page-break { page-break-after: always; }
         }
     </style>
 </head>
@@ -148,7 +90,8 @@
 
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module">
+    <script type="text/babel" data-type="module" data-presets="env,react">
+        
         // Importar funciones de Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
         import { 
