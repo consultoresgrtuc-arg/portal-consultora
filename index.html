@@ -17,14 +17,16 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
     <script>
-        // Definimos explícitamente que SÍ usamos esmodules para calmar el error
+        // Al usar 'env' aquí, Babel usa el que ya trae incluido.
         Babel.registerPreset("env", {
             presets: [
                 ["env", {
                     "targets": {
-                        "esmodules": true
+                        "browsers": "> 0.25%, not dead"
                     },
+                    "modules": false
                 }]
             ]
         });
@@ -43,7 +45,6 @@
             messagingSenderId: "963315189373",
             appId: "1:963315189373:web:b5f02184412b2e78275314"
         };
-        // Hacemos la config global para usarla más abajo
         window.firebaseConfig = firebaseConfig;
     </script>
     
@@ -69,7 +70,6 @@
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         
-        /* Botones G&R */
         .btn-primary { background-color: #3b82f6; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; }
         .btn-primary:hover { background-color: #2563eb; }
         .btn-primary:disabled { background-color: #9ca3af; }
