@@ -6,7 +6,6 @@
     <meta name="google-site-verification" content="w5nj0ZdDrZLgSIAVxPm1okEGFCPqCK5PAQEWzqmH908" />
     <title>G&R Consultores</title>
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2936/2936733.png" type="image/png">
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
     <script>
@@ -16,15 +15,17 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
     <script>
-        // Al usar 'env' aquí, Babel usa el que ya trae incluido.
+        // Aquí definimos manualmente qué debe hacer el preset "env"
         Babel.registerPreset("env", {
             presets: [
                 ["env", {
                     "targets": {
-                        "browsers": "> 0.25%, not dead"
+                        "esmodules": true  // <--- ESTO ES LO QUE PIDE LA CONSOLA (Boolean)
                     },
-                    "modules": false
+                    "modules": false      // Importante para usar import/export
                 }]
             ]
         });
