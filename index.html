@@ -18,10 +18,15 @@
     
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script>
-        // Configuración manual para evitar conflictos con navegadores modernos
+        // Definimos explícitamente que SÍ usamos esmodules para calmar el error
         Babel.registerPreset("env", {
             presets: [
-                ["env", { "modules": false }] 
+                ["env", {
+                    "targets": {
+                        "esmodules": true
+                    },
+                    "modules": false
+                }]
             ]
         });
     </script>
