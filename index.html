@@ -18,18 +18,7 @@
     
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <script>
-        Babel.registerPreset("env", {
-            presets: [
-                ["env", {
-                    "targets": {
-                        "esmodules": true  // Satisface el requisito de la consola
-                    },
-                    "modules": false      // CRÍTICO: Permite que los imports de Firebase funcionen
-                }]
-            ]
-        });
-    </script>
+    <!-- Eliminado: Babel.registerPreset("env", ...) que causaba errores -->
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -48,8 +37,8 @@
     </script>
     
     <style>
-        body { font-family: 'Inter', sans-serif; }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
         
         .fade-in { animation: fadeIn 0.5s ease-in-out; }
         @keyframes fadeIn {
@@ -93,7 +82,7 @@
 
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module" data-presets="env,react">
+    <script type="text/babel" data-presets="react">
         
         // Importar funciones de Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
