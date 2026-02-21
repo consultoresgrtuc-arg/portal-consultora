@@ -4676,15 +4676,32 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                                                                 <div><span className="text-xs text-gray-500 block">Tipo</span><b>{req.aiData?.tipo_comprobante}</b></div>
                                                             </div>
                                                             <div className="bg-gray-50 p-2 rounded border">
-                                                                <span className="text-xs text-gray-400 uppercase">Emisor (Quién Pagó):</span>
-                                                                <div className="font-bold">{req.aiData?.nombre_emisor}</div>
-                                                                <div className="text-xs font-mono">{req.aiData?.cuit_emisor}</div>
-                                                            </div>
-                                                            <div className="bg-blue-50 p-2 rounded border border-blue-100">
-                                                                <span className="text-xs text-blue-400 uppercase">Receptor (Cliente):</span>
-                                                                <div className="font-bold text-blue-900">{req.aiData?.nombre_receptor}</div>
-                                                                <div className="text-xs font-mono text-blue-700">{req.aiData?.cuit_receptor}</div>
-                                                            </div>
+    <span className="text-xs text-gray-400 uppercase">Emisor (Quién Pagó):</span>
+    <div className="flex justify-between items-start">
+        <div>
+            <div className="font-bold text-gray-800">{req.aiData?.nombre_emisor}</div>
+            <div className="text-xs font-mono text-gray-500">{req.aiData?.cuit_emisor}</div>
+        </div>
+        <div className="text-right ml-2">
+            <span className="text-[10px] text-gray-400 uppercase">Origen</span>
+            <div className="text-sm font-bold text-gray-700">{req.aiData?.banco_origen || '-'}</div>
+        </div>
+    </div>
+</div>
+
+<div className="bg-blue-50 p-2 rounded border border-blue-100 mt-2">
+    <span className="text-xs text-blue-400 uppercase">Receptor (Cliente):</span>
+    <div className="flex justify-between items-start">
+        <div>
+            <div className="font-bold text-blue-900">{req.aiData?.nombre_receptor}</div>
+            <div className="text-xs font-mono text-blue-700">{req.aiData?.cuit_receptor}</div>
+        </div>
+        <div className="text-right ml-2">
+            <span className="text-[10px] text-blue-400 uppercase">Destino</span>
+            <div className="text-sm font-bold text-blue-800">{req.aiData?.banco_receptor || '-'}</div>
+        </div>
+    </div>
+</div>
                                                             <div><span className="text-xs text-gray-500">Concepto:</span> {req.aiData?.concepto_detectado}</div>
                                                             {req.requestImageUrl && <div className="mt-2 text-center"><a href={req.requestImageUrl} target="_blank" className="text-blue-600 underline text-xs">Ver Comprobante Original</a></div>}
                                                         </div>
