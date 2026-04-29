@@ -182,7 +182,7 @@ const AdminPage = ({ navigate }) => {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right">
                                         <button 
-                                            onClick={() => navigate(`/admin/manage/${u.id}`)} 
+                                            onClick={() => navigate(`admin/manage/${u.id}`)} 
                                             className="bg-gray-900 text-white px-5 py-2 rounded-xl hover:bg-gray-800 text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-gray-200 transform active:scale-95"
                                         >
                                             Gestionar
