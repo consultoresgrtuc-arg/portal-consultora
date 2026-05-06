@@ -110,16 +110,20 @@ export default function MicrocreditsPanel({ userData }) {
   const formatCurrency = (val) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
 
   // --- LÓGICA DE API GEMINI ---
-  // Nota: En producción, esto debería pasar por una Cloud Function para ocultar la API Key.
-  // Pero para mantener tu lógica actual funcionando de inmediato:
+  // Refactorizado para usar Cloud Function segura
   const callGemini = async (prompt, systemPrompt) => {
     setAiLoading(true);
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || ""; // Recomendado usar .env
     
+    // Determinar la URL base según el entorno (localhost o producción)
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const apiUrl = isLocalhost 
+      ? 'http://127.0.0.1:5001/gyrconsultores-82422/us-central1/secureGeminiCall' 
+      : 'https://us-central1-gyrconsultores-82422.cloudfunctions.net/secureGeminiCall';
+
     let delay = 1000;
     for (let i = 0; i < 3; i++) {
       try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
+        const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -128,15 +132,19 @@ export default function MicrocreditsPanel({ userData }) {
           })
         });
         
-        if (!response.ok) throw new Error('API Error');
+        if (!response.ok) {
+            const errorBody = await response.json();
+            console.error("Error response from backend:", errorBody);
+            throw new Error(`Error del servidor: ${response.status}`);
+        }
         
         const data = await response.json();
         setAiLoading(false);
-        return data.candidates?.[0]?.content?.parts?.[0]?.text;
+        return data.text;
       } catch (err) {
         if (i === 2) {
           setAiLoading(false);
-          triggerNotification("Error conectando con la IA. Verifica tu API Key.");
+          triggerNotification("Error conectando con la IA. Intenta nuevamente más tarde.");
           return null;
         }
         await new Promise(resolve => setTimeout(resolve, delay));
