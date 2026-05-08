@@ -225,21 +225,22 @@ const AdminPage = ({ navigate }) => {
                 </div>
             </div>
 
-            <ConfirmModal 
-                isOpen={!!userToDelete}
-                title="Eliminar Usuario"
-                message={`¿Estás seguro de que deseas eliminar permanentemente a ${userToDelete?.nombre || userToDelete?.email || 'este usuario'}? Esta acción borrará su cuenta, sus datos y todos sus documentos subidos en el sistema. Es irreversible.`}
-                onConfirm={handleDeleteUser}
-                onCancel={() => {
-                    if (!isDeleting) {
-                        setUserToDelete(null);
-                        setDeleteMessage('');
-                    }
-                }}
-                confirmText={isDeleting ? (deleteMessage || "Eliminando...") : "Sí, eliminar todo"}
-                cancelText="Cancelar"
-                isDestructive={true}
-            />
+            {userToDelete && (
+                <ConfirmModal 
+                    title="Eliminar Usuario"
+                    message={`¿Estás seguro de que deseas eliminar permanentemente a ${userToDelete?.nombre || userToDelete?.email || 'este usuario'}? Esta acción borrará su cuenta, sus datos y todos sus documentos subidos en el sistema. Es irreversible.`}
+                    onConfirm={handleDeleteUser}
+                    onCancel={() => {
+                        if (!isDeleting) {
+                            setUserToDelete(null);
+                            setDeleteMessage('');
+                        }
+                    }}
+                    confirmText={isDeleting ? (deleteMessage || "Eliminando...") : "Sí, eliminar todo"}
+                    cancelText="Cancelar"
+                    isDestructive={true}
+                />
+            )}
         </div>
     );
 };
