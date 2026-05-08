@@ -39,6 +39,26 @@ const AdminPage = ({ navigate }) => {
         return () => unsubscribe();
     }, [userData]);
 
+    const handleDeleteUser = async () => {
+        if (!userToDelete) return;
+        setIsDeleting(true);
+        setDeleteMessage('Eliminando usuario y sus datos...');
+        try {
+            const deleteFn = httpsCallable(functions, 'deleteUserAndData');
+            await deleteFn({ uid: userToDelete.id });
+            setDeleteMessage('Usuario eliminado correctamente.');
+            setTimeout(() => {
+                setUserToDelete(null);
+                setDeleteMessage('');
+            }, 2000);
+        } catch (err) {
+            console.error(err);
+            setDeleteMessage(`Error: ${err.message}`);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     const handleMakeAdmin = async () => {
         setIsClaiming(true); 
         setClaimMessage('Procesando...');
@@ -181,12 +201,22 @@ const AdminPage = ({ navigate }) => {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right">
-                                        <button 
-                                            onClick={() => navigate(`admin/manage/${u.id}`)} 
-                                            className="bg-gray-900 text-white px-5 py-2 rounded-xl hover:bg-gray-800 text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-gray-200 transform active:scale-95"
-                                        >
-                                            Gestionar
-                                        </button>
+                                        <div className="flex items-center justify-end gap-2">
+                                            <button 
+                                                onClick={() => navigate(`admin/manage/${u.id}`)} 
+                                                className="bg-gray-900 text-white px-5 py-2 rounded-xl hover:bg-gray-800 text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-gray-200 transform active:scale-95"
+                                            >
+                                                Gestionar
+                                            </button>
+                                            <button 
+                                                onClick={() => setUserToDelete(u)}
+                                                disabled={u.id === userData?.uid}
+                                                className={`p-2 rounded-xl transition-all border shadow-sm ${u.id === userData?.uid ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed' : 'bg-red-50 text-red-600 hover:bg-red-100 border-red-100 hover:border-red-200'}`}
+                                                title="Eliminar usuario y todos sus datos"
+                                            >
+                                                <Icon name="Trash2" className="w-5 h-5" />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -194,6 +224,22 @@ const AdminPage = ({ navigate }) => {
                     </table>
                 </div>
             </div>
+
+            <ConfirmModal 
+                isOpen={!!userToDelete}
+                title="Eliminar Usuario"
+                message={`¿Estás seguro de que deseas eliminar permanentemente a ${userToDelete?.nombre || userToDelete?.email || 'este usuario'}? Esta acción borrará su cuenta, sus datos y todos sus documentos subidos en el sistema. Es irreversible.`}
+                onConfirm={handleDeleteUser}
+                onCancel={() => {
+                    if (!isDeleting) {
+                        setUserToDelete(null);
+                        setDeleteMessage('');
+                    }
+                }}
+                confirmText={isDeleting ? (deleteMessage || "Eliminando...") : "Sí, eliminar todo"}
+                cancelText="Cancelar"
+                isDestructive={true}
+            />
         </div>
     );
 };
