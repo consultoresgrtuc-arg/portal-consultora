@@ -181,6 +181,45 @@ export default function MicrocreditsPanel({ userData }) {
   };
 
   // --- LÓGICA DE CÁLCULO ---
+  const parseLocalDate = (dateStr) => {
+    if (!dateStr || dateStr === '---') return null;
+    const [day, month, year] = dateStr.split('/');
+    return new Date(year, month - 1, day);
+  };
+
+  const checkAutoLateDays = (currentSchedule, currentParams) => {
+    let changed = false;
+    const now = new Date();
+    now.setHours(0,0,0,0);
+    const moraDailyRate = (currentParams.moraTna / 100) / 365;
+
+    const newSchedule = currentSchedule.map(item => {
+      if (item.status === 'paid') return item;
+      
+      const limitDate = parseLocalDate(item.fecha);
+      if (!limitDate) return item;
+      
+      const diffTime = now - limitDate;
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays > 0 && diffDays !== item.lateDays) {
+        changed = true;
+        const newLateDays = diffDays;
+        const lateInterest = Math.ceil(item.cuotaPura * moraDailyRate * newLateDays);
+        return {
+          ...item,
+          lateDays: newLateDays,
+          lateInterest: lateInterest,
+          totalToPay: item.cuotaPura + lateInterest,
+          status: 'late'
+        };
+      }
+      return item;
+    });
+
+    return { newSchedule, changed };
+  };
+
   const generateSchedule = () => {
     const tna = parseFloat(params.tna) || 0;
     const periods = parseInt(params.weeks) || 0;
@@ -355,15 +394,32 @@ export default function MicrocreditsPanel({ userData }) {
     }
   };
 
-  const gestionarCliente = (cliente) => {
+  const gestionarCliente = async (cliente) => {
     setClienteId(cliente.id);
     setClienteNombre(cliente.nombre);
     setParams(cliente.params);
-    setSchedule(cliente.schedule);
     setChecklist(cliente.checklist);
     setAiAnalysis(null);
     setAiCollectionMsg(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const { newSchedule, changed } = checkAutoLateDays(cliente.schedule, cliente.params);
+    setSchedule(newSchedule);
+
+    if (changed && user) {
+       try {
+         setIsSyncing(true);
+         const docRef = doc(db, 'users', user.uid, 'microcredits', cliente.id);
+         await setDoc(docRef, {
+            schedule: newSchedule,
+            lastUpdated: new Date().toISOString()
+         }, { merge: true });
+       } catch (err) {
+         console.error("Error al autoguardar mora", err);
+       } finally {
+         setIsSyncing(false);
+       }
+    }
   };
 
   const iniciarNuevaSimulacion = () => {
@@ -400,6 +456,7 @@ export default function MicrocreditsPanel({ userData }) {
     const tasaDirectaTotal = capital > 0 ? (totalInterest / capital) * 100 : 0;
     const mesesPlazo = ((periods * daysPerPeriod) / 30).toFixed(1);
     const recaudado = schedule.filter(r => r.status === 'paid').reduce((acc, row) => acc + row.totalToPay, 0);
+    const saldoRestante = schedule.filter(r => r.status !== 'paid').reduce((acc, row) => acc + row.totalToPay, 0);
 
     let cftEa = 0;
     if (schedule.length > 0 && capital > 0) {
@@ -417,7 +474,7 @@ export default function MicrocreditsPanel({ userData }) {
         cftEa = (Math.pow(1 + rate, 365 / daysPerPeriod) - 1) * 100;
     }
 
-    return { totalInterest, totalPagar, tnm, tem, tea, cftEa, tasaDirectaTotal, mesesPlazo, recaudado, sellosTax };
+    return { totalInterest, totalPagar, tnm, tem, tea, cftEa, tasaDirectaTotal, mesesPlazo, recaudado, saldoRestante, sellosTax };
   }, [schedule, params]);
 
   return (
@@ -642,6 +699,12 @@ export default function MicrocreditsPanel({ userData }) {
                 <span className="font-bold text-lg">Monto Pagaré:</span>
                 <span className="text-2xl font-black">{formatCurrency(stats.totalPagar)}</span>
               </div>
+              {clienteId && (
+                <div className="pt-2 border-t border-white/20 flex justify-between items-center bg-white/10 p-3 rounded-xl mt-2 shadow-inner">
+                  <span className="font-bold text-lg text-amber-200">Saldo Restante:</span>
+                  <span className="text-2xl font-black text-amber-300">{formatCurrency(stats.saldoRestante)}</span>
+                </div>
+              )}
             </div>
           </section>
         </div>
@@ -654,9 +717,15 @@ export default function MicrocreditsPanel({ userData }) {
                 Cronograma de Pagos
                 {clienteId && <span className="ml-2 text-blue-600 bg-blue-50 px-3 py-1 rounded-full text-xs uppercase tracking-widest">{clienteNombre}</span>}
               </h2>
-              <div className="text-right">
-                <span className="text-xs font-bold text-slate-400 block uppercase">Cobrado</span>
-                <span className="text-xl font-black text-green-600">{formatCurrency(stats.recaudado)}</span>
+              <div className="flex gap-6 text-right">
+                <div>
+                  <span className="text-xs font-bold text-slate-400 block uppercase">Cobrado</span>
+                  <span className="text-xl font-black text-green-600">{formatCurrency(stats.recaudado)}</span>
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-slate-400 block uppercase">Restante</span>
+                  <span className="text-xl font-black text-amber-500">{formatCurrency(stats.saldoRestante)}</span>
+                </div>
               </div>
             </div>
 
