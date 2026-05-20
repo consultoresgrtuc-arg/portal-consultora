@@ -607,7 +607,7 @@ export default function MicrocreditsPanel({ userData }) {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Frecuencia</label>
                   <select name="frecuencia" value={params.frecuencia || 'semanal'} onChange={handleParamChange} disabled={!!clienteId} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none disabled:opacity-60 cursor-pointer text-sm font-medium">
@@ -625,6 +625,10 @@ export default function MicrocreditsPanel({ userData }) {
                 <div>
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">TNA %</label>
                   <input type="number" name="tna" value={params.tna === '' ? '' : params.tna} onChange={handleParamChange} disabled={!!clienteId} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none disabled:opacity-60 font-bold text-blue-600" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Mora TNA %</label>
+                  <input type="number" name="moraTna" value={params.moraTna === '' ? '' : params.moraTna} onChange={handleParamChange} disabled={!!clienteId} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none disabled:opacity-60 font-bold text-red-600" />
                 </div>
               </div>
 

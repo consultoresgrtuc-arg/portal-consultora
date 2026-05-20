@@ -28,6 +28,24 @@ const BillingRequestsPage = () => {
     const [filterStatus, setFilterStatus] = useState('pending'); 
     const [expandedRowId, setExpandedRowId] = useState(null); 
     const [selectedClient, setSelectedClient] = useState('todos');
+    const [selectedPeriod, setSelectedPeriod] = useState('todos');
+
+    const availablePeriods = useMemo(() => {
+        const periods = [];
+        const date = new Date();
+        for (let i = 0; i < 12; i++) {
+            const y = date.getFullYear();
+            const m = date.getMonth();
+            const value = `${y}-${String(m + 1).padStart(2, '0')}`;
+            const label = date.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
+            periods.push({ 
+                value, 
+                label: label.charAt(0).toUpperCase() + label.slice(1) 
+            });
+            date.setMonth(date.getMonth() - 1);
+        }
+        return periods;
+    }, []);
 
     const currentYear = new Date().getFullYear();
     const availableYears = [currentYear, currentYear - 1, currentYear - 2];
@@ -153,28 +171,102 @@ const BillingRequestsPage = () => {
         if (selectedClient !== 'todos') {
             data = data.filter(req => getUnifiedName(req) === selectedClient);
         }
+        if (selectedPeriod !== 'todos') {
+            const [y, m] = selectedPeriod.split('-').map(Number);
+            data = data.filter(req => {
+                const reqDate = req.timestamp?.toDate();
+                return reqDate && reqDate.getFullYear() === y && (reqDate.getMonth() + 1) === m;
+            });
+        }
 
         if (filterStatus === 'completed') {
-            return data.filter(r => r.status === 'completed').slice(0, 30);
+            return selectedPeriod !== 'todos' ? data.filter(r => r.status === 'completed') : data.filter(r => r.status === 'completed').slice(0, 30);
         } else {
             return data.filter(r => r.status !== 'completed');
         }
-    }, [visibleRequests, selectedClient, filterStatus, clientDictionary]);
+    }, [visibleRequests, selectedClient, selectedPeriod, filterStatus, clientDictionary]);
 
     const metrics = useMemo(() => {
-        const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
         let baseData = visibleRequests;
         if (selectedClient !== 'todos') {
             baseData = baseData.filter(req => getUnifiedName(req) === selectedClient);
         }
-        const reqs = baseData.filter(req => req.timestamp && req.timestamp.toDate().getMonth() === currentMonth && req.timestamp.toDate().getFullYear() === currentYear);
+        
+        let reqs = baseData;
+        if (selectedPeriod !== 'todos') {
+            const [y, m] = selectedPeriod.split('-').map(Number);
+            reqs = baseData.filter(req => {
+                const reqDate = req.timestamp?.toDate();
+                return reqDate && reqDate.getFullYear() === y && (reqDate.getMonth() + 1) === m;
+            });
+        } else {
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            reqs = baseData.filter(req => req.timestamp && req.timestamp.toDate().getMonth() === currentMonth && req.timestamp.toDate().getFullYear() === currentYear);
+        }
+
         return {
             totalFacturado: reqs.filter(r => r.status === 'completed').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0),
             totalPendiente: reqs.filter(r => r.status !== 'completed' && r.status !== 'duplicate').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0)
         };
-    }, [visibleRequests, selectedClient, clientDictionary]);
+    }, [visibleRequests, selectedClient, selectedPeriod, clientDictionary]);
+
+    const clientBillingSummary = useMemo(() => {
+        const summaryMap = {};
+        
+        let targetRequests = requests;
+        if (selectedPeriod !== 'todos') {
+            const [y, m] = selectedPeriod.split('-').map(Number);
+            targetRequests = requests.filter(req => {
+                const reqDate = req.timestamp?.toDate();
+                return reqDate && reqDate.getFullYear() === y && (reqDate.getMonth() + 1) === m;
+            });
+        }
+
+        targetRequests.forEach(req => {
+            const clientName = getUnifiedName(req);
+            const rawCuit = req.aiData?.cuit_receptor || req.manualData?.cuitCliente || '';
+            const cuit = rawCuit.replace(/\D/g, '') || 'Sin CUIT';
+            const key = cuit !== 'Sin CUIT' && cuit ? cuit : clientName;
+            
+            if (!key || key === 'Desconocido' || key === 'Carga Manual') return;
+
+            const monto = req.aiData?.monto_total || req.manualData?.monto || 0;
+            const isCompleted = req.status === 'completed';
+            const isPending = req.status !== 'completed' && req.status !== 'duplicate';
+            
+            if (!summaryMap[key]) {
+                summaryMap[key] = {
+                    key,
+                    name: clientName,
+                    cuit: cuit,
+                    totalFacturado: 0,
+                    totalPendiente: 0,
+                    count: 0,
+                    lastActivity: null
+                };
+            }
+            
+            const clientData = summaryMap[key];
+            if (isCompleted) {
+                clientData.totalFacturado += monto;
+            }
+            if (isPending) {
+                clientData.totalPendiente += monto;
+            }
+            clientData.count += 1;
+            
+            const reqDate = req.timestamp?.toDate();
+            if (reqDate) {
+                if (!clientData.lastActivity || reqDate > clientData.lastActivity) {
+                    clientData.lastActivity = reqDate;
+                }
+            }
+        });
+        
+        return Object.values(summaryMap).sort((a, b) => b.totalFacturado - a.totalFacturado);
+    }, [requests, selectedPeriod, clientDictionary]);
 
     // 4. Backup ZIP Logic
     const downloadYearlyBackup = async (year) => {
@@ -431,6 +523,17 @@ const BillingRequestsPage = () => {
                             {uniqueClients.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                     </div>
+                    <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2">
+                        <Icon name="Calendar" className="w-4 h-4 text-gray-400 ml-2"/>
+                        <select 
+                            value={selectedPeriod} 
+                            onChange={(e) => setSelectedPeriod(e.target.value)} 
+                            className="bg-transparent border-none text-sm font-bold text-gray-700 focus:ring-0 outline-none pr-8 cursor-pointer"
+                        >
+                            <option value="todos">Todos los Períodos</option>
+                            {availablePeriods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                        </select>
+                    </div>
                     <button 
                         onClick={() => setShowModal(true)} 
                         className="bg-blue-600 text-white px-6 py-3 rounded-2xl hover:bg-blue-700 flex items-center font-bold shadow-lg shadow-blue-100 transition-all transform active:scale-95"
@@ -460,7 +563,9 @@ const BillingRequestsPage = () => {
                         <Icon name="TrendingUp" size={32} />
                     </div>
                     <div className="relative z-10">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Facturado (Mes)</p>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                            Total Facturado {selectedPeriod === 'todos' ? '(Mes Actual)' : `(${availablePeriods.find(p => p.value === selectedPeriod)?.label || ''})`}
+                        </p>
                         <h3 className="text-3xl font-black text-gray-900 tracking-tight">{formatCurrency(metrics.totalFacturado)}</h3>
                     </div>
                 </div>
@@ -472,7 +577,9 @@ const BillingRequestsPage = () => {
                         <Icon name="History" size={32} />
                     </div>
                     <div className="relative z-10">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pendiente (Mes)</p>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                            Pendiente {selectedPeriod === 'todos' ? '(Mes Actual)' : `(${availablePeriods.find(p => p.value === selectedPeriod)?.label || ''})`}
+                        </p>
                         <h3 className="text-3xl font-black text-gray-900 tracking-tight">{formatCurrency(metrics.totalPendiente)}</h3>
                     </div>
                 </div>
@@ -507,7 +614,7 @@ const BillingRequestsPage = () => {
                     </button>
                 </div>
             </div>
-
+            
             {/* Main Table Tabs */}
             <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
                 <div className="flex border-b border-gray-50 bg-gray-50/30 p-2">
@@ -523,246 +630,328 @@ const BillingRequestsPage = () => {
                     >
                         Historial (Últimas 30)
                     </button>
+                    <button 
+                        onClick={() => setFilterStatus('summary')} 
+                        className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all ${filterStatus === 'summary' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        Consolidado Clientes ({clientBillingSummary.length})
+                    </button>
                 </div>
 
                 <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-50">
-                        <thead className="bg-white">
-                            <tr>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha</th>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Cliente / Receptor</th>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Detección IA</th>
-                                <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Monto Total</th>
-                                <th className="px-8 py-5"></th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-50">
-                            {loading ? (
-                                <tr><td colSpan="5" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando solicitudes...</td></tr>
-                            ) : filteredRequests.length === 0 ? (
-                                <tr><td colSpan="5" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron registros con este filtro.</td></tr>
-                            ) : filteredRequests.map(req => (
-                                <React.Fragment key={req.id}>
-                                    <tr 
-                                        className={`hover:bg-blue-50/50 cursor-pointer transition-all ${expandedRowId === req.id ? 'bg-blue-50/50' : ''}`} 
-                                        onClick={() => toggleDetails(req.id)}
-                                    >
-                                        <td className="px-8 py-6 whitespace-nowrap text-sm font-bold text-gray-500">
-                                            {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
-                                                <div className="h-4 bg-gray-100 rounded-lg w-20 animate-pulse"></div>
-                                            ) : (
-                                                req.timestamp?.toDate().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                                            )}
-                                        </td>
-                                        <td className="px-8 py-6">
-                                            {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
-                                                <div className="space-y-2">
-                                                    <div className="h-4 bg-blue-50 rounded-lg w-32 animate-pulse"></div>
-                                                    <div className="h-3 bg-gray-50 rounded-lg w-24 animate-pulse"></div>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <div className="text-sm font-black text-gray-900 leading-tight">{getUnifiedName(req)}</div>
-                                                    <div className="text-[10px] text-gray-400 font-black uppercase tracking-tighter mt-0.5">{req.aiData?.cuit_receptor || req.manualData?.cuitCliente || 'Sin CUIT'}</div>
-                                                </>
-                                            )}
-                                        </td>
-                                        <td className="px-8 py-6">
-                                            {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
-                                                <div className="flex items-center gap-3 text-blue-600 animate-pulse">
-                                                    <div className="p-1.5 bg-blue-100 rounded-lg">
-                                                        <Icon name="Cpu" className="w-4 h-4 animate-spin" />
-                                                    </div>
-                                                    <span className="text-[10px] font-black uppercase tracking-widest">IA Analizando...</span>
-                                                </div>
-                                            ) : (
-                                                <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-black uppercase tracking-widest">
-                                                    {req.isManualEntry ? 'Manual' : (req.aiData?.banco_origen || 'Extraído')}
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-8 py-6 text-right">
-                                            {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
-                                                <div className="h-5 bg-green-50 rounded-lg w-24 ml-auto animate-pulse"></div>
-                                            ) : req.status === 'duplicate' ? (
-                                                <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black bg-red-50 text-red-600 border border-red-100 uppercase tracking-widest">
-                                                    <Icon name="AlertTriangle" className="w-3 h-3 mr-1"/> Duplicado
-                                                </span>
-                                            ) : (
-                                                <div className="text-lg font-black text-gray-900 tracking-tight">
-                                                    {formatCurrency(req.aiData?.monto_total || req.manualData?.monto || 0)}
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td className="px-8 py-6 text-center">
-                                            <Icon name={expandedRowId === req.id ? 'ChevronUp' : 'ChevronDown'} className="w-5 h-5 text-gray-300"/>
-                                        </td>
-                                    </tr>
-                                    
-                                    {/* Expanded Detail View */}
-                                    {expandedRowId === req.id && (
-                                        <tr className="bg-gray-50/50">
-                                            <td colSpan="5" className="p-0 border-b border-gray-100">
-                                                <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-top-4 duration-300">
-                                                    {/* Data Card */}
-                                                    <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 flex flex-col justify-between">
-                                                        <div>
-                                                            <div className="flex justify-between items-center mb-8">
-                                                                <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Detalle Técnico Extraído</h4>
-                                                                <button 
-                                                                    onClick={() => openEditModal(req)} 
-                                                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-50'}`}
-                                                                >
-                                                                    <Icon name="Edit" size={14}/> {req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'Procesando...' : 'Corregir'}
-                                                                </button>
-                                                            </div>
-                                                            <div className="grid grid-cols-2 gap-6 mb-8">
-                                                                <div>
-                                                                    <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Pago</p>
-                                                                    <p className="font-bold text-gray-800">{req.aiData?.fecha_pago || 'S/D'}</p>
-                                                                </div>
-                                                                <div>
-                                                                    <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Tipo Comprobante</p>
-                                                                    <p className="font-bold text-gray-800">{req.aiData?.tipo_comprobante || 'S/D'}</p>
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            <div className="space-y-4 mb-8">
-                                                                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                                                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowUpRight" size={12}/> Emisor Original</p>
-                                                                    <div className="flex justify-between items-end">
-                                                                        <div>
-                                                                            <p className="font-black text-gray-800 text-sm leading-tight">{req.aiData?.nombre_emisor || 'Desconocido'}</p>
-                                                                            <p className="text-[10px] font-bold text-gray-400 font-mono mt-1">{req.aiData?.cuit_emisor || 'S/D'}</p>
-                                                                        </div>
-                                                                        <div className="text-right">
-                                                                            <p className="text-[9px] font-black text-gray-400 uppercase">Origen</p>
-                                                                            <p className="text-xs font-bold text-gray-700">{req.aiData?.banco_origen || '-'}</p>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="bg-blue-600 p-4 rounded-2xl shadow-lg shadow-blue-100">
-                                                                    <p className="text-[10px] font-black text-blue-100 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowDownLeft" size={12}/> Receptor (Cliente)</p>
-                                                                    <div className="flex justify-between items-end">
-                                                                        <div>
-                                                                            <p className="font-black text-white text-sm leading-tight">{req.aiData?.nombre_receptor || 'Desconocido'}</p>
-                                                                            <p className="text-[10px] font-bold text-blue-200 font-mono mt-1">{req.aiData?.cuit_receptor || 'S/D'}</p>
-                                                                        </div>
-                                                                        <div className="text-right">
-                                                                            <p className="text-[9px] font-black text-blue-200 uppercase">Destino</p>
-                                                                            <p className="text-xs font-bold text-white">{req.aiData?.banco_receptor || '-'}</p>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            <div className="space-y-1">
-                                                                <p className="text-[10px] font-black text-gray-400 uppercase">Concepto / Referencia</p>
-                                                                <p className="text-sm font-medium text-gray-600 italic">"{req.aiData?.concepto_detectado || 'Sin descripción'}"</p>
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        {req.requestImageUrl && (
-                                                            <div className="mt-8 pt-6 border-t border-gray-50 flex justify-center">
-                                                                <a href={req.requestImageUrl} target="_blank" className="flex items-center gap-2 text-blue-600 font-black text-[10px] uppercase tracking-widest hover:gap-4 transition-all">
-                                                                    Ver Comprobante Original <Icon name="ArrowRight" size={12}/>
-                                                                </a>
-                                                            </div>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Management Card */}
-                                                    <div className="bg-gray-100 p-8 rounded-[32px] border border-gray-200 flex flex-col justify-between">
-                                                        <div className="space-y-8">
-                                                            <div className="flex justify-between items-center">
-                                                                <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Acciones de Gestión</h4>
-                                                                <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${req.status === 'completed' ? 'bg-green-600 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
-                                                                    {req.status === 'completed' ? 'Finalizado' : 'Pendiente'}
-                                                                </span>
-                                                            </div>
-
-                                                            {req.status !== 'completed' ? (
-                                                                (req.userModoFacturacion === 'estudio' && !userData?.isAdmin) ? (
-                                                                    <div className="bg-white p-8 rounded-2xl text-center shadow-sm border border-gray-200">
-                                                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                                                                        <p className="text-gray-500 font-bold">Nuestro estudio está procesando tu solicitud...</p>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="space-y-6">
-                                                                        <div className="space-y-3">
-                                                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Subir Factura Final (PDF)</label>
-                                                                            <div className="flex gap-3">
-                                                                                <label className="flex-1 cursor-pointer">
-                                                                                    <div className="w-full bg-white px-4 py-3 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 flex items-center justify-between truncate hover:border-blue-200 transition-all">
-                                                                                        <span className="truncate">{invoiceFile ? invoiceFile.name : 'Seleccionar Archivo'}</span>
-                                                                                        <Icon name="FileText" size={16}/>
-                                                                                    </div>
-                                                                                    <input type="file" className="hidden" onChange={(e) => setInvoiceFile(e.target.files[0])} accept=".pdf"/>
-                                                                                </label>
-                                                                                <button 
-                                                                                    onClick={() => handleCompleteRequest(req.id)} 
-                                                                                    disabled={uploading || !invoiceFile}
-                                                                                    className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all disabled:opacity-50"
-                                                                                >
-                                                                                    {uploading ? '...' : 'Subir'}
-                                                                                </button>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="relative">
-                                                                            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
-                                                                            <div className="relative flex justify-center text-[10px] font-black uppercase text-gray-400"><span className="bg-gray-100 px-3">O también</span></div>
-                                                                        </div>
-                                                                        <button 
-                                                                            onClick={() => markAsDone(req.id)} 
-                                                                            className="w-full bg-white text-gray-700 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all shadow-sm border border-gray-200"
-                                                                        >
-                                                                            Marcar sin Comprobante
-                                                                        </button>
-                                                                    </div>
-                                                                )
-                                                            ) : (
-                                                                <div className="bg-white p-8 rounded-[24px] text-center shadow-sm border border-gray-200 space-y-6">
-                                                                    <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center text-green-600 mx-auto">
-                                                                        <Icon name="Check" size={32} />
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-xl font-black text-gray-900 leading-tight">Facturación Exitosa</p>
-                                                                        <p className="text-xs text-gray-500 font-medium mt-2">La operación ha sido procesada y archivada.</p>
-                                                                    </div>
-                                                                    {req.invoiceUrl && (
-                                                                        <a href={req.invoiceUrl} target="_blank" className="flex items-center justify-center gap-3 w-full bg-blue-50 text-blue-600 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-100 transition-all">
-                                                                            <Icon name="DownloadCloud" size={18}/> Descargar Comprobante PDF
-                                                                        </a>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-
-                                                        <div className="space-y-3 mt-8">
-                                                            {req.invoiceUrl && (
-                                                                <button 
-                                                                    onClick={() => sendWhatsAppNotification(req)} 
-                                                                    className="w-full bg-green-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-green-600 transition-all shadow-lg shadow-green-100 flex items-center justify-center gap-3"
-                                                                >
-                                                                    <Icon name="MessageCircle" size={18}/> Notificar por WhatsApp
-                                                                </button>
-                                                            )}
-                                                            <button 
-                                                                onClick={() => setRequestToDelete(req.id)} 
-                                                                className="w-full text-red-400 hover:text-red-600 text-[10px] font-black uppercase tracking-widest pt-2 transition-colors flex items-center justify-center gap-2"
-                                                            >
-                                                                <Icon name="Trash2" size={14}/> Eliminar este Registro
-                                                            </button>
-                                                        </div>
-                                                    </div>
+                    {filterStatus === 'summary' ? (
+                        <table className="min-w-full divide-y divide-gray-50">
+                            <thead className="bg-white">
+                                <tr>
+                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Cliente / Razón Social</th>
+                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">CUIT</th>
+                                    <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Facturado</th>
+                                    <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Pendiente</th>
+                                    <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Comprobantes</th>
+                                    <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Último Movimiento</th>
+                                    <th className="px-8 py-5"></th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-50">
+                                {loading ? (
+                                    <tr><td colSpan="7" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando consolidado...</td></tr>
+                                ) : clientBillingSummary.length === 0 ? (
+                                    <tr><td colSpan="7" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron clientes.</td></tr>
+                                ) : (
+                                    clientBillingSummary.map(client => (
+                                        <tr key={client.key} className="hover:bg-blue-50/30 transition-all">
+                                            <td className="px-8 py-6 whitespace-nowrap">
+                                                <div className="text-sm font-black text-gray-900 leading-tight">{client.name}</div>
+                                            </td>
+                                            <td className="px-8 py-6 whitespace-nowrap text-sm font-bold text-gray-500 font-mono">
+                                                {client.cuit}
+                                            </td>
+                                            <td className="px-8 py-6 text-right whitespace-nowrap">
+                                                <div className="text-sm font-black text-green-600 tracking-tight">
+                                                    {formatCurrency(client.totalFacturado)}
                                                 </div>
                                             </td>
+                                            <td className="px-8 py-6 text-right whitespace-nowrap">
+                                                <div className="text-sm font-black text-yellow-600 tracking-tight">
+                                                    {formatCurrency(client.totalPendiente)}
+                                                </div>
+                                            </td>
+                                            <td className="px-8 py-6 text-center whitespace-nowrap text-sm font-bold text-gray-500">
+                                                {client.count}
+                                            </td>
+                                            <td className="px-8 py-6 text-right whitespace-nowrap text-sm font-semibold text-gray-500">
+                                                {client.lastActivity ? client.lastActivity.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}
+                                            </td>
+                                            <td className="px-8 py-6 text-right whitespace-nowrap">
+                                                <button 
+                                                    onClick={() => {
+                                                        setSelectedClient(client.name);
+                                                        setFilterStatus('pending');
+                                                    }}
+                                                    className="bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold text-[10px] uppercase tracking-widest px-4 py-2 rounded-xl transition-all"
+                                                >
+                                                    Ver Detalle
+                                                </button>
+                                            </td>
                                         </tr>
-                                    )}
-                                </React.Fragment>
-                            ))}
-                        </tbody>
-                    </table>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <table className="min-w-full divide-y divide-gray-50">
+                            <thead className="bg-white">
+                                <tr>
+                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha</th>
+                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Cliente / Receptor</th>
+                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Detección IA</th>
+                                    <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Monto Total</th>
+                                    <th className="px-8 py-5"></th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-50">
+                                {loading ? (
+                                    <tr><td colSpan="5" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando solicitudes...</td></tr>
+                                ) : filteredRequests.length === 0 ? (
+                                    <tr><td colSpan="5" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron registros con este filtro.</td></tr>
+                                ) : filteredRequests.map(req => (
+                                    <React.Fragment key={req.id}>
+                                        <tr 
+                                            className={`hover:bg-blue-50/50 cursor-pointer transition-all ${expandedRowId === req.id ? 'bg-blue-50/50' : ''}`} 
+                                            onClick={() => toggleDetails(req.id)}
+                                        >
+                                            <td className="px-8 py-6 whitespace-nowrap text-sm font-bold text-gray-500">
+                                                {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
+                                                    <div className="h-4 bg-gray-100 rounded-lg w-20 animate-pulse"></div>
+                                                ) : (
+                                                    req.timestamp?.toDate().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                                )}
+                                            </td>
+                                            <td className="px-8 py-6">
+                                                {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
+                                                    <div className="space-y-2">
+                                                        <div className="h-4 bg-blue-50 rounded-lg w-32 animate-pulse"></div>
+                                                        <div className="h-3 bg-gray-50 rounded-lg w-24 animate-pulse"></div>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="text-sm font-black text-gray-900 leading-tight">{getUnifiedName(req)}</div>
+                                                        <div className="text-[10px] text-gray-400 font-black uppercase tracking-tighter mt-0.5">{req.aiData?.cuit_receptor || req.manualData?.cuitCliente || 'Sin CUIT'}</div>
+                                                    </>
+                                                )}
+                                            </td>
+                                            <td className="px-8 py-6">
+                                                {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
+                                                    <div className="flex items-center gap-3 text-blue-600 animate-pulse">
+                                                        <div className="p-1.5 bg-blue-100 rounded-lg">
+                                                            <Icon name="Cpu" className="w-4 h-4 animate-spin" />
+                                                        </div>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">IA Analizando...</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                                        {req.isManualEntry ? 'Manual' : (req.aiData?.banco_origen || 'Extraído')}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-8 py-6 text-right">
+                                                {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
+                                                    <div className="h-5 bg-green-50 rounded-lg w-24 ml-auto animate-pulse"></div>
+                                                ) : req.status === 'duplicate' ? (
+                                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black bg-red-50 text-red-600 border border-red-100 uppercase tracking-widest">
+                                                        <Icon name="AlertTriangle" className="w-3 h-3 mr-1"/> Duplicado
+                                                    </span>
+                                                ) : (
+                                                    <div className="text-lg font-black text-gray-900 tracking-tight">
+                                                        {formatCurrency(req.aiData?.monto_total || req.manualData?.monto || 0)}
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-8 py-6 text-center">
+                                                <Icon name={expandedRowId === req.id ? 'ChevronUp' : 'ChevronDown'} className="w-5 h-5 text-gray-300"/>
+                                            </td>
+                                        </tr>
+                                        
+                                        {/* Expanded Detail View */}
+                                        {expandedRowId === req.id && (
+                                            <tr className="bg-gray-50/50">
+                                                <td colSpan="5" className="p-0 border-b border-gray-100">
+                                                    <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-top-4 duration-300">
+                                                        {/* Data Card */}
+                                                        <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 flex flex-col justify-between">
+                                                            <div>
+                                                                <div className="flex justify-between items-center mb-8">
+                                                                    <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Detalle Técnico Extraído</h4>
+                                                                    <button 
+                                                                        onClick={() => openEditModal(req)} 
+                                                                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-50'}`}
+                                                                    >
+                                                                        <Icon name="Edit" size={14}/> {req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'Procesando...' : 'Corregir'}
+                                                                    </button>
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-6 mb-8">
+                                                                    <div>
+                                                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Pago</p>
+                                                                        <p className="font-bold text-gray-800">{req.aiData?.fecha_pago || 'S/D'}</p>
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Tipo Comprobante</p>
+                                                                        <p className="font-bold text-gray-800">{req.aiData?.tipo_comprobante || 'S/D'}</p>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <div className="space-y-4 mb-8">
+                                                                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowUpRight" size={12}/> Emisor Original</p>
+                                                                        <div className="flex justify-between items-end">
+                                                                            <div>
+                                                                                <p className="font-black text-gray-800 text-sm leading-tight">{req.aiData?.nombre_emisor || 'Desconocido'}</p>
+                                                                                <p className="text-[10px] font-bold text-gray-400 font-mono mt-1">{req.aiData?.cuit_emisor || 'S/D'}</p>
+                                                                            </div>
+                                                                            <div className="text-right">
+                                                                                <p className="text-[9px] font-black text-gray-400 uppercase">Origen</p>
+                                                                                <p className="text-xs font-bold text-gray-700">{req.aiData?.banco_origen || '-'}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="bg-blue-600 p-4 rounded-2xl shadow-lg shadow-blue-100">
+                                                                        <p className="text-[10px] font-black text-blue-100 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowDownLeft" size={12}/> Receptor (Cliente)</p>
+                                                                        <div className="flex justify-between items-end">
+                                                                            <div>
+                                                                                <p className="font-black text-white text-sm leading-tight">{req.aiData?.nombre_receptor || 'Desconocido'}</p>
+                                                                                <p className="text-[10px] font-bold text-blue-200 font-mono mt-1">{req.aiData?.cuit_receptor || 'S/D'}</p>
+                                                                            </div>
+                                                                            <div className="text-right">
+                                                                                <p className="text-[9px] font-black text-blue-200 uppercase">Destino</p>
+                                                                                <p className="text-xs font-bold text-white">{req.aiData?.banco_receptor || '-'}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <div className="space-y-1">
+                                                                    <p className="text-[10px] font-black text-gray-400 uppercase">Concepto / Referencia</p>
+                                                                    <p className="text-sm font-medium text-gray-600 italic">"{req.aiData?.concepto_detectado || 'Sin descripción'}"</p>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {req.requestImageUrl && (
+                                                                <div className="mt-8 pt-6 border-t border-gray-50 flex justify-center">
+                                                                    <a href={req.requestImageUrl} target="_blank" className="flex items-center gap-2 text-blue-600 font-black text-[10px] uppercase tracking-widest hover:gap-4 transition-all">
+                                                                        Ver Comprobante Original <Icon name="ArrowRight" size={12}/>
+                                                                    </a>
+                                                                </div>
+                                                            )}
+                                                        </div>
+ 
+                                                        {/* Management Card */}
+                                                        <div className="bg-gray-100 p-8 rounded-[32px] border border-gray-200 flex flex-col justify-between">
+                                                            <div className="space-y-8">
+                                                                <div className="flex justify-between items-center">
+                                                                    <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Acciones de Gestión</h4>
+                                                                    <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${req.status === 'completed' ? 'bg-green-600 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
+                                                                        {req.status === 'completed' ? 'Finalizado' : 'Pendiente'}
+                                                                    </span>
+                                                                </div>
+ 
+                                                                {req.status !== 'completed' ? (
+                                                                    (req.userModoFacturacion === 'estudio' && !userData?.isAdmin) ? (
+                                                                        <div className="bg-white p-8 rounded-2xl text-center shadow-sm border border-gray-200">
+                                                                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                                                                            <p className="text-gray-500 font-bold">Nuestro estudio está procesando tu solicitud...</p>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="space-y-6">
+                                                                            <div className="space-y-3">
+                                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Subir Factura Final (PDF)</label>
+                                                                                <div className="flex gap-3">
+                                                                                    <label className="flex-1 cursor-pointer">
+                                                                                        <div className="w-full bg-white px-4 py-3 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 flex items-center justify-between truncate hover:border-blue-200 transition-all">
+                                                                                            <span className="truncate">{invoiceFile ? invoiceFile.name : 'Seleccionar Archivo'}</span>
+                                                                                            <Icon name="FileText" size={16}/>
+                                                                                        </div>
+                                                                                        <input type="file" className="hidden" onChange={(e) => setInvoiceFile(e.target.files[0])} accept=".pdf"/>
+                                                                                    </label>
+                                                                                    <button 
+                                                                                        onClick={() => handleCompleteRequest(req.id)} 
+                                                                                        disabled={uploading || !invoiceFile}
+                                                                                        className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all disabled:opacity-50"
+                                                                                    >
+                                                                                        {uploading ? '...' : 'Subir'}
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="relative">
+                                                                                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
+                                                                                <div className="relative flex justify-center text-[10px] font-black uppercase text-gray-400"><span className="bg-gray-100 px-3">O también</span></div>
+                                                                            </div>
+                                                                            <button 
+                                                                                onClick={() => markAsDone(req.id)} 
+                                                                                className="w-full bg-white text-gray-700 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all shadow-sm border border-gray-200"
+                                                                            >
+                                                                                Marcar como Facturado
+                                                                            </button>
+                                                                        </div>
+                                                                    )
+                                                                ) : (
+                                                                    <div className="bg-white p-8 rounded-[24px] shadow-sm border border-gray-200/50 space-y-4">
+                                                                        <div>
+                                                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Comprobante de Factura</p>
+                                                                            {req.invoiceUrl ? (
+                                                                                <a href={req.invoiceUrl} target="_blank" className="font-bold text-blue-600 hover:underline flex items-center gap-2">
+                                                                                    <Icon name="FileText" size={16}/> Factura Subida
+                                                                                </a>
+                                                                            ) : (
+                                                                                <p className="text-gray-500 font-bold italic">Facturado sin comprobante físico</p>
+                                                                            )}
+                                                                        </div>
+                                                                        {req.completedAt && (
+                                                                            <div>
+                                                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Facturación</p>
+                                                                                <p className="font-bold text-gray-800 text-xs">{req.completedAt.toDate().toLocaleString('es-AR')}</p>
+                                                                            </div>
+                                                                        )}
+                                                                        {req.invoiceUrl && (
+                                                                            <div className="pt-2">
+                                                                                <a 
+                                                                                    href={req.invoiceUrl} 
+                                                                                    download 
+                                                                                    className="w-full bg-blue-50 hover:bg-blue-100 text-blue-600 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                                                                                >
+                                                                                    <Icon name="DownloadCloud" size={18}/> Descargar Comprobante PDF
+                                                                                </a>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+ 
+                                                            <div className="space-y-3 mt-8">
+                                                                {req.invoiceUrl && (
+                                                                    <button 
+                                                                        onClick={() => sendWhatsAppNotification(req)} 
+                                                                        className="w-full bg-green-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-green-600 transition-all shadow-lg shadow-green-100 flex items-center justify-center gap-3"
+                                                                    >
+                                                                        <Icon name="MessageCircle" size={18}/> Notificar por WhatsApp
+                                                                    </button>
+                                                                )}
+                                                                <button 
+                                                                    onClick={() => setRequestToDelete(req.id)} 
+                                                                    className="w-full text-red-400 hover:text-red-600 text-[10px] font-black uppercase tracking-widest pt-2 transition-colors flex items-center justify-center gap-2"
+                                                                >
+                                                                    <Icon name="Trash2" size={14}/> Eliminar este Registro
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
             </div>
 
