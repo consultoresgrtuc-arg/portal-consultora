@@ -88,53 +88,90 @@ const LoginPage = () => {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-            <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
+        <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
+            {/* Glowing background orbs */}
+            <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-blue-600/10 rounded-full blur-3xl pointer-events-none animate-pulse duration-[8000ms]"></div>
+            <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none animate-pulse duration-[6000ms]"></div>
+
+            <div className="max-w-md w-full backdrop-blur-xl bg-slate-900/40 border border-slate-800/80 p-8 rounded-3xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] z-10 transition-all">
                 <div className="text-center mb-8">
-                    <div className="bg-blue-50 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <BarChart3 size={32} className="text-blue-600"/>
+                    <div className="bg-blue-600/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-blue-500/20 shadow-lg shadow-blue-500/5">
+                        <BarChart3 size={32} className="text-blue-400 animate-pulse"/>
                     </div>
-                    <h2 className="text-3xl font-black text-gray-900 tracking-tight">
+                    <h2 className="text-3xl font-black text-white tracking-tight">
                         {view === 'login' ? 'Iniciar Sesión' : view === 'register' ? 'Crear Cuenta' : 'Recuperar'}
                     </h2>
-                    <p className="mt-2 text-sm text-gray-500 font-medium">
+                    <p className="mt-2 text-sm text-slate-400 font-medium">
                         {view === 'reset' ? 'Ingresa tu email para recuperar el acceso.' : 'Bienvenido a G&R Consultores v2.1'}
                     </p>
                 </div>
 
                 {view === 'reset' ? (
-                    <form onSubmit={handlePasswordReset} className="space-y-4">
+                    <form onSubmit={handlePasswordReset} className="space-y-5">
                         <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 block">Email</label>
-                            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-3 bg-gray-50 border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl transition-all outline-none"/>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Email</label>
+                            <input 
+                                type="email" 
+                                value={email} 
+                                onChange={(e) => setEmail(e.target.value)} 
+                                placeholder="tu@ejemplo.com"
+                                required 
+                                className="w-full px-4 py-3 bg-slate-950/40 border border-slate-800/80 text-white placeholder-slate-600 focus:bg-slate-950/60 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl transition-all outline-none"
+                            />
                         </div>
-                        {error && <p className="text-xs text-red-500 font-bold text-center">{error}</p>}
-                        {message && <p className="text-xs text-green-600 font-bold text-center">{message}</p>}
-                        <button type="submit" className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all">
+                        {error && (
+                            <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-3 py-2 rounded-xl text-xs font-semibold text-center">
+                                {error}
+                            </div>
+                        )}
+                        {message && (
+                            <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-3 py-2 rounded-xl text-xs font-semibold text-center">
+                                {message}
+                            </div>
+                        )}
+                        <button type="submit" className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-500/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer">
                             Enviar correo
                         </button>
                     </form>
                 ) : (
-                    <form onSubmit={handleEmailPassword} className="space-y-4">
+                    <form onSubmit={handleEmailPassword} className="space-y-5">
                         <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 block">Email</label>
-                            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-3 bg-gray-50 border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl transition-all outline-none"/>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Email</label>
+                            <input 
+                                type="email" 
+                                value={email} 
+                                onChange={(e) => setEmail(e.target.value)} 
+                                placeholder="tu@ejemplo.com"
+                                required 
+                                className="w-full px-4 py-3 bg-slate-950/40 border border-slate-800/80 text-white placeholder-slate-600 focus:bg-slate-950/60 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl transition-all outline-none"
+                            />
                         </div>
                         <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 block">Contraseña</label>
-                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-4 py-3 bg-gray-50 border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl transition-all outline-none"/>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Contraseña</label>
+                            <input 
+                                type="password" 
+                                value={password} 
+                                onChange={(e) => setPassword(e.target.value)} 
+                                placeholder="••••••••"
+                                required 
+                                className="w-full px-4 py-3 bg-slate-950/40 border border-slate-800/80 text-white placeholder-slate-600 focus:bg-slate-950/60 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl transition-all outline-none"
+                            />
                         </div>
                         
                         {view === 'login' && (
                             <div className="text-right">
-                                <button type="button" onClick={() => switchView('reset')} className="text-xs font-bold text-blue-600 hover:underline">
+                                <button type="button" onClick={() => switchView('reset')} className="text-xs font-bold text-blue-400 hover:text-blue-300 hover:underline transition-colors">
                                     ¿Olvidaste tu contraseña?
                                 </button>
                             </div>
                         )}
 
-                        {error && <p className="text-xs text-red-500 font-bold text-center">{error}</p>}
-                        <button type="submit" className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all transform active:scale-95">
+                        {error && (
+                            <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-3 py-2 rounded-xl text-xs font-semibold text-center">
+                                {error}
+                            </div>
+                        )}
+                        <button type="submit" className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-500/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer">
                             {view === 'login' ? 'Ingresar' : 'Registrarse'}
                         </button>
                     </form>
@@ -142,13 +179,13 @@ const LoginPage = () => {
 
                 {view !== 'reset' && (
                     <div className="mt-6 flex flex-col gap-3">
-                        <div className="relative my-4">
-                            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
-                            <div className="relative flex justify-center text-[10px] uppercase font-bold text-gray-400 tracking-widest">
-                                <span className="px-2 bg-white">O continuar con</span>
+                        <div className="relative my-3">
+                            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-800"></div></div>
+                            <div className="relative flex justify-center text-[10px] uppercase font-bold text-slate-500 tracking-widest">
+                                <span className="px-3 bg-slate-900/20 backdrop-blur-xl">O continuar con</span>
                             </div>
                         </div>
-                        <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-100 rounded-xl font-bold text-gray-700 hover:bg-gray-50 transition-all shadow-sm">
+                        <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-slate-950/20 border border-slate-800/80 rounded-xl font-bold text-slate-300 hover:bg-slate-800/40 hover:text-white transition-all shadow-sm cursor-pointer">
                             <svg className="w-5 h-5" viewBox="0 0 24 24">
                                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                                 <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -160,15 +197,15 @@ const LoginPage = () => {
                     </div>
                 )}
 
-                <div className="mt-8 text-center border-t border-gray-50 pt-6">
-                    <button onClick={() => switchView(view === 'login' ? 'register' : 'login')} className="text-sm font-bold text-blue-600 hover:underline">
+                <div className="mt-8 text-center border-t border-slate-800/80 pt-6">
+                    <button onClick={() => switchView(view === 'login' ? 'register' : 'login')} className="text-sm font-bold text-blue-400 hover:text-blue-300 hover:underline transition-colors cursor-pointer">
                         {view === 'login' ? '¿No tienes cuenta? Regístrate' : 'Volver al inicio'}
                     </button>
                 </div>
 
                 <div className="text-center mt-6">
-                    <p className="text-[10px] text-gray-400 font-bold flex items-center justify-center gap-1 uppercase tracking-tighter">
-                        <Shield size={10} className="text-blue-400"/>
+                    <p className="text-[10px] text-slate-500 font-bold flex items-center justify-center gap-1.5 uppercase tracking-tighter">
+                        <Shield size={10} className="text-blue-400/80"/>
                         G&R System v2.1 • Seguridad Verificada
                     </p>
                 </div>

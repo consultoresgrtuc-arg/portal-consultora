@@ -29,6 +29,11 @@ const BillingRequestsPage = () => {
     const [expandedRowId, setExpandedRowId] = useState(null); 
     const [selectedClient, setSelectedClient] = useState('todos');
     const [selectedPeriod, setSelectedPeriod] = useState('todos');
+    const [selectedConsolidatedClient, setSelectedConsolidatedClient] = useState(null);
+
+    useEffect(() => {
+        setSelectedConsolidatedClient(null);
+    }, [selectedClient, selectedPeriod]);
 
     const availablePeriods = useMemo(() => {
         const periods = [];
@@ -267,6 +272,19 @@ const BillingRequestsPage = () => {
         
         return Object.values(summaryMap).sort((a, b) => b.totalFacturado - a.totalFacturado);
     }, [requests, selectedPeriod, clientDictionary]);
+
+    const consolidatedClientRequests = useMemo(() => {
+        if (!selectedConsolidatedClient) return [];
+        let data = requests.filter(req => getUnifiedName(req) === selectedConsolidatedClient.name);
+        if (selectedPeriod !== 'todos') {
+            const [y, m] = selectedPeriod.split('-').map(Number);
+            data = data.filter(req => {
+                const reqDate = req.timestamp?.toDate();
+                return reqDate && reqDate.getFullYear() === y && (reqDate.getMonth() + 1) === m;
+            });
+        }
+        return data;
+    }, [requests, selectedConsolidatedClient, selectedPeriod]);
 
     // 4. Backup ZIP Logic
     const downloadYearlyBackup = async (year) => {
@@ -619,19 +637,19 @@ const BillingRequestsPage = () => {
             <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
                 <div className="flex border-b border-gray-50 bg-gray-50/30 p-2">
                     <button 
-                        onClick={() => setFilterStatus('pending')} 
+                        onClick={() => {
+                            setFilterStatus('pending');
+                            setSelectedConsolidatedClient(null);
+                        }} 
                         className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all ${filterStatus === 'pending' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         Pendientes ({visibleRequests.filter(r => r.status !== 'completed').length})
                     </button>
                     <button 
-                        onClick={() => setFilterStatus('completed')} 
-                        className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all ${filterStatus === 'completed' ? 'bg-white shadow-sm text-green-600' : 'text-gray-400 hover:text-gray-600'}`}
-                    >
-                        Historial (Últimas 30)
-                    </button>
-                    <button 
-                        onClick={() => setFilterStatus('summary')} 
+                        onClick={() => {
+                            setFilterStatus('summary');
+                            setSelectedConsolidatedClient(null);
+                        }} 
                         className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all ${filterStatus === 'summary' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
                     >
                         Consolidado Clientes ({clientBillingSummary.length})
@@ -640,64 +658,344 @@ const BillingRequestsPage = () => {
 
                 <div className="overflow-x-auto">
                     {filterStatus === 'summary' ? (
-                        <table className="min-w-full divide-y divide-gray-50">
-                            <thead className="bg-white">
-                                <tr>
-                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Cliente / Razón Social</th>
-                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">CUIT</th>
-                                    <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Facturado</th>
-                                    <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Pendiente</th>
-                                    <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Comprobantes</th>
-                                    <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Último Movimiento</th>
-                                    <th className="px-8 py-5"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-50">
-                                {loading ? (
-                                    <tr><td colSpan="7" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando consolidado...</td></tr>
-                                ) : clientBillingSummary.length === 0 ? (
-                                    <tr><td colSpan="7" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron clientes.</td></tr>
-                                ) : (
-                                    clientBillingSummary.map(client => (
-                                        <tr key={client.key} className="hover:bg-blue-50/30 transition-all">
-                                            <td className="px-8 py-6 whitespace-nowrap">
-                                                <div className="text-sm font-black text-gray-900 leading-tight">{client.name}</div>
-                                            </td>
-                                            <td className="px-8 py-6 whitespace-nowrap text-sm font-bold text-gray-500 font-mono">
-                                                {client.cuit}
-                                            </td>
-                                            <td className="px-8 py-6 text-right whitespace-nowrap">
-                                                <div className="text-sm font-black text-green-600 tracking-tight">
-                                                    {formatCurrency(client.totalFacturado)}
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-6 text-right whitespace-nowrap">
-                                                <div className="text-sm font-black text-yellow-600 tracking-tight">
-                                                    {formatCurrency(client.totalPendiente)}
-                                                </div>
-                                            </td>
-                                            <td className="px-8 py-6 text-center whitespace-nowrap text-sm font-bold text-gray-500">
-                                                {client.count}
-                                            </td>
-                                            <td className="px-8 py-6 text-right whitespace-nowrap text-sm font-semibold text-gray-500">
-                                                {client.lastActivity ? client.lastActivity.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}
-                                            </td>
-                                            <td className="px-8 py-6 text-right whitespace-nowrap">
-                                                <button 
-                                                    onClick={() => {
-                                                        setSelectedClient(client.name);
-                                                        setFilterStatus('pending');
-                                                    }}
-                                                    className="bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold text-[10px] uppercase tracking-widest px-4 py-2 rounded-xl transition-all"
-                                                >
-                                                    Ver Detalle
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                        selectedConsolidatedClient ? (
+                            <div className="animate-fade-in bg-white">
+                                {/* Header */}
+                                <div className="p-8 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50/20">
+                                    <div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="bg-indigo-100 p-2.5 rounded-xl text-indigo-600">
+                                                <Icon name="Users" size={20}/>
+                                            </div>
+                                            <div>
+                                                <h3 className="text-xl font-black text-gray-900 leading-tight">{selectedConsolidatedClient.name}</h3>
+                                                <p className="text-xs text-gray-400 font-bold font-mono mt-1">CUIT: {selectedConsolidatedClient.cuit}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setSelectedConsolidatedClient(null)}
+                                        className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+                                    >
+                                        <Icon name="ArrowLeft" size={14}/> Volver al Listado
+                                    </button>
+                                </div>
+
+                                {/* Summary KPI Cards */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-8 bg-gray-50/10 border-b border-gray-100">
+                                    <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 group hover:shadow-md transition-all">
+                                        <div className="bg-green-50 p-3 rounded-xl text-green-600 border border-green-100">
+                                            <Icon name="TrendingUp" size={24}/>
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Facturado</p>
+                                            <p className="text-xl font-black text-green-600 mt-0.5">{formatCurrency(selectedConsolidatedClient.totalFacturado)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 group hover:shadow-md transition-all">
+                                        <div className="bg-yellow-50 p-3 rounded-xl text-yellow-600 border border-yellow-100">
+                                            <Icon name="Clock" size={24}/>
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Pendiente</p>
+                                            <p className="text-xl font-black text-yellow-600 mt-0.5">{formatCurrency(selectedConsolidatedClient.totalPendiente)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 group hover:shadow-md transition-all">
+                                        <div className="bg-indigo-50 p-3 rounded-xl text-indigo-600 border border-indigo-100">
+                                            <Icon name="FileText" size={24}/>
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Solicitudes</p>
+                                            <p className="text-xl font-black text-indigo-600 mt-0.5">{selectedConsolidatedClient.count} Comprobantes</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Table with Requests details for the client */}
+                                <div className="p-8">
+                                    <h4 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-6 flex items-center gap-2">
+                                        <Icon name="History" size={16} className="text-gray-400"/>
+                                        Detalle de Comprobantes ({consolidatedClientRequests.length})
+                                    </h4>
+                                    <div className="overflow-x-auto border border-gray-100 rounded-3xl">
+                                        <table className="min-w-full divide-y divide-gray-50">
+                                            <thead className="bg-slate-50/50">
+                                                <tr>
+                                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha</th>
+                                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Detección IA</th>
+                                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Estado</th>
+                                                    <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Monto Total</th>
+                                                    <th className="px-8 py-5"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-50">
+                                                {consolidatedClientRequests.length === 0 ? (
+                                                    <tr><td colSpan="5" className="text-center py-16 text-gray-400 font-bold italic">No se encontraron comprobantes para este cliente en el período seleccionado.</td></tr>
+                                                ) : (
+                                                    consolidatedClientRequests.map(req => (
+                                                        <React.Fragment key={req.id}>
+                                                            <tr 
+                                                                className={`hover:bg-blue-50/30 cursor-pointer transition-all ${expandedRowId === req.id ? 'bg-blue-50/30' : ''}`} 
+                                                                onClick={() => toggleDetails(req.id)}
+                                                            >
+                                                                <td className="px-8 py-6 whitespace-nowrap text-sm font-bold text-gray-500">
+                                                                    {req.timestamp?.toDate().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                                                </td>
+                                                                <td className="px-8 py-6">
+                                                                    <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                                                        {req.isManualEntry ? 'Manual' : (req.aiData?.banco_origen || 'Extraído')}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-8 py-6">
+                                                                    <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${req.status === 'completed' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-yellow-50 text-yellow-600 border-yellow-100'}`}>
+                                                                        {req.status === 'completed' ? 'Finalizado' : 'Pendiente'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-8 py-6 text-right font-black text-gray-900 text-base tracking-tight">
+                                                                    {formatCurrency(req.aiData?.monto_total || req.manualData?.monto || 0)}
+                                                                </td>
+                                                                <td className="px-8 py-6 text-center">
+                                                                    <Icon name={expandedRowId === req.id ? 'ChevronUp' : 'ChevronDown'} className="w-5 h-5 text-gray-300"/>
+                                                                </td>
+                                                            </tr>
+
+                                                            {/* Expanded Detail View */}
+                                                            {expandedRowId === req.id && (
+                                                                <tr className="bg-gray-50/50">
+                                                                    <td colSpan="5" className="p-0 border-b border-gray-100">
+                                                                        <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-top-4 duration-300">
+                                                                            {/* Data Card */}
+                                                                            <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 flex flex-col justify-between">
+                                                                                <div>
+                                                                                    <div className="flex justify-between items-center mb-8">
+                                                                                        <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Detalle Técnico Extraído</h4>
+                                                                                        <button 
+                                                                                            onClick={() => openEditModal(req)} 
+                                                                                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-50'}`}
+                                                                                        >
+                                                                                            <Icon name="Edit" size={14}/> {req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'Procesando...' : 'Corregir'}
+                                                                                        </button>
+                                                                                    </div>
+                                                                                    <div className="grid grid-cols-2 gap-6 mb-8">
+                                                                                        <div>
+                                                                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Pago</p>
+                                                                                            <p className="font-bold text-gray-800">{req.aiData?.fecha_pago || 'S/D'}</p>
+                                                                                        </div>
+                                                                                        <div>
+                                                                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Tipo Comprobante</p>
+                                                                                            <p className="font-bold text-gray-800">{req.aiData?.tipo_comprobante || 'S/D'}</p>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    
+                                                                                    <div className="space-y-4 mb-8">
+                                                                                        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                                                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowUpRight" size={12}/> Emisor Original</p>
+                                                                                            <div className="flex justify-between items-end">
+                                                                                                <div>
+                                                                                                    <p className="font-black text-gray-800 text-sm leading-tight">{req.aiData?.nombre_emisor || 'Desconocido'}</p>
+                                                                                                    <p className="text-[10px] font-bold text-gray-400 font-mono mt-1">{req.aiData?.cuit_emisor || 'S/D'}</p>
+                                                                                                </div>
+                                                                                                <div className="text-right">
+                                                                                                    <p className="text-[9px] font-black text-gray-400 uppercase">Origen</p>
+                                                                                                    <p className="text-xs font-bold text-gray-700">{req.aiData?.banco_origen || '-'}</p>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        <div className="bg-blue-600 p-4 rounded-2xl shadow-lg shadow-blue-100">
+                                                                                            <p className="text-[10px] font-black text-blue-100 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowDownLeft" size={12}/> Receptor (Cliente)</p>
+                                                                                            <div className="flex justify-between items-end">
+                                                                                                <div>
+                                                                                                    <p className="font-black text-white text-sm leading-tight">{req.aiData?.nombre_receptor || 'Desconocido'}</p>
+                                                                                                    <p className="text-[10px] font-bold text-blue-200 font-mono mt-1">{req.aiData?.cuit_receptor || 'S/D'}</p>
+                                                                                                </div>
+                                                                                                <div className="text-right">
+                                                                                                    <p className="text-[9px] font-black text-blue-200 uppercase">Destino</p>
+                                                                                                    <p className="text-xs font-bold text-white">{req.aiData?.banco_receptor || '-'}</p>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    
+                                                                                    <div className="space-y-1">
+                                                                                        <p className="text-[10px] font-black text-gray-400 uppercase">Concepto / Referencia</p>
+                                                                                        <p className="text-sm font-medium text-gray-600 italic">"{req.aiData?.concepto_detectado || 'Sin descripción'}"</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                                
+                                                                                {req.requestImageUrl && (
+                                                                                    <div className="mt-8 pt-6 border-t border-gray-50 flex justify-center">
+                                                                                        <a href={req.requestImageUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 font-black text-[10px] uppercase tracking-widest hover:gap-4 transition-all">
+                                                                                            Ver Comprobante Original <Icon name="ArrowRight" size={12}/>
+                                                                                        </a>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+
+                                                                            {/* Management Card */}
+                                                                            <div className="bg-gray-100 p-8 rounded-[32px] border border-gray-200 flex flex-col justify-between">
+                                                                                <div className="space-y-8">
+                                                                                    <div className="flex justify-between items-center">
+                                                                                        <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Acciones de Gestión</h4>
+                                                                                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${req.status === 'completed' ? 'bg-green-600 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
+                                                                                            {req.status === 'completed' ? 'Finalizado' : 'Pendiente'}
+                                                                                        </span>
+                                                                                    </div>
+
+                                                                                    {req.status !== 'completed' ? (
+                                                                                        (req.userModoFacturacion === 'estudio' && !userData?.isAdmin) ? (
+                                                                                            <div className="bg-white p-8 rounded-2xl text-center shadow-sm border border-gray-200">
+                                                                                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                                                                                                <p className="text-gray-500 font-bold">Nuestro estudio está procesando tu solicitud...</p>
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="space-y-6">
+                                                                                                <div className="space-y-3">
+                                                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Subir Factura Final (PDF)</label>
+                                                                                                    <div className="flex gap-3">
+                                                                                                        <label className="flex-1 cursor-pointer">
+                                                                                                            <div className="w-full bg-white px-4 py-3 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 flex items-center justify-between truncate hover:border-blue-200 transition-all">
+                                                                                                                <span className="truncate">{invoiceFile ? invoiceFile.name : 'Seleccionar Archivo'}</span>
+                                                                                                                <Icon name="FileText" size={16}/>
+                                                                                                            </div>
+                                                                                                            <input type="file" className="hidden" onChange={(e) => setInvoiceFile(e.target.files[0])} accept=".pdf"/>
+                                                                                                        </label>
+                                                                                                        <button 
+                                                                                                            onClick={() => handleCompleteRequest(req.id)} 
+                                                                                                            disabled={uploading || !invoiceFile}
+                                                                                                            className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all disabled:opacity-50"
+                                                                                                        >
+                                                                                                            {uploading ? '...' : 'Subir'}
+                                                                                                        </button>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <div className="relative">
+                                                                                                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
+                                                                                                    <div className="relative flex justify-center text-[10px] font-black uppercase text-gray-400"><span className="bg-gray-100 px-3">O también</span></div>
+                                                                                                </div>
+                                                                                                <button 
+                                                                                                    onClick={() => markAsDone(req.id)}
+                                                                                                    className="w-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 py-3 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95"
+                                                                                                >
+                                                                                                    <Icon name="Check" size={14}/> Completar sin Comprobante PDF
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        )
+                                                                                    ) : (
+                                                                                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
+                                                                                            <div className="flex items-center gap-3 text-green-600">
+                                                                                                <div className="p-1.5 bg-green-100 rounded-lg">
+                                                                                                    <Icon name="CheckCircle" size={16} />
+                                                                                                </div>
+                                                                                                <span className="text-xs font-black uppercase tracking-wider">Facturado Exitosamente</span>
+                                                                                            </div>
+                                                                                            {req.invoiceUrl ? (
+                                                                                                <div className="flex gap-2.5 pt-2">
+                                                                                                    <a 
+                                                                                                        href={req.invoiceUrl} 
+                                                                                                        target="_blank" 
+                                                                                                        rel="noreferrer"
+                                                                                                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3 rounded-xl transition-all shadow-md shadow-blue-100 flex items-center justify-center gap-2"
+                                                                                                    >
+                                                                                                        <Icon name="Download" size={14}/> Descargar Factura
+                                                                                                    </a>
+                                                                                                    <button 
+                                                                                                        onClick={() => sendWhatsAppNotification(req)}
+                                                                                                        className="bg-green-600 hover:bg-green-700 text-white p-3 rounded-xl transition-all shadow-md shadow-green-100 cursor-pointer"
+                                                                                                        title="Notificar por WhatsApp"
+                                                                                                    >
+                                                                                                        <Icon name="MessageCircle" size={16}/>
+                                                                                                    </button>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <p className="text-xs text-gray-500 font-bold italic">Completado sin comprobante PDF adjunto.</p>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                                
+                                                                                <div className="mt-8 pt-6 border-t border-gray-200 flex justify-between items-center">
+                                                                                    <div className="text-[10px] text-gray-400 font-bold">Solicitado por: <span className="font-extrabold text-gray-700">{req.userName}</span></div>
+                                                                                    <button 
+                                                                                        onClick={() => setRequestToDelete(req.id)}
+                                                                                        className="text-red-500 hover:text-red-600 hover:bg-red-50 p-2 rounded-xl transition-colors cursor-pointer"
+                                                                                        title="Eliminar Registro"
+                                                                                    >
+                                                                                        <Icon name="Trash2" size={16}/>
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </React.Fragment>
+                                                    ))
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <table className="min-w-full divide-y divide-gray-50">
+                                <thead className="bg-white">
+                                    <tr>
+                                        <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Cliente / Razón Social</th>
+                                        <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">CUIT</th>
+                                        <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Facturado</th>
+                                        <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Pendiente</th>
+                                        <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Comprobantes</th>
+                                        <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Último Movimiento</th>
+                                        <th className="px-8 py-5"></th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-50">
+                                    {loading ? (
+                                        <tr><td colSpan="7" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando consolidado...</td></tr>
+                                    ) : clientBillingSummary.length === 0 ? (
+                                        <tr><td colSpan="7" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron clientes.</td></tr>
+                                    ) : (
+                                        clientBillingSummary.map(client => (
+                                            <tr key={client.key} className="hover:bg-blue-50/30 transition-all">
+                                                <td className="px-8 py-6 whitespace-nowrap">
+                                                    <div className="text-sm font-black text-gray-900 leading-tight">{client.name}</div>
+                                                </td>
+                                                <td className="px-8 py-6 whitespace-nowrap text-sm font-bold text-gray-500 font-mono">
+                                                    {client.cuit}
+                                                </td>
+                                                <td className="px-8 py-6 text-right whitespace-nowrap">
+                                                    <div className="text-sm font-black text-green-600 tracking-tight">
+                                                        {formatCurrency(client.totalFacturado)}
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-6 text-right whitespace-nowrap">
+                                                    <div className="text-sm font-black text-yellow-600 tracking-tight">
+                                                        {formatCurrency(client.totalPendiente)}
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-6 text-center whitespace-nowrap text-sm font-bold text-gray-500">
+                                                    {client.count}
+                                                </td>
+                                                <td className="px-8 py-6 text-right whitespace-nowrap text-sm font-semibold text-gray-500">
+                                                    {client.lastActivity ? client.lastActivity.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}
+                                                </td>
+                                                <td className="px-8 py-6 text-right whitespace-nowrap">
+                                                    <button 
+                                                        onClick={() => {
+                                                            setSelectedConsolidatedClient(client);
+                                                        }}
+                                                        className="bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold text-[10px] uppercase tracking-widest px-4 py-2 rounded-xl transition-all"
+                                                    >
+                                                        Ver Detalle
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        )
                     ) : (
                         <table className="min-w-full divide-y divide-gray-50">
                             <thead className="bg-white">
