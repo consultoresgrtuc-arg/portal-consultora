@@ -80,13 +80,17 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
             >
                 <div className="flex items-center justify-between px-4 h-20 border-b border-white/10 bg-gradient-to-b from-white/5 to-transparent">
                     <div className="flex items-center space-x-3 group overflow-hidden">
-                        <div className="bg-blue-600/20 p-2 rounded-lg group-hover:bg-blue-600/30 transition-colors shrink-0">
-                            <BarChart3 size={32} className="text-blue-400"/>
+                        <div className="shrink-0 rounded-xl overflow-hidden border border-white/10 shadow-lg shadow-black/40 group-hover:border-blue-500/50 transition-colors duration-300 w-11 h-11 bg-slate-950/80 flex items-center justify-center">
+                            <img 
+                                src="/logo.jpg" 
+                                alt="Logo G&R" 
+                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                            />
                         </div>
                         {!isCollapsed && (
-                            <div className="fade-in">
-                                <span className="block text-lg font-bold text-white tracking-tight leading-none">G&R</span>
-                                <span className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">Consultores</span>
+                            <div className="fade-in select-none">
+                                <span className="block text-lg font-black text-white tracking-tight leading-none text-white">G&R</span>
+                                <span className="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Consultores</span>
                             </div>
                         )}
                     </div>
