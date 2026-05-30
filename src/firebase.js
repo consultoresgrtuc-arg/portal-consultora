@@ -30,10 +30,10 @@ if (typeof window !== "undefined") {
     }
     
     // Inicializar App Check con reCAPTCHA v3
-    // Nota: Reemplazar con tu clave de sitio (site key) de reCAPTCHA v3 si se cuenta con una específica
+    // Nota: Usamos la clave de sitio real recuperada de los respaldos de producción: 6LfC6wQsAAAAAOHfrlMZPGaVHx057A0xGCrnc4C8
     appCheck = initializeAppCheck(app, {
         provider: new ReCaptchaV3Provider(
-            import.meta.env.VITE_RECAPTCHA_V3_SITE_KEY || "6Lc3-qgqAAAAAK3X8g4n-O84qQe3x0k4uF9V3a7w"
+            import.meta.env.VITE_RECAPTCHA_V3_SITE_KEY || "6LfC6wQsAAAAAOHfrlMZPGaVHx057A0xGCrnc4C8"
         ),
         isTokenAutoRefreshEnabled: true
     });
