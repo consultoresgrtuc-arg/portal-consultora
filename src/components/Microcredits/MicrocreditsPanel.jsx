@@ -487,42 +487,48 @@ export default function MicrocreditsPanel({ userData }) {
 
       {aiAnalysis && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-8 relative animate-in zoom-in duration-300">
-            <button onClick={() => setAiAnalysis(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col p-6 sm:p-8 relative animate-in zoom-in duration-300">
+            <button onClick={() => setAiAnalysis(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors">
               <Plus className="rotate-45" size={24} />
             </button>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-indigo-100 p-3 rounded-full text-indigo-600">
-                <BrainCircuit size={28} />
+            <div className="flex items-center gap-3 mb-4 flex-shrink-0">
+              <div className="bg-indigo-100 p-2.5 rounded-full text-indigo-600">
+                <BrainCircuit size={24} />
               </div>
-              <h3 className="text-2xl font-bold text-slate-800">✨ Análisis de Riesgo IA</h3>
+              <h3 className="text-xl sm:text-2xl font-bold text-slate-800">✨ Análisis de Riesgo IA</h3>
             </div>
-            <div className="prose prose-slate max-w-none mb-8 whitespace-pre-wrap text-slate-700 leading-relaxed">
-              {aiAnalysis}
+            <div className="flex-1 overflow-y-auto pr-2 mb-6 scrollbar-thin scrollbar-thumb-slate-200">
+              <div className="prose prose-slate max-w-none whitespace-pre-wrap text-slate-700 leading-relaxed text-sm sm:text-base">
+                {aiAnalysis}
+              </div>
             </div>
-            <button onClick={() => setAiAnalysis(null)} className="w-full bg-slate-800 text-white font-bold py-3 rounded-xl hover:bg-slate-900 transition-colors">
-              Cerrar Informe
-            </button>
+            <div className="flex-shrink-0 pt-3 border-t border-slate-100">
+              <button onClick={() => setAiAnalysis(null)} className="w-full bg-slate-800 text-white font-bold py-3 rounded-xl hover:bg-slate-900 transition-colors">
+                Cerrar Informe
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {aiCollectionMsg && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 relative animate-in slide-in-from-bottom duration-300">
-            <button onClick={() => setAiCollectionMsg(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col p-6 sm:p-8 relative animate-in slide-in-from-bottom duration-300">
+            <button onClick={() => setAiCollectionMsg(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors">
               <Plus className="rotate-45" size={24} />
             </button>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-green-100 p-3 rounded-full text-green-600">
-                <MessageSquare size={28} />
+            <div className="flex items-center gap-3 mb-4 flex-shrink-0">
+              <div className="bg-green-100 p-2.5 rounded-full text-green-600">
+                <MessageSquare size={24} />
               </div>
-              <h3 className="text-2xl font-bold text-slate-800">✨ Mensaje de Cobranza</h3>
+              <h3 className="text-xl sm:text-2xl font-bold text-slate-800">✨ Mensaje de Cobranza</h3>
             </div>
-            <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6 font-medium text-slate-700">
-              {aiCollectionMsg}
+            <div className="flex-1 overflow-y-auto pr-2 mb-6 scrollbar-thin scrollbar-thumb-slate-200">
+              <div className="bg-slate-50 p-4 sm:p-6 rounded-xl border border-slate-200 font-medium text-slate-700 whitespace-pre-wrap text-sm sm:text-base">
+                {aiCollectionMsg}
+              </div>
             </div>
-            <div className="flex gap-4">
+            <div className="flex-shrink-0 pt-3 border-t border-slate-100 flex gap-4">
               <button 
                 onClick={() => {
                    const text = encodeURIComponent(aiCollectionMsg);
