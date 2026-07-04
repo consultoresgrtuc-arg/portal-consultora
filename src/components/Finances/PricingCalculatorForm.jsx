@@ -577,29 +577,31 @@ const PricingCalculatorForm = ({ dollarRates = [] }) => {
                     {/* Historial & Exportación (Sección no-print) */}
                     <div className="border-t border-white/5 pt-5 space-y-4 no-print">
                         {/* Formulario guardar simulación */}
-                        <form onSubmit={handleGuardarSimulacion} className="flex gap-2">
+                        <form onSubmit={handleGuardarSimulacion} className="flex flex-col sm:flex-row gap-2">
                             <input 
                                 type="text"
                                 value={nombreSimulacion}
                                 onChange={e => setNombreSimulacion(e.target.value)}
                                 placeholder="Nombre de simulación (ej. Auriculares)"
-                                className="flex-1 px-3 py-2 bg-slate-950/40 border border-white/5 hover:border-white/10 focus:border-indigo-500 rounded-xl text-xs outline-none transition-all placeholder-slate-500 text-white"
+                                className="w-full sm:flex-1 px-3 py-2 bg-slate-950/40 border border-white/5 hover:border-white/10 focus:border-indigo-500 rounded-xl text-xs outline-none transition-all placeholder-slate-500 text-white"
                             />
-                            <button 
-                                type="submit"
-                                disabled={!nombreSimulacion.trim()}
-                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-1.5 shrink-0"
-                            >
-                                <Icon name="Save" size={12} /> Guardar
-                            </button>
-                            <button 
-                                type="button"
-                                onClick={handleExportarCSV}
-                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-1.5 shrink-0"
-                                title="Descargar Cotización en CSV"
-                            >
-                                <Icon name="Download" size={12} /> CSV
-                            </button>
+                            <div className="flex gap-2 w-full sm:w-auto">
+                                <button 
+                                    type="submit"
+                                    disabled={!nombreSimulacion.trim()}
+                                    className="flex-1 sm:flex-none justify-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-1.5 shrink-0"
+                                >
+                                    <Icon name="Save" size={12} /> Guardar
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={handleExportarCSV}
+                                    className="flex-1 sm:flex-none justify-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-1.5 shrink-0"
+                                    title="Descargar Cotización en CSV"
+                                >
+                                    <Icon name="Download" size={12} /> CSV
+                                </button>
+                            </div>
                         </form>
 
                         {/* Listado de simulaciones del Historial */}

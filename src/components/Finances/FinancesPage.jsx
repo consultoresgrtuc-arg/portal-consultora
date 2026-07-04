@@ -362,22 +362,22 @@ const FinancesPage = () => {
              </header>
 
              {/* --- TABS --- */}
-             <div className="flex border-b border-slate-200 px-6 no-print">
+             <div className="flex border-b border-slate-200 px-6 no-print overflow-x-auto scrollbar-hide whitespace-nowrap">
                  <button 
                      onClick={() => setActivePageTab('summary')}
-                     className={`pb-4 px-6 font-bold text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 ${activePageTab === 'summary' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                     className={`pb-4 px-6 font-bold text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${activePageTab === 'summary' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                  >
                      <Icon name="Target" size={16} /> Resumen y Mercado
                  </button>
                  <button 
                      onClick={() => setActivePageTab('cashflow')}
-                     className={`pb-4 px-6 font-bold text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 ${activePageTab === 'cashflow' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                     className={`pb-4 px-6 font-bold text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${activePageTab === 'cashflow' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                  >
                      <Icon name="TrendingUp" size={16} /> Flujo de Fondos Proyectado
                  </button>
                  <button 
                      onClick={() => setActivePageTab('calculators')}
-                     className={`pb-4 px-6 font-bold text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 ${activePageTab === 'calculators' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                     className={`pb-4 px-6 font-bold text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${activePageTab === 'calculators' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                  >
                      <Icon name="PieChart" size={16} /> Calculadoras
                  </button>
