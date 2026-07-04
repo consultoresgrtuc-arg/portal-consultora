@@ -375,105 +375,91 @@ const FinancesPage = () => {
                  >
                      <Icon name="TrendingUp" size={16} /> Flujo de Fondos Proyectado
                  </button>
+                 <button 
+                     onClick={() => setActivePageTab('calculators')}
+                     className={`pb-4 px-6 font-bold text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 ${activePageTab === 'calculators' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                 >
+                     <Icon name="PieChart" size={16} /> Calculadoras
+                 </button>
              </div>
              
              {/* --- PESTAÑA 1: RESUMEN Y MERCADO --- */}
              {activePageTab === 'summary' && (
-                 <div className="px-6 space-y-8">
-                     <section className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                         <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-all">
-                             <div className="flex justify-between items-center mb-8 relative z-10">
-                                 <h3 className="text-xl font-bold text-slate-800 flex items-center">
-                                     <Icon name="Target" className="w-6 h-6 mr-3 text-blue-500"/> 
-                                     Metas Mensuales
-                                 </h3>
-                                 {!isEditingBudget && (
-                                     <button onClick={() => setIsEditingBudget(true)} className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-xl transition-colors cursor-pointer">
-                                         <Icon name="Edit2" className="w-4 h-4"/> Editar
-                                     </button>
-                                 )}
-                             </div>
-                             
-                            {isEditingBudget ? (
-                                <div className="space-y-6 relative z-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-1">Meta de Ingresos</label>
-                                            <div className="relative">
-                                                <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-blue-500 font-bold">$</span>
-                                                <input type="number" value={budget.incomeGoal} onChange={e => setBudget({...budget, incomeGoal: e.target.value})} onFocus={e => e.target.select()} className="w-full pl-8 p-3 bg-white border border-slate-200 rounded-xl transition-all font-bold text-slate-700 outline-none shadow-sm"/>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-1">Límite de Gastos</label>
-                                            <div className="relative">
-                                                <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-red-500 font-bold">$</span>
-                                                <input type="number" value={budget.expenseBudget} onChange={e => setBudget({...budget, expenseBudget: e.target.value})} onFocus={e => e.target.select()} className="w-full pl-8 p-3 bg-white border border-slate-200 rounded-xl transition-all font-bold text-slate-700 outline-none shadow-sm"/>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="flex justify-end gap-3 pt-2">
-                                        <button onClick={() => setIsEditingBudget(false)} className="py-2.5 px-5 bg-white text-slate-500 rounded-xl hover:bg-slate-100 font-bold transition-colors border border-slate-200 cursor-pointer">Cancelar</button>
-                                        <button onClick={handleSaveBudget} className="py-2.5 px-6 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 font-bold transition-all cursor-pointer">Guardar Metas</button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="space-y-10 relative z-10">
-                                    {/* Barra Ingresos */}
-                                    <div className="space-y-3">
-                                        <div className="flex justify-between items-end">
-                                            <div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ingresos Actuales</p>
-                                                <p className="text-3xl font-black text-slate-800">{formatCurrency(monthlyMetrics.income)}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-xs font-bold text-slate-400">Objetivo: {formatCurrency(budget.incomeGoal)}</p>
-                                                <p className="text-sm font-black text-green-500">{incomePct.toFixed(0)}%</p>
-                                            </div>
-                                        </div>
-                                        <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
-                                            <div className="h-full rounded-full bg-gradient-to-r from-green-400 to-emerald-500 transition-all duration-1000 ease-out" style={{ width: `${incomePct}%` }}></div>
-                                        </div>
-                                    </div>
-        
-                                    {/* Barra Gastos */}
+                  <div className="px-6 space-y-8">
+                      <section className="w-full">
+                          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-all">
+                              <div className="flex justify-between items-center mb-8 relative z-10">
+                                  <h3 className="text-xl font-bold text-slate-800 flex items-center">
+                                      <Icon name="Target" className="w-6 h-6 mr-3 text-blue-500"/> 
+                                      Metas Mensuales
+                                  </h3>
+                                  {!isEditingBudget && (
+                                      <button onClick={() => setIsEditingBudget(true)} className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-xl transition-colors cursor-pointer">
+                                          <Icon name="Edit2" className="w-4 h-4"/> Editar
+                                      </button>
+                                  )}
+                              </div>
+                              
+                             {isEditingBudget ? (
+                                 <div className="space-y-6 relative z-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                                         <div>
+                                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-1">Meta de Ingresos</label>
+                                             <div className="relative">
+                                                 <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-blue-500 font-bold">$</span>
+                                                 <input type="number" value={budget.incomeGoal} onChange={e => setBudget({...budget, incomeGoal: e.target.value})} onFocus={e => e.target.select()} className="w-full pl-8 p-3 bg-white border border-slate-200 rounded-xl transition-all font-bold text-slate-700 outline-none shadow-sm"/>
+                                             </div>
+                                         </div>
+                                         <div>
+                                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-1">Límite de Gastos</label>
+                                             <div className="relative">
+                                                 <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-red-500 font-bold">$</span>
+                                                 <input type="number" value={budget.expenseBudget} onChange={e => setBudget({...budget, expenseBudget: e.target.value})} onFocus={e => e.target.select()} className="w-full pl-8 p-3 bg-white border border-slate-200 rounded-xl transition-all font-bold text-slate-700 outline-none shadow-sm"/>
+                                             </div>
+                                         </div>
+                                     </div>
+                                     <div className="flex justify-end gap-3 pt-2">
+                                         <button onClick={() => setIsEditingBudget(false)} className="py-2.5 px-5 bg-white text-slate-500 rounded-xl hover:bg-slate-100 font-bold transition-colors border border-slate-200 cursor-pointer">Cancelar</button>
+                                         <button onClick={handleSaveBudget} className="py-2.5 px-6 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 font-bold transition-all cursor-pointer">Guardar Metas</button>
+                                     </div>
+                                 </div>
+                             ) : (
+                                 <div className="space-y-10 relative z-10">
+                                     {/* Barra Ingresos */}
                                      <div className="space-y-3">
-                                        <div className="flex justify-between items-end">
-                                            <div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Gastos Actuales</p>
-                                                <p className="text-3xl font-black text-slate-800">{formatCurrency(monthlyMetrics.expense)}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-xs font-bold text-slate-400">Presupuesto: {formatCurrency(budget.expenseBudget)}</p>
-                                                <p className={`text-sm font-black ${expensePct > 90 ? 'text-red-500 animate-pulse' : 'text-orange-500'}`}>{expensePct.toFixed(0)}%</p>
-                                            </div>
-                                        </div>
-                                        <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
-                                            <div className={`h-full rounded-full transition-all duration-1000 ease-out bg-gradient-to-r ${expensePct > 90 ? 'from-red-500 to-rose-600' : expensePct > 75 ? 'from-orange-400 to-amber-500' : 'from-blue-400 to-indigo-400'}`} style={{ width: `${expensePct}%` }}></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                          </div>
+                                         <div className="flex justify-between items-end">
+                                             <div>
+                                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ingresos Actuales</p>
+                                                 <p className="text-3xl font-black text-slate-800">{formatCurrency(monthlyMetrics.income)}</p>
+                                             </div>
+                                             <div className="text-right">
+                                                 <p className="text-xs font-bold text-slate-400">Objetivo: {formatCurrency(budget.incomeGoal)}</p>
+                                                 <p className="text-sm font-black text-green-500">{incomePct.toFixed(0)}%</p>
+                                             </div>
+                                         </div>
+                                         <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
+                                             <div className="h-full rounded-full bg-gradient-to-r from-green-400 to-emerald-500 transition-all duration-1000 ease-out" style={{ width: `${incomePct}%` }}></div>
+                                         </div>
+                                     </div>
          
-                          <div className="flex flex-col h-full">
-                              <div className="flex bg-slate-150 p-1 rounded-2xl mb-4 self-start no-print">
-                                  <button 
-                                      onClick={() => setCalculatorTab('deposit')}
-                                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${calculatorTab === 'deposit' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                                  >
-                                      <Icon name="PieChart" size={14} /> Plazo Fijo
-                                  </button>
-                                  <button 
-                                      onClick={() => setCalculatorTab('pricing')}
-                                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${calculatorTab === 'pricing' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                                  >
-                                      <Icon name="BarChart3" size={14} /> Calculadora Precios
-                                  </button>
-                              </div>
-                              <div className="flex-1">
-                                  {calculatorTab === 'deposit' ? <FixedDepositCalculator /> : <PricingCalculatorForm dollarRates={dollarRates} />}
-                              </div>
+                                     {/* Barra Gastos */}
+                                      <div className="space-y-3">
+                                         <div className="flex justify-between items-end">
+                                             <div>
+                                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Gastos Actuales</p>
+                                                 <p className="text-3xl font-black text-slate-800">{formatCurrency(monthlyMetrics.expense)}</p>
+                                             </div>
+                                             <div className="text-right">
+                                                 <p className="text-xs font-bold text-slate-400">Presupuesto: {formatCurrency(budget.expenseBudget)}</p>
+                                                 <p className={`text-sm font-black ${expensePct > 90 ? 'text-red-500 animate-pulse' : 'text-orange-500'}`}>{expensePct.toFixed(0)}%</p>
+                                             </div>
+                                         </div>
+                                         <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
+                                             <div className={`h-full rounded-full transition-all duration-1000 ease-out bg-gradient-to-r ${expensePct > 90 ? 'from-red-500 to-rose-600' : expensePct > 75 ? 'from-orange-400 to-amber-500' : 'from-blue-400 to-indigo-400'}`} style={{ width: `${expensePct}%` }}></div>
+                                         </div>
+                                     </div>
+                                 </div>
+                             )}
                           </div>
                       </section>
         
@@ -752,6 +738,29 @@ const FinancesPage = () => {
                                  <p className="text-slate-400 text-xs mt-1">Presiona "Cargar Estimación" para comenzar a planificar.</p>
                              </div>
                          )}
+                     </div>
+                 </div>
+             )}
+
+             {/* --- PESTAÑA 3: CALCULADORAS Y SIMULADORES --- */}
+             {activePageTab === 'calculators' && (
+                 <div className="px-6 space-y-6">
+                     <div className="flex bg-slate-100 p-1 rounded-2xl mb-4 self-start no-print max-w-xs">
+                         <button 
+                             onClick={() => setCalculatorTab('deposit')}
+                             className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${calculatorTab === 'deposit' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                         >
+                             <Icon name="PieChart" size={14} /> Plazo Fijo
+                         </button>
+                         <button 
+                             onClick={() => setCalculatorTab('pricing')}
+                             className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${calculatorTab === 'pricing' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                         >
+                             <Icon name="BarChart3" size={14} /> Calculadora Precios
+                         </button>
+                     </div>
+                     <div className="w-full">
+                         {calculatorTab === 'deposit' ? <FixedDepositCalculator /> : <PricingCalculatorForm dollarRates={dollarRates} />}
                      </div>
                  </div>
              )}
