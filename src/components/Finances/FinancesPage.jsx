@@ -13,6 +13,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
 import FixedDepositCalculator from './FixedDepositCalculator';
+import PricingCalculatorForm from './PricingCalculatorForm';
 import CashFlowModal from './CashFlowModal';
 import ConfirmModal from '../Common/ConfirmModal';
 
@@ -44,6 +45,7 @@ ChartJS.register(
 const FinancesPage = () => {
     const { user, userData } = useAuth();
     const [activePageTab, setActivePageTab] = useState('summary'); // 'summary' | 'cashflow'
+    const [calculatorTab, setCalculatorTab] = useState('deposit'); // 'deposit' | 'pricing'
     const [dollarRates, setDollarRates] = useState([]);
     const [loadingRates, setLoadingRates] = useState(true);
     const [isEditingBudget, setIsEditingBudget] = useState(false);
@@ -452,10 +454,28 @@ const FinancesPage = () => {
                                     </div>
                                 </div>
                             )}
-                         </div>
-        
-                         <FixedDepositCalculator />
-                     </section>
+                          </div>
+         
+                          <div className="flex flex-col h-full">
+                              <div className="flex bg-slate-150 p-1 rounded-2xl mb-4 self-start no-print">
+                                  <button 
+                                      onClick={() => setCalculatorTab('deposit')}
+                                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${calculatorTab === 'deposit' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                  >
+                                      <Icon name="PieChart" size={14} /> Plazo Fijo
+                                  </button>
+                                  <button 
+                                      onClick={() => setCalculatorTab('pricing')}
+                                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${calculatorTab === 'pricing' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                  >
+                                      <Icon name="BarChart3" size={14} /> Calculadora Precios
+                                  </button>
+                              </div>
+                              <div className="flex-1">
+                                  {calculatorTab === 'deposit' ? <FixedDepositCalculator /> : <PricingCalculatorForm dollarRates={dollarRates} />}
+                              </div>
+                          </div>
+                      </section>
         
                      {/* SECCIÓN COTIZACIONES */}
                      <section className="space-y-6">
