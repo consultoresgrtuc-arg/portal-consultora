@@ -61,7 +61,9 @@ const BillingRequestsPage = () => {
         fecha: new Date().toISOString().split('T')[0], 
         concepto: 'Pago en Efectivo', 
         nombreCliente: '', 
-        cuitCliente: '' 
+        cuitCliente: '',
+        nombreEmisor: 'Consumidor Final',
+        cuitEmisor: ''
     });
 
     const [newRequestFile, setNewRequestFile] = useState(null);
@@ -376,7 +378,8 @@ const BillingRequestsPage = () => {
                     fecha_pago: manualData.fecha,
                     tipo_comprobante: 'Efectivo/Manual',
                     concepto_detectado: manualData.concepto,
-                    nombre_emisor: userData.nombre || user.email, 
+                    nombre_emisor: manualData.nombreEmisor || 'Consumidor Final', 
+                    cuit_emisor: manualData.cuitEmisor || '',
                     nombre_receptor: manualData.nombreCliente,
                     cuit_receptor: manualData.cuitCliente || '', 
                     banco_origen: 'Efectivo/Caja'
@@ -402,7 +405,15 @@ const BillingRequestsPage = () => {
             setShowModal(false); 
             setNewRequestFile(null); 
             setNewRequestNote('');
-            setManualData({ monto: '', fecha: new Date().toISOString().split('T')[0], concepto: 'Pago en Efectivo', nombreCliente: '', cuitCliente: '' });
+            setManualData({
+                monto: '',
+                fecha: new Date().toISOString().split('T')[0],
+                concepto: 'Pago en Efectivo',
+                nombreCliente: '',
+                cuitCliente: '',
+                nombreEmisor: 'Consumidor Final',
+                cuitEmisor: ''
+            });
             setCreateMode('file');
         } catch (e) { 
             console.error(e);
@@ -457,7 +468,8 @@ const BillingRequestsPage = () => {
             nombre_receptor: req.aiData?.nombre_receptor || '',
             banco_receptor: req.aiData?.banco_receptor || '',
             userPhone: phoneToShow, 
-            concepto_detectado: req.aiData?.concepto_detectado || ''
+            concepto_detectado: req.aiData?.concepto_detectado || '',
+            note: req.note || ''
         });
         setEditingRequest(req);
     };
@@ -466,10 +478,11 @@ const BillingRequestsPage = () => {
         e.preventDefault(); 
         if (!editingRequest) return; 
         try { 
-            const { userPhone, ...aiDataFields } = editFormData;
+            const { userPhone, note, ...aiDataFields } = editFormData;
             await updateDoc(doc(db, 'billing_requests', editingRequest.id), { 
                 aiData: { ...aiDataFields, monto_total: parseFloat(editFormData.monto_total) },
-                userPhone: userPhone 
+                userPhone: userPhone,
+                note: note || ''
             }); 
             setEditingRequest(null); 
         } catch (e) { alert("Error al guardar"); } 
@@ -744,7 +757,7 @@ const BillingRequestsPage = () => {
                                                                 </td>
                                                                 <td className="px-8 py-6">
                                                                     <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-black uppercase tracking-widest">
-                                                                        {req.isManualEntry ? 'Manual' : (req.aiData?.banco_origen || 'Extraído')}
+                                                                        {req.isManualEntry ? 'Manual' : (req.aiData?.banco_receptor || 'Extraído')}
                                                                     </span>
                                                                 </td>
                                                                 <td className="px-8 py-6">
@@ -821,6 +834,14 @@ const BillingRequestsPage = () => {
                                                                                         <p className="text-[10px] font-black text-gray-400 uppercase">Concepto / Referencia</p>
                                                                                         <p className="text-sm font-medium text-gray-600 italic">"{req.aiData?.concepto_detectado || 'Sin descripción'}"</p>
                                                                                     </div>
+                                                                                    {req.note && (
+                                                                                        <div className="space-y-1 mt-4 p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50">
+                                                                                            <p className="text-[10px] font-black text-blue-800 uppercase flex items-center gap-1.5">
+                                                                                                <Icon name="FileText" size={12}/> Nota adicional (Cliente)
+                                                                                            </p>
+                                                                                            <p className="text-xs font-semibold text-blue-900">{req.note}</p>
+                                                                                        </div>
+                                                                                    )}
                                                                                 </div>
                                                                                 
                                                                                 {req.requestImageUrl && (
@@ -1035,6 +1056,12 @@ const BillingRequestsPage = () => {
                                                     <>
                                                         <div className="text-sm font-black text-gray-900 leading-tight">{getUnifiedName(req)}</div>
                                                         <div className="text-[10px] text-gray-400 font-black uppercase tracking-tighter mt-0.5">{req.aiData?.cuit_receptor || req.manualData?.cuitCliente || 'Sin CUIT'}</div>
+                                                        {req.note && (
+                                                            <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-blue-600 bg-blue-50/50 px-2 py-0.5 rounded-lg w-fit border border-blue-100/50">
+                                                                <Icon name="MessageSquare" size={10}/>
+                                                                <span className="truncate max-w-[150px]">{req.note}</span>
+                                                            </div>
+                                                        )}
                                                     </>
                                                 )}
                                             </td>
@@ -1048,7 +1075,7 @@ const BillingRequestsPage = () => {
                                                     </div>
                                                 ) : (
                                                     <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-black uppercase tracking-widest">
-                                                        {req.isManualEntry ? 'Manual' : (req.aiData?.banco_origen || 'Extraído')}
+                                                        {req.isManualEntry ? 'Manual' : (req.aiData?.banco_receptor || 'Extraído')}
                                                     </span>
                                                 )}
                                             </td>
@@ -1131,6 +1158,14 @@ const BillingRequestsPage = () => {
                                                                     <p className="text-[10px] font-black text-gray-400 uppercase">Concepto / Referencia</p>
                                                                     <p className="text-sm font-medium text-gray-600 italic">"{req.aiData?.concepto_detectado || 'Sin descripción'}"</p>
                                                                 </div>
+                                                                {req.note && (
+                                                                    <div className="space-y-1 mt-4 p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50">
+                                                                        <p className="text-[10px] font-black text-blue-800 uppercase flex items-center gap-1.5">
+                                                                            <Icon name="FileText" size={12}/> Nota adicional (Cliente)
+                                                                        </p>
+                                                                        <p className="text-xs font-semibold text-blue-900">{req.note}</p>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                             
                                                             {req.requestImageUrl && (
@@ -1317,6 +1352,20 @@ const BillingRequestsPage = () => {
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">CUIT del Cliente</label>
                                         <input type="text" placeholder="00-00000000-0" value={manualData.cuitCliente} onChange={e => setManualData({...manualData, cuitCliente: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-bold text-gray-800"/>
                                     </div>
+                                    <div className="border-t border-gray-100/80 pt-4 mt-2 space-y-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1 h-3.5 bg-blue-500 rounded-full"></div>
+                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Datos del Emisor (Pagador)</span>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Nombre / Razón Social del Emisor</label>
+                                            <input type="text" placeholder="Consumidor Final" value={manualData.nombreEmisor} onChange={e => setManualData({...manualData, nombreEmisor: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-bold text-gray-800"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">CUIT del Emisor</label>
+                                            <input type="text" placeholder="00-00000000-0" value={manualData.cuitEmisor} onChange={e => setManualData({...manualData, cuitEmisor: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-bold text-gray-800"/>
+                                        </div>
+                                    </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Fecha de Pago</label>
@@ -1455,6 +1504,13 @@ const BillingRequestsPage = () => {
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Concepto Detectado / Detalle Adicional</label>
                                     <textarea rows="3" value={editFormData.concepto_detectado} onChange={e => setEditFormData({...editFormData, concepto_detectado: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-[24px] transition-all outline-none font-medium text-gray-700 resize-none shadow-inner"></textarea>
+                                </div>
+                            </section>
+
+                            <section>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Nota adicional (Cliente)</label>
+                                    <textarea rows="3" placeholder="Sin nota adicional" value={editFormData.note} onChange={e => setEditFormData({...editFormData, note: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-[24px] transition-all outline-none font-medium text-gray-700 resize-none shadow-inner"></textarea>
                                 </div>
                             </section>
 
