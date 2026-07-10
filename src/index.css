@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+@theme {
+  --animate-spin-slow: spin-slow 5s linear infinite;
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 body {
   font-family: 'Inter', sans-serif;
   @apply bg-gray-50 text-gray-800;
@@ -77,3 +86,4 @@ body {
 .btn-secondary {
   @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-md font-semibold hover:bg-gray-300 transition-colors;
 }
+

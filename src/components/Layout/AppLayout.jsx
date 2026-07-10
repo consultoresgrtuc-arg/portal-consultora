@@ -143,7 +143,7 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                     </button>
                     {!isCollapsed && (
                         <div className="mt-4 text-center fade-in">
-                            <p className="text-[10px] text-gray-600 font-mono tracking-wider uppercase">Vite Powered ✨ v2.1</p>
+                            <p className="text-[10px] text-gray-600 font-mono tracking-wider uppercase">Vite Powered ✨ v2.7</p>
                         </div>
                     )}
                 </div>
