@@ -77,6 +77,36 @@ const BillingRequestsPage = () => {
     const [editingRequest, setEditingRequest] = useState(null);
     const [editFormData, setEditFormData] = useState({});
 
+    // Mapeo dinámico del teléfono desde los perfiles de usuario
+    const [systemUsers, setSystemUsers] = useState([]);
+
+    useEffect(() => {
+        if (userData?.isAdmin) {
+            const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+                const usersList = [];
+                snapshot.forEach(doc => {
+                    usersList.push({ id: doc.id, ...doc.data() });
+                });
+                setSystemUsers(usersList);
+            }, (error) => {
+                console.error("Error al obtener usuarios para mapeo de teléfono:", error);
+            });
+            return () => unsubscribe();
+        }
+    }, [userData]);
+
+    const userProfilePhoneDictionary = useMemo(() => {
+        const dict = {};
+        systemUsers.forEach(u => {
+            const rawCuit = u.cuit || '';
+            const cuit = rawCuit.replace(/\D/g, '');
+            if (cuit && u.telefono) {
+                dict[cuit] = u.telefono;
+            }
+        });
+        return dict;
+    }, [systemUsers]);
+
     // 1. Security check
     if (!loading && !userData?.isAdmin && !userData?.servicioFacturacion) {
         return (
@@ -160,6 +190,12 @@ const BillingRequestsPage = () => {
         const originalName = req.aiData?.nombre_receptor || req.manualData?.nombreCliente || 'Desconocido';
         if (cuit && clientDictionary[cuit]) return clientDictionary[cuit];
         return originalName;
+    };
+
+    const getReceptorPhone = (req) => {
+        const rawCuit = req.aiData?.cuit_receptor || '';
+        const cuit = rawCuit.replace(/\D/g, '');
+        return req.userPhone || userProfilePhoneDictionary[cuit] || clientPhoneDictionary[cuit] || '';
     };
 
     const uniqueClients = useMemo(() => {
@@ -450,10 +486,7 @@ const BillingRequestsPage = () => {
             return alert("⏳ Por favor, espere a que la IA termine de analizar el comprobante.");
         }
 
-        const rawCuit = req.aiData?.cuit_receptor || '';
-        const cuit = rawCuit.replace(/\D/g, '');
-        const phoneFromHistory = clientPhoneDictionary[cuit] || '';
-        const phoneToShow = req.userPhone || phoneFromHistory || '';
+        const phoneToShow = getReceptorPhone(req);
 
         setEditFormData({
             fecha_pago: req.aiData?.fecha_pago || '',
@@ -513,8 +546,7 @@ const BillingRequestsPage = () => {
     const toggleDetails = (id) => setExpandedRowId(expandedRowId === id ? null : id);
 
     const sendWhatsAppNotification = (req) => {
-        if (!req.invoiceUrl) return;
-        let phone = req.userPhone;
+        let phone = getReceptorPhone(req);
         if (!phone) phone = prompt("Ingresa el número de celular del cliente (ej: 549381...):");
         if (!phone) return;
 
@@ -522,10 +554,14 @@ const BillingRequestsPage = () => {
         const monto = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(req.aiData?.monto_total || 0);
         const fecha = req.aiData?.fecha_pago || 'la fecha';
         
-        const mensaje = `Hola *${nombreCliente}*! 👋\n\n` +
-                        `Te envío la factura correspondiente al pago de *${monto}* realizado el día ${fecha}.\n\n` +
-                        `📎 *Podés descargarla desde este link:*\n` +
-                        `${req.invoiceUrl}`; 
+        let mensaje = `Hola *${nombreCliente}*! 👋\n\n` +
+                      `Te notificamos que el pago de *${monto}* realizado el día ${fecha} ya fue registrado y facturado con éxito.`;
+
+        if (req.invoiceUrl) {
+            mensaje += `\n\n📎 *Podés descargar tu factura desde este link:*\n${req.invoiceUrl}`;
+        } else {
+            mensaje += `\n\nMuchas gracias!`;
+        }
 
         const urlWhatsApp = `https://wa.me/${phone}?text=${encodeURIComponent(mensaje)}`;
         window.open(urlWhatsApp, '_blank');
@@ -820,7 +856,10 @@ const BillingRequestsPage = () => {
                                                                                             <div className="flex justify-between items-end">
                                                                                                 <div>
                                                                                                     <p className="font-black text-white text-sm leading-tight">{req.aiData?.nombre_receptor || 'Desconocido'}</p>
-                                                                                                    <p className="text-[10px] font-bold text-blue-200 font-mono mt-1">{req.aiData?.cuit_receptor || 'S/D'}</p>
+                                                                                                    <p className="text-[10px] font-bold text-blue-200 font-mono mt-1">
+                                                                                                        {req.aiData?.cuit_receptor || 'S/D'}
+                                                                                                        {getReceptorPhone(req) && ` | 📱 ${getReceptorPhone(req)}`}
+                                                                                                    </p>
                                                                                                 </div>
                                                                                                 <div className="text-right">
                                                                                                     <p className="text-[9px] font-black text-blue-200 uppercase">Destino</p>
@@ -910,8 +949,8 @@ const BillingRequestsPage = () => {
                                                                                                 </div>
                                                                                                 <span className="text-xs font-black uppercase tracking-wider">Facturado Exitosamente</span>
                                                                                             </div>
-                                                                                            {req.invoiceUrl ? (
-                                                                                                <div className="flex gap-2.5 pt-2">
+                                                                                            <div className="flex gap-2.5 pt-2 items-center">
+                                                                                                {req.invoiceUrl ? (
                                                                                                     <a 
                                                                                                         href={req.invoiceUrl} 
                                                                                                         target="_blank" 
@@ -920,17 +959,18 @@ const BillingRequestsPage = () => {
                                                                                                     >
                                                                                                         <Icon name="Download" size={14}/> Descargar Factura
                                                                                                     </a>
-                                                                                                    <button 
-                                                                                                        onClick={() => sendWhatsAppNotification(req)}
-                                                                                                        className="bg-green-600 hover:bg-green-700 text-white p-3 rounded-xl transition-all shadow-md shadow-green-100 cursor-pointer"
-                                                                                                        title="Notificar por WhatsApp"
-                                                                                                    >
-                                                                                                        <Icon name="MessageCircle" size={16}/>
-                                                                                                    </button>
-                                                                                                </div>
-                                                                                            ) : (
-                                                                                                <p className="text-xs text-gray-500 font-bold italic">Completado sin comprobante PDF adjunto.</p>
-                                                                                            )}
+                                                                                                ) : (
+                                                                                                    <p className="flex-1 text-xs text-gray-500 font-bold italic">Completado sin comprobante PDF.</p>
+                                                                                                )}
+                                                                                                <button 
+                                                                                                    onClick={() => sendWhatsAppNotification(req)}
+                                                                                                    className="bg-green-600 hover:bg-green-700 text-white p-3 rounded-xl transition-all shadow-md shadow-green-100 cursor-pointer flex items-center justify-center gap-2 px-4 py-3"
+                                                                                                    title="Notificar por WhatsApp"
+                                                                                                >
+                                                                                                    <Icon name="MessageCircle" size={16}/>
+                                                                                                    {!req.invoiceUrl && <span className="text-[10px] font-black uppercase tracking-widest">Notificar</span>}
+                                                                                                </button>
+                                                                                            </div>
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
@@ -1144,7 +1184,10 @@ const BillingRequestsPage = () => {
                                                                         <div className="flex justify-between items-end">
                                                                             <div>
                                                                                 <p className="font-black text-white text-sm leading-tight">{req.aiData?.nombre_receptor || 'Desconocido'}</p>
-                                                                                <p className="text-[10px] font-bold text-blue-200 font-mono mt-1">{req.aiData?.cuit_receptor || 'S/D'}</p>
+                                                                                <p className="text-[10px] font-bold text-blue-200 font-mono mt-1">
+                                                                                    {req.aiData?.cuit_receptor || 'S/D'}
+                                                                                    {getReceptorPhone(req) && ` | 📱 ${getReceptorPhone(req)}`}
+                                                                                </p>
                                                                             </div>
                                                                             <div className="text-right">
                                                                                 <p className="text-[9px] font-black text-blue-200 uppercase">Destino</p>
@@ -1260,14 +1303,12 @@ const BillingRequestsPage = () => {
                                                             </div>
  
                                                             <div className="space-y-3 mt-8">
-                                                                {req.invoiceUrl && (
                                                                     <button 
                                                                         onClick={() => sendWhatsAppNotification(req)} 
                                                                         className="w-full bg-green-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-green-600 transition-all shadow-lg shadow-green-100 flex items-center justify-center gap-3"
                                                                     >
                                                                         <Icon name="MessageCircle" size={18}/> Notificar por WhatsApp
                                                                     </button>
-                                                                )}
                                                                 <button 
                                                                     onClick={() => setRequestToDelete(req.id)} 
                                                                     className="w-full text-red-400 hover:text-red-600 text-[10px] font-black uppercase tracking-widest pt-2 transition-colors flex items-center justify-center gap-2"
@@ -1302,8 +1343,8 @@ const BillingRequestsPage = () => {
             {/* Modal de Creación */}
             {showModal && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[40px] shadow-2xl max-w-lg w-full p-10 animate-in fade-in zoom-in-95 duration-300">
-                        <div className="flex justify-between items-start mb-8">
+                    <div className="bg-white rounded-[32px] shadow-2xl max-w-lg w-full p-8 animate-in fade-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-start mb-6">
                             <div>
                                 <h3 className="text-2xl font-black text-gray-900 tracking-tight">Nueva Solicitud</h3>
                                 <p className="text-gray-500 text-sm font-medium mt-1">Sube un comprobante o registra un pago manual.</p>
@@ -1313,7 +1354,7 @@ const BillingRequestsPage = () => {
                             </button>
                         </div>
 
-                        <div className="flex bg-gray-50 p-1.5 rounded-2xl mb-8 border border-gray-100">
+                        <div className="flex bg-gray-50 p-1.5 rounded-2xl mb-6 border border-gray-100">
                             <button 
                                 onClick={() => setCreateMode('file')} 
                                 className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${createMode === 'file' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}
@@ -1328,16 +1369,16 @@ const BillingRequestsPage = () => {
                             </button>
                         </div>
 
-                        <form onSubmit={handleCreateRequest} className="space-y-6">
+                        <form onSubmit={handleCreateRequest} className="space-y-4">
                             {createMode === 'file' ? (
                                 <div className="space-y-4">
                                     <label className="group block">
-                                        <div className="border-4 border-dashed border-gray-100 rounded-[32px] p-12 text-center group-hover:border-blue-100 group-hover:bg-blue-50/30 transition-all cursor-pointer">
-                                            <div className="bg-blue-50 w-16 h-16 rounded-2xl flex items-center justify-center text-blue-600 mx-auto mb-4 group-hover:scale-110 transition-transform">
-                                                <Icon name="Search" size={32}/>
+                                        <div className="border-4 border-dashed border-gray-100 rounded-2xl p-6 text-center group-hover:border-blue-100 group-hover:bg-blue-50/30 transition-all cursor-pointer">
+                                            <div className="bg-blue-50 w-12 h-12 rounded-xl flex items-center justify-center text-blue-600 mx-auto mb-3 group-hover:scale-110 transition-transform">
+                                                <Icon name="Search" size={24}/>
                                             </div>
                                             <p className="text-sm font-black text-gray-800">{newRequestFile ? newRequestFile.name : 'Subir Comprobante'}</p>
-                                            <p className="text-xs text-gray-400 font-bold mt-2 uppercase tracking-widest">{newRequestFile ? 'Archivo seleccionado' : 'Imagen o PDF'}</p>
+                                            <p className="text-xs text-gray-400 font-bold mt-1.5 uppercase tracking-widest">{newRequestFile ? 'Archivo seleccionado' : 'Imagen o PDF'}</p>
                                         </div>
                                         <input type="file" className="hidden" onChange={(e) => setNewRequestFile(e.target.files[0])} accept="image/*,application/pdf"/>
                                     </label>
@@ -1381,10 +1422,10 @@ const BillingRequestsPage = () => {
 
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Nota adicional (Opcional)</label>
-                                <textarea placeholder="¿Algún detalle que debamos saber?" value={newRequestNote} onChange={e => setNewRequestNote(e.target.value)} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-medium text-gray-700 min-h-[100px] resize-none"></textarea>
+                                <textarea placeholder="¿Algún detalle que debamos saber?" value={newRequestNote} onChange={e => setNewRequestNote(e.target.value)} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-medium text-gray-700 min-h-[80px] resize-none"></textarea>
                             </div>
 
-                            <div className="flex gap-4 pt-4">
+                            <div className="flex gap-4 pt-2">
                                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 rounded-2xl transition-all">Cancelar</button>
                                 <button 
                                     type="submit" 

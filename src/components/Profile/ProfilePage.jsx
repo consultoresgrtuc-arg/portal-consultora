@@ -103,6 +103,7 @@ const ProfilePage = () => {
                                 <option value="Monotributo">Monotributo</option>
                                 <option value="Responsable Inscripto">Responsable Inscripto</option>
                                 <option value="Exento">Exento</option>
+                                <option value="Sociedad">Sociedad</option>
                             </select>
                         </div>
                         <div className="space-y-2 md:col-span-2">
