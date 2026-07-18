@@ -38,7 +38,7 @@ ChartJS.register(
   Filler
 );
 
-const DashboardPage = () => {
+const DashboardPage = ({ navigate, setClientCenterFolder }) => {
     const [operations, setOperations] = useState([]);
     const { user } = useAuth();
     const [activeTab, setActiveTab] = useState('line'); // 'line' o 'doughnut'
@@ -360,7 +360,7 @@ const DashboardPage = () => {
                     <AIAnalyzer />
                 </div>
                 <div>
-                    <NotificationPanel />
+                    <NotificationPanel navigate={navigate} setClientCenterFolder={setClientCenterFolder} />
                 </div>
             </div>
         </div>

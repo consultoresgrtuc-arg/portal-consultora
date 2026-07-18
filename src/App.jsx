@@ -271,6 +271,7 @@ const LoginPage = () => {
 const AppContent = () => {
     const { user, userData } = useAuth();
     const [currentRoute, setCurrentRoute] = useState('dashboard');
+    const [clientCenterFolder, setClientCenterFolder] = useState(null);
 
     if (!user) return <LoginPage />;
 
@@ -279,7 +280,7 @@ const AppContent = () => {
             case 'microcredits':
                 return <MicrocreditsPanel userData={userData} />;
             case 'dashboard':
-                return <DashboardPage />;
+                return <DashboardPage navigate={setCurrentRoute} setClientCenterFolder={setClientCenterFolder} />;
             case 'billing':
                 return <BillingRequestsPage />;
             case 'operations':
@@ -287,7 +288,10 @@ const AppContent = () => {
             case 'finances':
                 return <FinancesPage />;
             case 'client-center':
-                return <ClientCenterPage />;
+                return <ClientCenterPage 
+                            initialFolder={clientCenterFolder} 
+                            onFolderOpened={() => setClientCenterFolder(null)} 
+                        />;
             case 'profile':
                 return <ProfilePage />;
             case 'reports':

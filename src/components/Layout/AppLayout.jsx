@@ -16,14 +16,15 @@ import {
   Sparkles,
   Calculator,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Bell
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const AppLayout = ({ children, currentRoute, navigate }) => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const { userData } = useAuth();
+    const { userData, notifications } = useAuth();
     
     const allLinks = [
         { name: 'Dashboard', icon: <LayoutDashboard size={20} />, path: 'dashboard', moduleId: 'dashboard' },
@@ -158,8 +159,21 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                     <h1 className="text-xl md:text-2xl font-bold text-gray-800 truncate ml-2">
                         Bienvenido, <span className="text-blue-600">{userData?.nombre || 'Administrador'}</span>!
                     </h1>
-                    <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-bold uppercase tracking-widest">
-                        <Sparkles size={12}/> Premium
+                    <div className="flex items-center gap-4">
+                        <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-bold uppercase tracking-widest">
+                            <Sparkles size={12}/> Premium
+                        </div>
+                        {/* Campanita de notificaciones */}
+                        <button 
+                            onClick={() => navigate('dashboard')} 
+                            className="relative p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all cursor-pointer group"
+                            title="Notificaciones"
+                        >
+                            <Bell size={20} className="transition-transform group-hover:scale-110" />
+                            {notifications && notifications.length > 0 && (
+                                <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full animate-pulse"></span>
+                            )}
+                        </button>
                     </div>
                 </header>
                 

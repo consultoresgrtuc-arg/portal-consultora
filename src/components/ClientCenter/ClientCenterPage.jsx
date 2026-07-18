@@ -16,7 +16,7 @@ import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
 import ConfirmModal from '../Common/ConfirmModal';
 
-const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managedClientName = '' }) => {
+const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managedClientName = '', initialFolder = null, onFolderOpened = null }) => {
     const { user, userData } = useAuth();
     const currentUserId = isManagedView ? managedUserId : user?.uid;
     
@@ -79,6 +79,13 @@ const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managed
     }, [currentUserId]);
 
     useEffect(() => { fetchFiles(); }, [fetchFiles]);
+
+    useEffect(() => {
+        if (initialFolder) {
+            setCurrentFolder(initialFolder);
+            if (onFolderOpened) onFolderOpened();
+        }
+    }, [initialFolder, onFolderOpened]);
     
     const [uploadFolder, setUploadFolder] = useState(isManagedView ? 'documentos_del_contador' : 'comprobantes');
 

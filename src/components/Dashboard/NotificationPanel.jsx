@@ -1,9 +1,24 @@
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
+import { doc, deleteDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 
-const NotificationPanel = () => {
-    const { notifications, loadingNotifications } = useAuth();
+const NotificationPanel = ({ navigate, setClientCenterFolder }) => {
+    const { notifications, loadingNotifications, user } = useAuth();
+
+    const handleNotificationClick = async (notif) => {
+        if (!user) return;
+        try {
+            await deleteDoc(doc(db, 'users', user.uid, 'notifications', notif.id));
+            if (notif.title === "Nuevo Documento del Contador" || notif.type === "info") {
+                if (setClientCenterFolder) setClientCenterFolder('documentos_del_contador');
+                if (navigate) navigate('client-center');
+            }
+        } catch (error) {
+            console.error("Error al procesar la notificación:", error);
+        }
+    };
 
     const getIcon = (type) => {
         switch(type) {
@@ -34,7 +49,12 @@ const NotificationPanel = () => {
             ) : (
                 <div className="space-y-4">
                     {notifications.length > 0 ? notifications.map(notif => (
-                        <div key={notif.id} className={`flex items-start p-4 border-l-4 rounded-r-2xl transition-all hover:translate-x-1 ${getColor(notif.type)}`}>
+                        <div 
+                            key={notif.id} 
+                            onClick={() => handleNotificationClick(notif)}
+                            className={`flex items-start p-4 border-l-4 rounded-r-2xl transition-all hover:translate-x-1 cursor-pointer hover:bg-opacity-95 active:scale-[0.98] ${getColor(notif.type)}`}
+                            title="Hacer clic para ver y marcar como leída"
+                        >
                             <div className="p-2 bg-white/50 rounded-xl mr-4">
                                 <Icon name={getIcon(notif.type)} className="h-6 w-6"/>
                             </div>
