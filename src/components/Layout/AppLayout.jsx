@@ -165,7 +165,15 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                         </div>
                         {/* Campanita de notificaciones */}
                         <button 
-                            onClick={() => navigate('dashboard')} 
+                            onClick={() => {
+                                navigate('dashboard');
+                                setTimeout(() => {
+                                    const element = document.getElementById('notification-panel');
+                                    if (element) {
+                                        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }
+                                }, 100);
+                            }} 
                             className="relative p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all cursor-pointer group"
                             title="Notificaciones"
                         >

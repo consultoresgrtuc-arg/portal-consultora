@@ -37,7 +37,7 @@ const NotificationPanel = ({ navigate, setClientCenterFolder }) => {
     };
 
     return (
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+        <div id="notification-panel" className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
             <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
                 <Icon name="Bell" className="w-5 h-5 mr-3 text-blue-500"/>
                 Centro de Notificaciones
