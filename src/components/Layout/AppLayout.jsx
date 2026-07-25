@@ -34,7 +34,7 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
         { name: 'Gestión', icon: <ClipboardList size={20} />, path: 'gestion', moduleId: 'gestion' },
         { name: 'Finanzas', icon: <TrendingUp size={20} />, path: 'finances', moduleId: 'finanzas' },
         { name: 'Reportes', icon: <BarChart3 size={20} />, path: 'reports', moduleId: 'reportes' },
-        { name: 'Microcréditos', icon: <Calculator size={20} />, path: 'microcreditos', moduleId: 'microcreditos' },
+        { name: 'Microcréditos', icon: <Calculator size={20} />, path: 'microcredits', moduleId: 'microcreditos' },
         { name: 'Cliente', icon: <FolderArchive size={20} />, path: 'client-center', moduleId: 'cliente' },
         { name: 'Perfil', icon: <User size={20} />, path: 'profile', moduleId: 'perfil' },
         { name: 'Admin', icon: <Shield size={20} />, path: 'admin', moduleId: 'admin' }
