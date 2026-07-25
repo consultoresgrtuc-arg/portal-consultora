@@ -20,11 +20,12 @@ import {
   Bell
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import SessionWarningModal from './SessionWarningModal';
 
 const AppLayout = ({ children, currentRoute, navigate }) => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const { userData, notifications } = useAuth();
+    const { userData, notifications, logoutNow } = useAuth();
     
     const allLinks = [
         { name: 'Dashboard', icon: <LayoutDashboard size={20} />, path: 'dashboard', moduleId: 'dashboard' },
@@ -33,7 +34,7 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
         { name: 'Gestión', icon: <ClipboardList size={20} />, path: 'gestion', moduleId: 'gestion' },
         { name: 'Finanzas', icon: <TrendingUp size={20} />, path: 'finances', moduleId: 'finanzas' },
         { name: 'Reportes', icon: <BarChart3 size={20} />, path: 'reports', moduleId: 'reportes' },
-        { name: 'Microcréditos', icon: <Calculator size={20} />, path: 'microcredits', moduleId: 'microcreditos' },
+        { name: 'Microcréditos', icon: <Calculator size={20} />, path: 'microcreditos', moduleId: 'microcreditos' },
         { name: 'Cliente', icon: <FolderArchive size={20} />, path: 'client-center', moduleId: 'cliente' },
         { name: 'Perfil', icon: <User size={20} />, path: 'profile', moduleId: 'perfil' },
         { name: 'Admin', icon: <Shield size={20} />, path: 'admin', moduleId: 'admin' }
@@ -61,11 +62,16 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
     });
 
     const handleLogout = () => {
-        signOut(auth);
+        if (logoutNow) {
+            logoutNow();
+        } else {
+            signOut(auth);
+        }
     };
 
     return (
         <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
+            <SessionWarningModal />
             {/* Overlay móvil */}
             <div 
                 className={`fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-40 transition-opacity duration-300 lg:hidden ${sidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} 

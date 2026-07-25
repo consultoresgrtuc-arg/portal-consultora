@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import AppLayout from './components/Layout/AppLayout';
 import MicrocreditsPanel from './components/Microcredits/MicrocreditsPanel';
@@ -42,6 +42,14 @@ const LoginPage = () => {
     const [view, setView] = useState('login'); 
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
+    
+    useEffect(() => {
+        const expiredMsg = sessionStorage.getItem('gyr_session_expired_msg');
+        if (expiredMsg) {
+            setMessage(expiredMsg);
+            sessionStorage.removeItem('gyr_session_expired_msg');
+        }
+    }, []);
     
     const handleEmailPassword = async (e) => {
         e.preventDefault();
@@ -215,6 +223,12 @@ const LoginPage = () => {
                             {error && (
                                 <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-3 py-2 rounded-xl text-xs font-semibold text-center">
                                     {error}
+                                </div>
+                            )}
+
+                            {message && (
+                                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-3 py-2 rounded-xl text-xs font-semibold text-center">
+                                    {message}
                                 </div>
                             )}
                             <button type="submit" className="w-full py-4 lg:py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl lg:rounded-lg font-bold hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-500/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer">
