@@ -1155,7 +1155,7 @@ export default function MicrocreditsPanel({ userData }) {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {cartera.map((c) => {
-                        const lateCount = c.schedule?.filter(s => s.status === 'late' || s.lateDays > 0).length || 0;
+                        const lateCount = c.schedule?.filter(s => s.status !== 'paid' && (s.status === 'late' || s.lateDays > 0)).length || 0;
                         return (
                           <tr key={c.id} className={`hover:bg-slate-50 transition-colors ${clienteId === c.id ? 'bg-blue-50/50' : ''}`}>
                             <td className="px-6 py-4">
