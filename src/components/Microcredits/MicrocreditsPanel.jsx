@@ -1156,6 +1156,10 @@ export default function MicrocreditsPanel({ userData }) {
                     <tbody className="divide-y divide-slate-100">
                       {cartera.map((c) => {
                         const lateCount = c.schedule?.filter(s => s.status !== 'paid' && (s.status === 'late' || s.lateDays > 0)).length || 0;
+                        const paidCount = c.schedule?.filter(s => s.status === 'paid').length || 0;
+                        const totalQuotes = c.schedule?.length || c.params?.weeks || 1;
+                        const isFinished = paidCount === totalQuotes && totalQuotes > 0;
+                        
                         return (
                           <tr key={c.id} className={`hover:bg-slate-50 transition-colors ${clienteId === c.id ? 'bg-blue-50/50' : ''}`}>
                             <td className="px-6 py-4">
@@ -1175,14 +1179,18 @@ export default function MicrocreditsPanel({ userData }) {
                             <td className="px-4 py-4">
                               <div className="flex flex-col gap-1.5 items-center">
                                 <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                  <div className="h-full bg-blue-500" style={{ width: `${(c.schedule?.filter(s => s.status === 'paid').length / (c.params?.weeks || 1)) * 100}%` }} />
+                                  <div className="h-full bg-blue-500" style={{ width: `${(paidCount / totalQuotes) * 100}%` }} />
                                 </div>
-                                {lateCount > 0 ? (
+                                {isFinished ? (
+                                  <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">
+                                    Finalizado
+                                  </span>
+                                ) : lateCount > 0 ? (
                                   <span className="text-[10px] bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">
                                     {lateCount} {lateCount === 1 ? 'cuota en mora' : 'cuotas en mora'}
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">
+                                  <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full">
                                     Al día
                                   </span>
                                 )}
