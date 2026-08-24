@@ -19,13 +19,18 @@ import {
   BrainCircuit,
   Loader2,
   Cloud,
-  Calendar
+  Calendar,
+  Phone,
+  Copy,
+  Send,
+  BellRing,
+  AlertOctagon,
+  CalendarDays,
+  ExternalLink,
+  Edit3
 } from 'lucide-react';
 import { db, auth } from '../../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
-
-// --- CONFIGURACIÓN DE GEMINI API ---
-const GEMINI_MODEL = "gemini-3-flash-preview"; // Actualizado a Gemini 3 (Flash Preview)
 
 export default function MicrocreditsPanel({ userData }) {
   // --- CONFIGURACIÓN Y ESTADOS ---
@@ -55,12 +60,15 @@ export default function MicrocreditsPanel({ userData }) {
   const [cartera, setCartera] = useState([]);
   const [clienteId, setClienteId] = useState(null); 
   const [clienteNombre, setClienteNombre] = useState('');
+  const [clienteTelefono, setClienteTelefono] = useState('');
   const [showNotification, setShowNotification] = useState(null);
   
-  // Estados para la IA
+  // Estados para la IA y Mensajería
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiCollectionMsg, setAiCollectionMsg] = useState(null);
+  const [msgModalMode, setMsgModalMode] = useState('cobranza'); // 'cobranza' | 'recordatorio'
+  const [copiedMsg, setCopiedMsg] = useState(false);
 
   // Estados para la Nube
   const user = auth.currentUser;
@@ -69,7 +77,6 @@ export default function MicrocreditsPanel({ userData }) {
   useEffect(() => {
     if (!user) return;
 
-    // Cambiado a una colección dedicada 'microcredits' para mejor organización
     const carteraRef = collection(db, 'users', user.uid, 'microcredits');
     const unsubscribe = onSnapshot(carteraRef, (snapshot) => {
       const loadedCartera = [];
@@ -84,7 +91,7 @@ export default function MicrocreditsPanel({ userData }) {
     return () => unsubscribe();
   }, [user]);
 
-  // --- UTILIDADES DE FECHAS ---
+  // --- UTILIDADES DE FECHAS Y FORMATO ---
   const calculateEndDate = (startDateStr, periods, freq) => {
     if (!startDateStr || !periods) return null;
     const [year, month, day] = startDateStr.split('-').map(Number);
@@ -107,14 +114,27 @@ export default function MicrocreditsPanel({ userData }) {
      return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
-  const formatCurrency = (val) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
+  const formatCurrency = (val) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val || 0);
+
+  const cleanWhatsAppNumber = (phone) => {
+    if (!phone) return '';
+    let clean = phone.replace(/\D/g, '');
+    if (!clean) return '';
+    // Formato Argentina: si ingresó 381..., agregar 549381...
+    if (clean.length === 10 && !clean.startsWith('54')) {
+      clean = '549' + clean;
+    } else if (clean.length === 11 && clean.startsWith('0')) {
+      clean = '549' + clean.slice(1);
+    } else if (clean.length === 12 && clean.startsWith('54') && !clean.startsWith('549')) {
+      clean = '549' + clean.slice(2);
+    }
+    return clean;
+  };
 
   // --- LÓGICA DE API GEMINI ---
-  // Refactorizado para usar Cloud Function segura
   const callGemini = async (prompt, systemPrompt) => {
     setAiLoading(true);
     
-    // Determinar la URL base según el entorno (localhost o producción)
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const apiUrl = isLocalhost 
       ? 'http://127.0.0.1:5001/gyrconsultores-82422/us-central1/secureGeminiCall' 
@@ -157,6 +177,7 @@ export default function MicrocreditsPanel({ userData }) {
     const checklistStatus = checklist.map(c => `${c.text}: ${c.checked ? 'CUMPLIDO' : 'PENDIENTE'}`).join('\n');
     const prompt = `Analiza el riesgo de este microcrédito comercial en Tucumán, Argentina:
       Cliente: ${clienteNombre}
+      Teléfono: ${clienteTelefono || 'No registrado'}
       Monto: ${formatCurrency(params.capital)}
       Plazo: ${params.weeks} cuotas (${params.frecuencia || 'semanal'})
       Tasa Anual: ${params.tna}%
@@ -171,16 +192,7 @@ export default function MicrocreditsPanel({ userData }) {
     if (result) setAiAnalysis(result);
   };
 
-  const generarMensajeCobranza = async (cuota) => {
-    const prompt = `Genera un mensaje corto de WhatsApp para el cliente ${clienteNombre} que tiene un atraso de ${cuota.lateDays} días en su pago ${params.frecuencia || 'semanal'} de ${formatCurrency(cuota.totalToPay)}. La mora actual es de ${formatCurrency(cuota.lateInterest)}. Usa un tono ${cuota.lateDays > 7 ? 'firme pero profesional' : 'amable y recordatorio'}.`;
-    
-    const systemPrompt = "Eres el asistente de cobranzas de Gramajo & Romero Consultores. El mensaje debe ser profesional, incluir los montos y ser apto para WhatsApp en Argentina. No uses lenguaje de otros países.";
-    
-    const result = await callGemini(prompt, systemPrompt);
-    if (result) setAiCollectionMsg(result);
-  };
-
-  // --- LÓGICA DE CÁLCULO ---
+  // --- MOTOR DE CÁLCULO DE DEUDA Y MORA CONSOLIDADA ---
   const parseLocalDate = (dateStr) => {
     if (!dateStr || dateStr === '---') return null;
     const [day, month, year] = dateStr.split('/');
@@ -202,22 +214,172 @@ export default function MicrocreditsPanel({ userData }) {
       const diffTime = now - limitDate;
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
       
-      if (diffDays > 0 && diffDays !== item.lateDays) {
-        changed = true;
-        const newLateDays = diffDays;
-        const lateInterest = Math.ceil(item.cuotaPura * moraDailyRate * newLateDays);
-        return {
-          ...item,
-          lateDays: newLateDays,
-          lateInterest: lateInterest,
-          totalToPay: item.cuotaPura + lateInterest,
-          status: 'late'
-        };
+      if (diffDays > 0) {
+        if (diffDays !== item.lateDays || item.status !== 'late') {
+          changed = true;
+          const newLateDays = diffDays;
+          const lateInterest = Math.ceil(item.cuotaPura * moraDailyRate * newLateDays);
+          return {
+            ...item,
+            lateDays: newLateDays,
+            lateInterest: lateInterest,
+            totalToPay: item.cuotaPura + lateInterest,
+            status: 'late'
+          };
+        }
       }
       return item;
     });
 
     return { newSchedule, changed };
+  };
+
+  // Cálculo consolidado para evitar cualquier duplicación
+  const calcularEstadoDeuda = (currentSchedule = schedule) => {
+    const now = new Date();
+    now.setHours(0,0,0,0);
+
+    const cuotasVencidas = [];
+    let totalCuotasVencidasPuras = 0;
+    let totalInteresMora = 0;
+    let totalDeudaVencida = 0;
+    let proximaCuota = null;
+
+    for (const item of currentSchedule) {
+      if (item.status === 'paid') continue;
+
+      if (item.status === 'late' || item.lateDays > 0) {
+        cuotasVencidas.push({
+          week: item.week,
+          fecha: item.fecha,
+          cuotaPura: item.cuotaPura,
+          lateDays: item.lateDays,
+          lateInterest: item.lateInterest,
+          totalToPay: item.totalToPay
+        });
+        totalCuotasVencidasPuras += item.cuotaPura;
+        totalInteresMora += item.lateInterest;
+        totalDeudaVencida += item.totalToPay;
+      } else if (!proximaCuota && item.status === 'pending') {
+        const fechaLimit = parseLocalDate(item.fecha);
+        let diasParaVencer = null;
+        if (fechaLimit) {
+          const diff = fechaLimit - now;
+          diasParaVencer = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        }
+        proximaCuota = {
+          week: item.week,
+          fecha: item.fecha,
+          cuotaPura: item.cuotaPura,
+          diasParaVencer: diasParaVencer
+        };
+      }
+    }
+
+    return {
+      tieneMora: cuotasVencidas.length > 0,
+      cuotasVencidas,
+      totalCuotasVencidasPuras,
+      totalInteresMora,
+      totalDeudaVencida,
+      proximaCuota
+    };
+  };
+
+  // --- GENERACIÓN DE MENSAJES CON IA ---
+  const generarMensajeCobranzaConsolidado = async () => {
+    const estado = calcularEstadoDeuda(schedule);
+
+    if (!estado.tieneMora) {
+      triggerNotification("El cliente no posee cuotas vencidas a la fecha.");
+      return;
+    }
+
+    const desgloseCuotas = estado.cuotasVencidas.map(c => 
+      `• Cuota #${c.week} (Vto: ${c.fecha} | ${c.lateDays} días atraso): ${formatCurrency(c.cuotaPura)} + Int. mora: ${formatCurrency(c.lateInterest)} = Subtotal: ${formatCurrency(c.totalToPay)}`
+    ).join('\n');
+
+    const proximaCuotaTexto = estado.proximaCuota
+      ? `Próxima cuota (no vencida): Cuota #${estado.proximaCuota.week} con vencimiento el ${estado.proximaCuota.fecha} por ${formatCurrency(estado.proximaCuota.cuotaPura)}.`
+      : 'No registra cuotas pendientes posteriores.';
+
+    const prompt = `Genera un mensaje de cobranza por WhatsApp para el cliente ${clienteNombre || 'Estimado Cliente'} emitido por Gramajo & Romero Consultores.
+
+    DATOS EXACTOS CALCULADOS POR EL SISTEMA (Utiliza exactamente estos números, no los alteres ni dupliques):
+    
+    DESGLOSE DE CUOTAS VENCIDAS:
+    ${desgloseCuotas}
+
+    RESUMEN CONSOLIDADO:
+    - Capital de cuotas vencidas: ${formatCurrency(estado.totalCuotasVencidasPuras)}
+    - Intereses por mora acumulados: ${formatCurrency(estado.totalInteresMora)}
+    - TOTAL EXIGIBLE A LA FECHA: ${formatCurrency(estado.totalDeudaVencida)}
+
+    INFORMACIÓN DE PRÓXIMO VENCIMIENTO:
+    ${proximaCuotaTexto}
+
+    REGLAS DE REDACCIÓN:
+    1. Saludo formal y profesional en español de Argentina.
+    2. Detallar de forma ordenada y limpia cada una de las cuotas vencidas con su fecha de vencimiento original, días de mora, interés y subtotal.
+    3. Resaltar en negrita el TOTAL GENERAL EXIGIBLE a regularizar.
+    4. Mencionar la fecha y monto de la próxima cuota a vencer para su debida planificación.
+    5. Solicitar coordinar el pago o enviar el comprobante de transferencia bancaria.`;
+
+    const systemPrompt = "Eres el especialista de cobranzas y gestión financiera de Gramajo & Romero Consultores en Tucumán, Argentina. Escribe mensajes profesionales, concisos, estructurados y perfectamente adaptados para WhatsApp con emojis sobrios.";
+
+    setMsgModalMode('cobranza');
+    const result = await callGemini(prompt, systemPrompt);
+    if (result) {
+      setAiCollectionMsg(result);
+    }
+  };
+
+  const generarMensajeRecordatorioPreventivo = async () => {
+    const estado = calcularEstadoDeuda(schedule);
+
+    if (!estado.proximaCuota) {
+      triggerNotification("No hay cuotas pendientes por vencer.");
+      return;
+    }
+
+    const prompt = `Genera un mensaje recordatorio preventivo de WhatsApp para el cliente ${clienteNombre || 'Estimado Cliente'} emitido por Gramajo & Romero Consultores.
+
+    DATOS DE LA PRÓXIMA CUOTA A VENCER:
+    - Cuota: #${estado.proximaCuota.week}
+    - Fecha de Vencimiento: ${estado.proximaCuota.fecha}
+    - Monto a Abonar: ${formatCurrency(estado.proximaCuota.cuotaPura)}
+    ${estado.tieneMora ? `ADVERTENCIA: El cliente registra también cuotas vencidas pendientes por un total de ${formatCurrency(estado.totalDeudaVencida)}. Mencionar brevemente la opción de regularizar todo junto.` : ''}
+
+    REGLAS:
+    1. Tono cordial, preventivo y de cortesía (recordatorio 1 día antes del vencimiento para evitar mora).
+    2. Resaltar el número de cuota, la fecha límite de pago y el importe exacto.
+    3. Indicar que una vez realizado el pago envíe el comprobante de transferencia por este medio.`;
+
+    const systemPrompt = "Eres el asistente de atención al cliente y finanzas de Gramajo & Romero Consultores en Tucumán, Argentina. Tu tono es sumamente amable, preventivo y claro.";
+
+    setMsgModalMode('recordatorio');
+    const result = await callGemini(prompt, systemPrompt);
+    if (result) {
+      setAiCollectionMsg(result);
+    }
+  };
+
+  const copiarMensajePortapapeles = () => {
+    if (!aiCollectionMsg) return;
+    navigator.clipboard.writeText(aiCollectionMsg);
+    setCopiedMsg(true);
+    setTimeout(() => setCopiedMsg(false), 2500);
+    triggerNotification("Mensaje copiado al portapapeles");
+  };
+
+  const enviarWhatsAppDirecto = () => {
+    if (!aiCollectionMsg) return;
+    const phoneClean = cleanWhatsAppNumber(clienteTelefono);
+    const text = encodeURIComponent(aiCollectionMsg);
+    const url = phoneClean 
+      ? `https://wa.me/${phoneClean}?text=${text}`
+      : `https://wa.me/?text=${text}`;
+    window.open(url, '_blank');
   };
 
   const generateSchedule = () => {
@@ -310,7 +472,7 @@ export default function MicrocreditsPanel({ userData }) {
     }
     
     setSchedule(newSchedule);
-    autoSaveCartera(newSchedule, checklist);
+    autoSaveCartera(newSchedule, checklist, clienteTelefono);
   };
 
   const togglePaymentStatus = (index) => {
@@ -320,16 +482,23 @@ export default function MicrocreditsPanel({ userData }) {
       ? (newSchedule[index].lateDays > 0 ? 'late' : 'pending') 
       : 'paid';
     setSchedule(newSchedule);
-    autoSaveCartera(newSchedule, checklist);
+    autoSaveCartera(newSchedule, checklist, clienteTelefono);
   };
 
   const toggleChecklist = (id) => {
     const newChecklist = checklist.map(item => item.id === id ? { ...item, checked: !item.checked } : item);
     setChecklist(newChecklist);
-    autoSaveCartera(schedule, newChecklist);
+    autoSaveCartera(schedule, newChecklist, clienteTelefono);
   };
 
-  const autoSaveCartera = async (updatedSchedule, updatedChecklist) => {
+  const handleTelefonoChange = (newPhone) => {
+    setClienteTelefono(newPhone);
+    if (clienteId && user) {
+      autoSaveCartera(schedule, checklist, newPhone);
+    }
+  };
+
+  const autoSaveCartera = async (updatedSchedule, updatedChecklist, updatedPhone = clienteTelefono) => {
     if (clienteId && user) {
       setIsSyncing(true);
       try {
@@ -338,6 +507,7 @@ export default function MicrocreditsPanel({ userData }) {
         const docRef = doc(db, 'users', user.uid, 'microcredits', clienteId);
         await setDoc(docRef, {
           nombre: clienteNombre,
+          telefono: updatedPhone || '',
           params: params,
           schedule: updatedSchedule,
           checklist: updatedChecklist,
@@ -359,6 +529,7 @@ export default function MicrocreditsPanel({ userData }) {
     const newId = Date.now().toString();
     const nuevoPrestamo = {
       nombre: clienteNombre,
+      telefono: clienteTelefono || '',
       params: { ...params },
       schedule: [...schedule],
       checklist: [...checklist],
@@ -397,8 +568,9 @@ export default function MicrocreditsPanel({ userData }) {
   const gestionarCliente = async (cliente) => {
     setClienteId(cliente.id);
     setClienteNombre(cliente.nombre);
+    setClienteTelefono(cliente.telefono || '');
     setParams(cliente.params);
-    setChecklist(cliente.checklist);
+    setChecklist(cliente.checklist || defaultChecklist);
     setAiAnalysis(null);
     setAiCollectionMsg(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -425,6 +597,7 @@ export default function MicrocreditsPanel({ userData }) {
   const iniciarNuevaSimulacion = () => {
     setClienteId(null);
     setClienteNombre('');
+    setClienteTelefono('');
     setParams(defaultParams);
     setChecklist(defaultChecklist);
     setAiAnalysis(null);
@@ -435,6 +608,8 @@ export default function MicrocreditsPanel({ userData }) {
     setShowNotification(msg);
     setTimeout(() => setShowNotification(null), 3000);
   };
+
+  const estadoDeuda = useMemo(() => calcularEstadoDeuda(schedule), [schedule]);
 
   const stats = useMemo(() => {
     const capital = parseFloat(params.capital) || 0;
@@ -485,6 +660,7 @@ export default function MicrocreditsPanel({ userData }) {
         </div>
       )}
 
+      {/* MODAL ANÁLISIS DE RIESGO */}
       {aiAnalysis && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col p-6 sm:p-8 relative animate-in zoom-in duration-300">
@@ -511,41 +687,103 @@ export default function MicrocreditsPanel({ userData }) {
         </div>
       )}
 
+      {/* MODAL MENSAJE DE COBRANZA / RECORDATORIO WHATSAPP */}
       {aiCollectionMsg && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col p-6 sm:p-8 relative animate-in slide-in-from-bottom duration-300">
-            <button onClick={() => setAiCollectionMsg(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full max-h-[92vh] flex flex-col p-6 sm:p-8 relative animate-in slide-in-from-bottom duration-300">
+            <button onClick={() => setAiCollectionMsg(null)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 transition-colors">
               <Plus className="rotate-45" size={24} />
             </button>
-            <div className="flex items-center gap-3 mb-4 flex-shrink-0">
-              <div className="bg-green-100 p-2.5 rounded-full text-green-600">
-                <MessageSquare size={24} />
+
+            <div className="flex items-center justify-between gap-3 mb-4 flex-shrink-0 pr-8">
+              <div className="flex items-center gap-3">
+                <div className={`p-3 rounded-2xl ${msgModalMode === 'cobranza' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                  {msgModalMode === 'cobranza' ? <MessageSquare size={24} /> : <BellRing size={24} />}
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">
+                    {msgModalMode === 'cobranza' ? '✨ Mensaje de Cobranza' : '✨ Recordatorio Preventivo'}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium">
+                    {clienteNombre || 'Cliente'} • {clienteTelefono ? `WhatsApp: ${clienteTelefono}` : 'Sin teléfono cargado'}
+                  </p>
+                </div>
               </div>
-              <h3 className="text-xl sm:text-2xl font-bold text-slate-800">✨ Mensaje de Cobranza</h3>
             </div>
-            <div className="flex-1 overflow-y-auto pr-2 mb-6 scrollbar-thin scrollbar-thumb-slate-200">
-              <div className="bg-slate-50 p-4 sm:p-6 rounded-xl border border-slate-200 font-medium text-slate-700 whitespace-pre-wrap text-sm sm:text-base">
-                {aiCollectionMsg}
-              </div>
-            </div>
-            <div className="flex-shrink-0 pt-3 border-t border-slate-100 flex gap-4">
+
+            {/* Selector de Modo */}
+            <div className="flex gap-2 mb-4 bg-slate-100 p-1.5 rounded-2xl">
               <button 
-                onClick={() => {
-                   const text = encodeURIComponent(aiCollectionMsg);
-                   window.open(`https://wa.me/?text=${text}`, '_blank');
-                }} 
-                className="flex-1 bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                onClick={generarMensajeCobranzaConsolidado}
+                disabled={aiLoading}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${msgModalMode === 'cobranza' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
-                Enviar por WhatsApp
+                {aiLoading && msgModalMode === 'cobranza' ? <Loader2 size={14} className="animate-spin" /> : <AlertOctagon size={14} />}
+                Cobranza Mora Consolidada
               </button>
-              <button onClick={() => setAiCollectionMsg(null)} className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-200 transition-colors">
-                Cancelar
+              <button 
+                onClick={generarMensajeRecordatorioPreventivo}
+                disabled={aiLoading}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${msgModalMode === 'recordatorio' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                {aiLoading && msgModalMode === 'recordatorio' ? <Loader2 size={14} className="animate-spin" /> : <CalendarDays size={14} />}
+                Recordatorio (1 día antes)
+              </button>
+            </div>
+
+            {/* Input rápido para teléfono si no tiene o quiere cambiarlo */}
+            <div className="mb-3 bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex items-center gap-2">
+              <Phone size={16} className="text-slate-400" />
+              <input 
+                type="tel"
+                value={clienteTelefono}
+                onChange={(e) => handleTelefonoChange(e.target.value)}
+                placeholder="Teléfono/WhatsApp (Ej: 381 555 1234)"
+                className="bg-transparent text-xs font-semibold text-slate-700 w-full outline-none"
+              />
+              {cleanWhatsAppNumber(clienteTelefono) && (
+                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-md flex-shrink-0">
+                  +{cleanWhatsAppNumber(clienteTelefono)}
+                </span>
+              )}
+            </div>
+
+            {/* Editor del mensaje generado */}
+            <div className="flex-1 flex flex-col mb-4 overflow-hidden">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Edit3 size={12} /> Mensaje Editable
+              </label>
+              <textarea 
+                value={aiCollectionMsg} 
+                onChange={(e) => setAiCollectionMsg(e.target.value)}
+                rows={9}
+                className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-200 font-sans text-xs sm:text-sm text-slate-700 leading-relaxed outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none overflow-y-auto"
+              />
+            </div>
+
+            {/* Botones de acción */}
+            <div className="flex-shrink-0 pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-3">
+              <button 
+                onClick={copiarMensajePortapapeles}
+                className="flex-1 bg-slate-100 text-slate-700 font-bold py-3.5 px-4 rounded-xl hover:bg-slate-200 transition-colors flex items-center justify-center gap-2 text-xs sm:text-sm"
+              >
+                {copiedMsg ? <Check size={18} className="text-green-600" /> : <Copy size={18} />}
+                {copiedMsg ? '¡Copiado!' : 'Copiar Texto'}
+              </button>
+
+              <button 
+                onClick={enviarWhatsAppDirecto}
+                className="flex-1 bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 text-xs sm:text-sm"
+              >
+                <Send size={18} />
+                Enviar por WhatsApp
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
@@ -553,7 +791,7 @@ export default function MicrocreditsPanel({ userData }) {
             Gestión de <span className="text-blue-600">Microcréditos</span>
           </h1>
           <p className="text-slate-500 font-medium flex items-center gap-2 flex-wrap mt-1">
-            Análisis y Seguimiento Financiero con IA ✨
+            Análisis, Seguimiento y Cobranzas con IA ✨
             <span className={`text-[10px] uppercase font-bold flex items-center gap-1 px-2 py-0.5 rounded-full ${isSyncing ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
                 {isSyncing ? <Loader2 size={10} className="animate-spin" /> : <Cloud size={10} />}
                 {isSyncing ? 'Sincronizando...' : 'Conectado a la Nube'}
@@ -568,6 +806,7 @@ export default function MicrocreditsPanel({ userData }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* COLUMNA IZQUIERDA: PARÁMETROS Y RESÚMENES */}
         <div className="lg:col-span-4 space-y-6">
           <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <div className="flex justify-between items-center mb-6">
@@ -595,8 +834,21 @@ export default function MicrocreditsPanel({ userData }) {
                   value={clienteNombre} 
                   onChange={(e) => setClienteNombre(e.target.value)} 
                   disabled={!!clienteId}
-                  placeholder="Ej. Almacén Tucumán"
+                  placeholder="Ej. Diaz Alberto Carlos"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block flex items-center gap-1.5">
+                  <Phone size={14} className="text-emerald-600" /> Celular / WhatsApp
+                </label>
+                <input 
+                  type="tel" 
+                  value={clienteTelefono} 
+                  onChange={(e) => handleTelefonoChange(e.target.value)} 
+                  placeholder="Ej: 381 555 1234 (con cód. área)"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-mono font-medium text-slate-700" 
                 />
               </div>
 
@@ -664,6 +916,7 @@ export default function MicrocreditsPanel({ userData }) {
             </div>
           </section>
 
+          {/* TASAS */}
           <section className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl">
             <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
               <TrendingUp size={16} /> Tasas Proyectadas
@@ -690,6 +943,7 @@ export default function MicrocreditsPanel({ userData }) {
             </div>
           </section>
 
+          {/* RESUMEN OPERATIVO */}
           <section className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white p-6 rounded-2xl shadow-lg shadow-blue-100">
             <h2 className="text-lg font-bold mb-4 border-b border-white/20 pb-2">Resumen Operativo</h2>
             <div className="space-y-3">
@@ -719,26 +973,89 @@ export default function MicrocreditsPanel({ userData }) {
           </section>
         </div>
 
+        {/* COLUMNA DERECHA: CRONOGRAMA, ACCIONES DE COBRANZA Y CARTERA */}
         <div className="lg:col-span-8 space-y-8">
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                <Clock className="text-blue-600" />
-                Cronograma de Pagos
-                {clienteId && <span className="ml-2 text-blue-600 bg-blue-50 px-3 py-1 rounded-full text-xs uppercase tracking-widest">{clienteNombre}</span>}
-              </h2>
-              <div className="flex gap-6 text-right">
-                <div>
-                  <span className="text-xs font-bold text-slate-400 block uppercase">Cobrado</span>
-                  <span className="text-xl font-black text-green-600">{formatCurrency(stats.recaudado)}</span>
+            <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50/50">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <Clock className="text-blue-600" />
+                    Cronograma de Pagos
+                  </h2>
+                  {clienteId && (
+                    <span className="text-blue-600 bg-blue-50 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                      {clienteNombre}
+                    </span>
+                  )}
                 </div>
-                <div>
-                  <span className="text-xs font-bold text-slate-400 block uppercase">Restante</span>
-                  <span className="text-xl font-black text-amber-500">{formatCurrency(stats.saldoRestante)}</span>
-                </div>
+                {clienteTelefono && (
+                  <p className="text-xs text-slate-500 font-medium mt-1 flex items-center gap-1.5">
+                    <Phone size={12} className="text-emerald-600" /> WhatsApp: <span className="font-semibold text-slate-700">{clienteTelefono}</span>
+                  </p>
+                )}
+              </div>
+
+              {/* Botones de acción IA para cobranzas y recordatorios */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                {estadoDeuda.tieneMora && (
+                  <button 
+                    onClick={generarMensajeCobranzaConsolidado}
+                    disabled={aiLoading}
+                    className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-red-200 transition-all"
+                    title="Generar mensaje de cobranza consolidado con todas las cuotas vencidas e intereses"
+                  >
+                    {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <MessageSquare size={14} />}
+                    Cobranza Mora ({estadoDeuda.cuotasVencidas.length}) ✨
+                  </button>
+                )}
+                {estadoDeuda.proximaCuota && (
+                  <button 
+                    onClick={generarMensajeRecordatorioPreventivo}
+                    disabled={aiLoading}
+                    className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-blue-200 transition-all"
+                    title="Generar recordatorio preventivo 1 día antes del próximo vencimiento"
+                  >
+                    {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <BellRing size={14} />}
+                    Recordatorio Próx. Cuota ✨
+                  </button>
+                )}
               </div>
             </div>
 
+            {/* BANNER DE MORA CONSOLIDADA (Si hay cuotas vencidas) */}
+            {estadoDeuda.tieneMora && (
+              <div className="bg-red-50/80 border-b border-red-100 p-4 px-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-red-100 text-red-600 rounded-xl">
+                    <AlertOctagon size={20} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black uppercase text-red-700 tracking-wider block">
+                      {estadoDeuda.cuotasVencidas.length} {estadoDeuda.cuotasVencidas.length === 1 ? 'Cuota Vencida' : 'Cuotas Vencidas'} Impagas
+                    </span>
+                    <span className="text-xs text-red-600 font-medium">
+                      Capital: {formatCurrency(estadoDeuda.totalCuotasVencidasPuras)} + Intereses Mora: {formatCurrency(estadoDeuda.totalInteresMora)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <span className="text-[10px] uppercase font-bold text-red-500 block">Total Exigible</span>
+                    <span className="text-lg font-black text-red-700">{formatCurrency(estadoDeuda.totalDeudaVencida)}</span>
+                  </div>
+                  <button 
+                    onClick={generarMensajeCobranzaConsolidado}
+                    className="bg-red-600 text-white p-2.5 rounded-xl hover:bg-red-700 transition-colors shadow-sm"
+                    title="Crear mensaje WhatsApp"
+                  >
+                    <Send size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TABLA DE CRONOGRAMA */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-widest border-b">
@@ -753,7 +1070,7 @@ export default function MicrocreditsPanel({ userData }) {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {schedule.length > 0 ? schedule.map((row, idx) => (
-                    <tr key={idx} className={`group hover:bg-slate-50/80 transition-all ${row.status === 'paid' ? 'bg-emerald-50/30' : ''}`}>
+                    <tr key={idx} className={`group hover:bg-slate-50/80 transition-all ${row.status === 'paid' ? 'bg-emerald-50/30' : row.status === 'late' ? 'bg-red-50/20' : ''}`}>
                       <td className="px-6 py-4">
                         <span className="font-bold text-slate-700 block"># {row.week}</span>
                         <span className="text-[11px] font-bold text-blue-600 block mb-1">{row.fecha}</span>
@@ -780,15 +1097,20 @@ export default function MicrocreditsPanel({ userData }) {
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-center gap-2">
                            {row.status === 'late' && (
-                                <button onClick={() => generarMensajeCobranza(row)} className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors" title="Mensaje IA ✨">
+                                <button 
+                                  onClick={generarMensajeCobranzaConsolidado} 
+                                  className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors" 
+                                  title="Generar mensaje de cobranza consolidado con IA ✨"
+                                >
                                     <MessageSquare size={18} />
                                 </button>
                            )}
                            <button 
                             onClick={() => togglePaymentStatus(idx)}
                             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2
-                                ${row.status === 'paid' ? 'bg-emerald-500 border-emerald-500 text-white' : row.status === 'late' ? 'bg-red-50 border-red-200 text-red-500' : 'bg-white border-slate-200 text-slate-300'}
+                                ${row.status === 'paid' ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm' : row.status === 'late' ? 'bg-red-50 border-red-200 text-red-500 hover:bg-red-100' : 'bg-white border-slate-200 text-slate-300 hover:border-slate-400'}
                             `}
+                            title={row.status === 'paid' ? 'Marcar como pendiente' : 'Marcar como cobrada'}
                             >
                             <Check size={20} />
                             </button>
@@ -807,6 +1129,7 @@ export default function MicrocreditsPanel({ userData }) {
             </div>
           </section>
 
+          {/* CARTERA ACTIVA */}
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -824,32 +1147,54 @@ export default function MicrocreditsPanel({ userData }) {
                     <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b">
                       <tr>
                         <th className="px-6 py-4">Cliente</th>
+                        <th className="px-4 py-4">Teléfono</th>
                         <th className="px-4 py-4">Capital</th>
-                        <th className="px-4 py-4 text-center">Progreso</th>
+                        <th className="px-4 py-4 text-center">Estado / Progreso</th>
                         <th className="px-6 py-4 text-right">Acciones</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {cartera.map((c) => (
-                        <tr key={c.id} className={`hover:bg-slate-50 transition-colors ${clienteId === c.id ? 'bg-blue-50/50' : ''}`}>
-                          <td className="px-6 py-4">
-                            <span className="font-bold text-slate-800 block">{c.nombre}</span>
-                            <span className="text-[10px] text-slate-400 uppercase font-bold">{c.params?.frecuencia || 'semanal'}</span>
-                          </td>
-                          <td className="px-4 py-4 font-mono font-bold text-slate-600">{formatCurrency(c.params.capital)}</td>
-                          <td className="px-4 py-4">
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-blue-500" style={{ width: `${(c.schedule?.filter(s => s.status === 'paid').length / (c.params?.weeks || 1)) * 100}%` }} />
+                      {cartera.map((c) => {
+                        const lateCount = c.schedule?.filter(s => s.status === 'late' || s.lateDays > 0).length || 0;
+                        return (
+                          <tr key={c.id} className={`hover:bg-slate-50 transition-colors ${clienteId === c.id ? 'bg-blue-50/50' : ''}`}>
+                            <td className="px-6 py-4">
+                              <span className="font-bold text-slate-800 block">{c.nombre}</span>
+                              <span className="text-[10px] text-slate-400 uppercase font-bold">{c.params?.frecuencia || 'semanal'}</span>
+                            </td>
+                            <td className="px-4 py-4 text-slate-600 text-xs font-mono">
+                              {c.telefono ? (
+                                <span className="flex items-center gap-1 text-slate-700 font-medium">
+                                  <Phone size={12} className="text-emerald-600" /> {c.telefono}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300 italic">Sin registrar</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-4 font-mono font-bold text-slate-600">{formatCurrency(c.params?.capital)}</td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-col gap-1.5 items-center">
+                                <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="h-full bg-blue-500" style={{ width: `${(c.schedule?.filter(s => s.status === 'paid').length / (c.params?.weeks || 1)) * 100}%` }} />
+                                </div>
+                                {lateCount > 0 ? (
+                                  <span className="text-[10px] bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">
+                                    {lateCount} {lateCount === 1 ? 'cuota en mora' : 'cuotas en mora'}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">
+                                    Al día
+                                  </span>
+                                )}
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-right space-x-2">
-                            <button onClick={() => gestionarCliente(c)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Eye size={18} /></button>
-                            <button onClick={() => eliminarPrestamo(c.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="px-6 py-4 text-right space-x-2">
+                              <button onClick={() => gestionarCliente(c)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Ver y gestionar"><Eye size={18} /></button>
+                              <button onClick={() => eliminarPrestamo(c.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar"><Trash2 size={18} /></button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -857,6 +1202,7 @@ export default function MicrocreditsPanel({ userData }) {
             </div>
           </section>
 
+          {/* SCORING Y LEGAJO */}
           <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <h2 className="text-lg font-bold flex items-center gap-2 mb-6 text-slate-800">
               <CheckSquare size={20} className="text-blue-600" />

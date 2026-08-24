@@ -39,8 +39,8 @@ if (typeof window !== "undefined") {
     });
 }
 
-// Conectar a emuladores si estamos en localhost
-if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+// Conectar a emuladores solo si está configurado explícitamente
+if (import.meta.env.VITE_USE_EMULATOR === 'true') {
     console.log("Conectando a Firebase Emulators...");
     connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
     connectFirestoreEmulator(db, '127.0.0.1', 8080);

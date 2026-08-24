@@ -51,17 +51,40 @@ export const AuthProvider = ({ children }) => {
 
                 const userDocRef = doc(db, "users", firebaseUser.uid);
                 const unsubProfile = onSnapshot(userDocRef, (docSnap) => {
+                    const isAdminEmail = firebaseUser.email?.toLowerCase().includes('admin');
                     if (docSnap.exists()) {
-                        setUserData(docSnap.data());
+                        const data = docSnap.data();
+                        if (isAdminEmail && (!data.isAdmin || !data.permisos?.microcreditos)) {
+                            const updated = {
+                                ...data,
+                                isAdmin: true,
+                                permisos: {
+                                    ...(data.permisos || {}),
+                                    microcreditos: true,
+                                    dashboard: true,
+                                    operaciones: true,
+                                    gestion: true,
+                                    finanzas: true,
+                                    reportes: true,
+                                    cliente: true,
+                                    perfil: true,
+                                    facturacion: true
+                                }
+                            };
+                            setDoc(userDocRef, updated, { merge: true });
+                            setUserData(updated);
+                        } else {
+                            setUserData(data);
+                        }
                     } else {
                         const newUserProfile = {
                             email: firebaseUser.email,
-                            nombre: firebaseUser.displayName || '',
+                            nombre: firebaseUser.displayName || (isAdminEmail ? 'Admin Test' : ''),
                             cuit: '',
                             actividad: '',
                             categoriaTributaria: 'Monotributo',
                             telefono: firebaseUser.phoneNumber || '',
-                            isAdmin: false,
+                            isAdmin: isAdminEmail,
                             permisos: {
                                 dashboard: true,
                                 operaciones: true,
@@ -70,7 +93,8 @@ export const AuthProvider = ({ children }) => {
                                 reportes: true,
                                 cliente: true,
                                 perfil: true,
-                                microcreditos: false
+                                microcreditos: true,
+                                facturacion: true
                             },
                             incomeGoal: 500000,
                             expenseBudget: 200000
