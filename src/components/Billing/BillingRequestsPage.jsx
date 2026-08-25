@@ -19,6 +19,22 @@ import ConfirmModal from '../Common/ConfirmModal';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
+const MONTHS = [
+    { value: 'todos', label: 'Todos los Meses' },
+    { value: '1', label: 'Enero' },
+    { value: '2', label: 'Febrero' },
+    { value: '3', label: 'Marzo' },
+    { value: '4', label: 'Abril' },
+    { value: '5', label: 'Mayo' },
+    { value: '6', label: 'Junio' },
+    { value: '7', label: 'Julio' },
+    { value: '8', label: 'Agosto' },
+    { value: '9', label: 'Septiembre' },
+    { value: '10', label: 'Octubre' },
+    { value: '11', label: 'Noviembre' },
+    { value: '12', label: 'Diciembre' }
+];
+
 const BillingRequestsPage = () => {
     const { user, userData } = useAuth();
     const [requests, setRequests] = useState([]);
@@ -28,32 +44,41 @@ const BillingRequestsPage = () => {
     const [filterStatus, setFilterStatus] = useState('pending'); 
     const [expandedRowId, setExpandedRowId] = useState(null); 
     const [selectedClient, setSelectedClient] = useState('todos');
-    const [selectedPeriod, setSelectedPeriod] = useState('todos');
+    const [selectedYear, setSelectedYear] = useState('todos');
+    const [selectedMonth, setSelectedMonth] = useState('todos');
     const [selectedConsolidatedClient, setSelectedConsolidatedClient] = useState(null);
 
     useEffect(() => {
         setSelectedConsolidatedClient(null);
-    }, [selectedClient, selectedPeriod]);
+    }, [selectedClient, selectedYear, selectedMonth]);
 
-    const availablePeriods = useMemo(() => {
-        const periods = [];
-        const date = new Date();
-        for (let i = 0; i < 12; i++) {
-            const y = date.getFullYear();
-            const m = date.getMonth();
-            const value = `${y}-${String(m + 1).padStart(2, '0')}`;
-            const label = date.toLocaleString('es-AR', { month: 'long', year: 'numeric' });
-            periods.push({ 
-                value, 
-                label: label.charAt(0).toUpperCase() + label.slice(1) 
-            });
-            date.setMonth(date.getMonth() - 1);
+    const availableYears = useMemo(() => {
+        const currentYear = new Date().getFullYear();
+        const years = [];
+        for (let i = 0; i <= 10; i++) {
+            years.push(currentYear - i);
         }
-        return periods;
+        return years;
     }, []);
 
-    const currentYear = new Date().getFullYear();
-    const availableYears = [currentYear, currentYear - 1, currentYear - 2];
+    const getPeriodLabel = () => {
+        if (selectedYear === 'todos' && selectedMonth === 'todos') {
+            return '(Mes Actual)';
+        }
+        const monthObj = MONTHS.find(m => m.value === String(selectedMonth));
+        const monthLabel = monthObj && monthObj.value !== 'todos' ? monthObj.label : '';
+        
+        if (selectedYear !== 'todos' && selectedMonth !== 'todos') {
+            return `(${monthLabel} ${selectedYear})`;
+        }
+        if (selectedYear !== 'todos') {
+            return `(Año ${selectedYear})`;
+        }
+        if (selectedMonth !== 'todos') {
+            return `(${monthLabel} - Histórico)`;
+        }
+        return '';
+    };
 
     const [createMode, setCreateMode] = useState('file'); 
     const [manualData, setManualData] = useState({
@@ -66,9 +91,13 @@ const BillingRequestsPage = () => {
         cuitEmisor: ''
     });
 
-    const [newRequestFile, setNewRequestFile] = useState(null);
+    const [newRequestFiles, setNewRequestFiles] = useState([]);
     const [newRequestNote, setNewRequestNote] = useState('');
+    const [fileError, setFileError] = useState(null);
+    const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0, fileName: '' });
     const [uploading, setUploading] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
+    const [previewItem, setPreviewItem] = useState(null);
     const [isZipping, setIsZipping] = useState(false);
 
     const [completingId, setCompletingId] = useState(null);
@@ -214,20 +243,33 @@ const BillingRequestsPage = () => {
         if (selectedClient !== 'todos') {
             data = data.filter(req => getUnifiedName(req) === selectedClient);
         }
-        if (selectedPeriod !== 'todos') {
-            const [y, m] = selectedPeriod.split('-').map(Number);
+        if (selectedYear !== 'todos') {
+            const y = parseInt(selectedYear, 10);
             data = data.filter(req => {
                 const reqDate = req.timestamp?.toDate();
-                return reqDate && reqDate.getFullYear() === y && (reqDate.getMonth() + 1) === m;
+                if (!reqDate || reqDate.getFullYear() !== y) return false;
+                if (selectedMonth !== 'todos') {
+                    const m = parseInt(selectedMonth, 10);
+                    return (reqDate.getMonth() + 1) === m;
+                }
+                return true;
+            });
+        } else if (selectedMonth !== 'todos') {
+            const m = parseInt(selectedMonth, 10);
+            data = data.filter(req => {
+                const reqDate = req.timestamp?.toDate();
+                return reqDate && (reqDate.getMonth() + 1) === m;
             });
         }
 
         if (filterStatus === 'completed') {
-            return selectedPeriod !== 'todos' ? data.filter(r => r.status === 'completed') : data.filter(r => r.status === 'completed').slice(0, 30);
+            return (selectedYear !== 'todos' || selectedMonth !== 'todos') 
+                ? data.filter(r => r.status === 'completed') 
+                : data.filter(r => r.status === 'completed').slice(0, 30);
         } else {
             return data.filter(r => r.status !== 'completed');
         }
-    }, [visibleRequests, selectedClient, selectedPeriod, filterStatus, clientDictionary]);
+    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, filterStatus, clientDictionary]);
 
     const metrics = useMemo(() => {
         let baseData = visibleRequests;
@@ -236,11 +278,22 @@ const BillingRequestsPage = () => {
         }
         
         let reqs = baseData;
-        if (selectedPeriod !== 'todos') {
-            const [y, m] = selectedPeriod.split('-').map(Number);
+        if (selectedYear !== 'todos') {
+            const y = parseInt(selectedYear, 10);
             reqs = baseData.filter(req => {
                 const reqDate = req.timestamp?.toDate();
-                return reqDate && reqDate.getFullYear() === y && (reqDate.getMonth() + 1) === m;
+                if (!reqDate || reqDate.getFullYear() !== y) return false;
+                if (selectedMonth !== 'todos') {
+                    const m = parseInt(selectedMonth, 10);
+                    return (reqDate.getMonth() + 1) === m;
+                }
+                return true;
+            });
+        } else if (selectedMonth !== 'todos') {
+            const m = parseInt(selectedMonth, 10);
+            reqs = baseData.filter(req => {
+                const reqDate = req.timestamp?.toDate();
+                return reqDate && (reqDate.getMonth() + 1) === m;
             });
         } else {
             const now = new Date();
@@ -253,17 +306,28 @@ const BillingRequestsPage = () => {
             totalFacturado: reqs.filter(r => r.status === 'completed').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0),
             totalPendiente: reqs.filter(r => r.status !== 'completed' && r.status !== 'duplicate').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0)
         };
-    }, [visibleRequests, selectedClient, selectedPeriod, clientDictionary]);
+    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, clientDictionary]);
 
     const clientBillingSummary = useMemo(() => {
         const summaryMap = {};
         
         let targetRequests = requests;
-        if (selectedPeriod !== 'todos') {
-            const [y, m] = selectedPeriod.split('-').map(Number);
+        if (selectedYear !== 'todos') {
+            const y = parseInt(selectedYear, 10);
             targetRequests = requests.filter(req => {
                 const reqDate = req.timestamp?.toDate();
-                return reqDate && reqDate.getFullYear() === y && (reqDate.getMonth() + 1) === m;
+                if (!reqDate || reqDate.getFullYear() !== y) return false;
+                if (selectedMonth !== 'todos') {
+                    const m = parseInt(selectedMonth, 10);
+                    return (reqDate.getMonth() + 1) === m;
+                }
+                return true;
+            });
+        } else if (selectedMonth !== 'todos') {
+            const m = parseInt(selectedMonth, 10);
+            targetRequests = requests.filter(req => {
+                const reqDate = req.timestamp?.toDate();
+                return reqDate && (reqDate.getMonth() + 1) === m;
             });
         }
 
@@ -309,20 +373,31 @@ const BillingRequestsPage = () => {
         });
         
         return Object.values(summaryMap).sort((a, b) => b.totalFacturado - a.totalFacturado);
-    }, [requests, selectedPeriod, clientDictionary]);
+    }, [requests, selectedYear, selectedMonth, clientDictionary]);
 
     const consolidatedClientRequests = useMemo(() => {
         if (!selectedConsolidatedClient) return [];
         let data = requests.filter(req => getUnifiedName(req) === selectedConsolidatedClient.name);
-        if (selectedPeriod !== 'todos') {
-            const [y, m] = selectedPeriod.split('-').map(Number);
+        if (selectedYear !== 'todos') {
+            const y = parseInt(selectedYear, 10);
             data = data.filter(req => {
                 const reqDate = req.timestamp?.toDate();
-                return reqDate && reqDate.getFullYear() === y && (reqDate.getMonth() + 1) === m;
+                if (!reqDate || reqDate.getFullYear() !== y) return false;
+                if (selectedMonth !== 'todos') {
+                    const m = parseInt(selectedMonth, 10);
+                    return (reqDate.getMonth() + 1) === m;
+                }
+                return true;
+            });
+        } else if (selectedMonth !== 'todos') {
+            const m = parseInt(selectedMonth, 10);
+            data = data.filter(req => {
+                const reqDate = req.timestamp?.toDate();
+                return reqDate && (reqDate.getMonth() + 1) === m;
             });
         }
         return data;
-    }, [requests, selectedConsolidatedClient, selectedPeriod]);
+    }, [requests, selectedConsolidatedClient, selectedYear, selectedMonth]);
 
     // 4. Backup ZIP Logic
     const downloadYearlyBackup = async (year) => {
@@ -392,24 +467,203 @@ const BillingRequestsPage = () => {
         } catch (e) { alert(e.message); } finally { setIsZipping(false); }
     };
 
-    // 5. Actions
+    // 5. Multi-file Handlers & Actions (Nivel Completo)
+    const MAX_FILES = 10;
+    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+    const MAX_TOTAL_SIZE = 30 * 1024 * 1024; // 30 MB
+    const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'];
+
+    const processFiles = (fileList) => {
+        setFileError(null);
+        const incomingFiles = Array.from(fileList || []);
+        if (incomingFiles.length === 0) return;
+
+        let updatedList = [...newRequestFiles];
+        let rejectedReasons = [];
+
+        for (const file of incomingFiles) {
+            if (updatedList.length >= MAX_FILES) {
+                rejectedReasons.push(`Límite máximo de ${MAX_FILES} comprobantes alcanzado.`);
+                break;
+            }
+
+            const fileNameLower = file.name.toLowerCase();
+            const hasValidExt = ALLOWED_EXTENSIONS.some(ext => fileNameLower.endsWith(ext));
+            const hasValidMime = file.type.startsWith('image/') || file.type === 'application/pdf';
+
+            if (!hasValidExt && !hasValidMime) {
+                rejectedReasons.push(`"${file.name}": Formato no permitido (solo imágenes JPG/PNG/WEBP o PDF).`);
+                continue;
+            }
+
+            if (file.size > MAX_FILE_SIZE) {
+                rejectedReasons.push(`"${file.name}": Supera el tamaño máximo de 5 MB.`);
+                continue;
+            }
+
+            const alreadyExists = updatedList.some(item => item.file.name === file.name && item.file.size === file.size);
+            if (alreadyExists) {
+                rejectedReasons.push(`"${file.name}": Ya está en la lista.`);
+                continue;
+            }
+
+            const currentTotalSize = updatedList.reduce((sum, item) => sum + item.file.size, 0);
+            if (currentTotalSize + file.size > MAX_TOTAL_SIZE) {
+                rejectedReasons.push(`Se supera el peso acumulado permitido de 30 MB.`);
+                break;
+            }
+
+            const isPdf = file.type === 'application/pdf' || fileNameLower.endsWith('.pdf');
+            const previewUrl = isPdf ? null : URL.createObjectURL(file);
+
+            updatedList.push({
+                id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                file,
+                isPdf,
+                previewUrl,
+                name: file.name,
+                sizeFormatted: (file.size / (1024 * 1024)).toFixed(2) + ' MB'
+            });
+        }
+
+        setNewRequestFiles(updatedList);
+        if (rejectedReasons.length > 0) {
+            setFileError(rejectedReasons.join(' '));
+        }
+    };
+
+    const handleFileSelection = (e) => {
+        processFiles(e.target.files);
+        e.target.value = '';
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!uploading && !isDragging) setIsDragging(true);
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        if (uploading) return;
+        if (e.dataTransfer && e.dataTransfer.files) {
+            processFiles(e.dataTransfer.files);
+        }
+    };
+
+    const handleRemoveFile = (idToRemove) => {
+        setFileError(null);
+        setNewRequestFiles(prev => {
+            const itemToRemove = prev.find(item => item.id === idToRemove);
+            if (itemToRemove && itemToRemove.previewUrl) {
+                URL.revokeObjectURL(itemToRemove.previewUrl);
+            }
+            return prev.filter(item => item.id !== idToRemove);
+        });
+    };
+
+    const resetModalState = () => {
+        newRequestFiles.forEach(item => {
+            if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+        });
+        setNewRequestFiles([]);
+        setNewRequestNote('');
+        setFileError(null);
+        setIsDragging(false);
+        setPreviewItem(null);
+        setUploadProgress({ current: 0, total: 0, fileName: '' });
+        setManualData({
+            monto: '',
+            fecha: new Date().toISOString().split('T')[0],
+            concepto: 'Pago en Efectivo',
+            nombreCliente: '',
+            cuitCliente: '',
+            nombreEmisor: 'Consumidor Final',
+            cuitEmisor: ''
+        });
+        setCreateMode('file');
+        setShowModal(false);
+    };
+
+    const uploadFileWithRetry = async (fileRef, file, maxRetries = 2) => {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                await uploadBytes(fileRef, file);
+                return await getDownloadURL(fileRef);
+            } catch (err) {
+                if (attempt === maxRetries) throw err;
+                await new Promise(res => setTimeout(res, 800 * (attempt + 1)));
+            }
+        }
+    };
+
     const handleCreateRequest = async (e) => {
         e.preventDefault();
         if (!user) return;
-        if (createMode === 'file' && !newRequestFile) return alert("Falta archivo");
-        if (createMode === 'manual' && (!manualData.monto || !manualData.nombreCliente)) return alert("Faltan datos");
+        if (createMode === 'file' && newRequestFiles.length === 0) {
+            return setFileError("Debes adjuntar al menos un comprobante.");
+        }
+        if (createMode === 'manual' && (!manualData.monto || !manualData.nombreCliente)) {
+            return alert("Faltan datos requeridos para la carga manual");
+        }
 
         setUploading(true);
+        setFileError(null);
         try {
-            let url = null;
-            let finalAiData = null;
+            const modo = userData?.isAdmin ? 'estudio' : (userData.modoFacturacion || 'estudio');
 
             if (createMode === 'file') {
-                const fileRef = ref(storage, `billing_requests/${user.uid}/${Date.now()}_${newRequestFile.name}`);
-                await uploadBytes(fileRef, newRequestFile);
-                url = await getDownloadURL(fileRef);
+                const totalFiles = newRequestFiles.length;
+                let successCount = 0;
+                let failCount = 0;
+
+                for (let i = 0; i < totalFiles; i++) {
+                    const item = newRequestFiles[i];
+                    setUploadProgress({
+                        current: i + 1,
+                        total: totalFiles,
+                        fileName: item.name
+                    });
+
+                    try {
+                        // 1. Subir a Storage con reintento automático
+                        const fileRef = ref(storage, `billing_requests/${user.uid}/${Date.now()}_${item.file.name}`);
+                        const url = await uploadFileWithRetry(fileRef, item.file);
+
+                        // 2. Crear documento individual en Firestore (disparará la Cloud Function analyzeBillingRequest)
+                        await addDoc(collection(db, 'billing_requests'), {
+                            userId: user.uid,
+                            userName: userData.nombre || user.email,
+                            userPhone: userData.telefono || "",
+                            userModoFacturacion: modo,
+                            status: 'pending',
+                            requestImageUrl: url,
+                            aiData: null,
+                            note: newRequestNote,
+                            timestamp: Timestamp.now(),
+                            invoiceUrl: null,
+                            isManualEntry: false
+                        });
+                        successCount++;
+                    } catch (fileErr) {
+                        console.error(`Error al subir ${item.name}:`, fileErr);
+                        failCount++;
+                    }
+                }
+
+                if (failCount > 0) {
+                    alert(`Se procesaron ${successCount} de ${totalFiles} comprobantes. ${failCount} tuvieron problemas de conexión.`);
+                }
             } else {
-                finalAiData = {
+                const finalAiData = {
                     monto_total: parseFloat(manualData.monto),
                     fecha_pago: manualData.fecha,
                     tipo_comprobante: 'Efectivo/Manual',
@@ -420,42 +674,29 @@ const BillingRequestsPage = () => {
                     cuit_receptor: manualData.cuitCliente || '', 
                     banco_origen: 'Efectivo/Caja'
                 };
+
+                await addDoc(collection(db, 'billing_requests'), {
+                    userId: user.uid, 
+                    userName: userData.nombre || user.email, 
+                    userPhone: userData.telefono || "",
+                    userModoFacturacion: modo, 
+                    status: 'pending', 
+                    requestImageUrl: null, 
+                    aiData: finalAiData,
+                    note: newRequestNote, 
+                    timestamp: Timestamp.now(), 
+                    invoiceUrl: null, 
+                    isManualEntry: true
+                });
             }
 
-            const modo = userData?.isAdmin ? 'estudio' : (userData.modoFacturacion || 'estudio');
-
-            await addDoc(collection(db, 'billing_requests'), {
-                userId: user.uid, 
-                userName: userData.nombre || user.email, 
-                userPhone: userData.telefono || "",
-                userModoFacturacion: modo, 
-                status: 'pending', 
-                requestImageUrl: url, 
-                aiData: finalAiData,
-                note: newRequestNote, 
-                timestamp: Timestamp.now(), 
-                invoiceUrl: null, 
-                isManualEntry: createMode === 'manual'
-            });
-
-            setShowModal(false); 
-            setNewRequestFile(null); 
-            setNewRequestNote('');
-            setManualData({
-                monto: '',
-                fecha: new Date().toISOString().split('T')[0],
-                concepto: 'Pago en Efectivo',
-                nombreCliente: '',
-                cuitCliente: '',
-                nombreEmisor: 'Consumidor Final',
-                cuitEmisor: ''
-            });
-            setCreateMode('file');
+            resetModalState();
         } catch (e) { 
-            console.error(e);
-            alert("Error al crear la solicitud"); 
+            console.error("Error al procesar la solicitud:", e);
+            alert("Ocurrió un error al procesar las solicitudes. Por favor reintenta."); 
         } finally { 
             setUploading(false); 
+            setUploadProgress({ current: 0, total: 0, fileName: '' });
         }
     };
 
@@ -593,12 +834,22 @@ const BillingRequestsPage = () => {
                     <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2">
                         <Icon name="Calendar" className="w-4 h-4 text-gray-400 ml-2"/>
                         <select 
-                            value={selectedPeriod} 
-                            onChange={(e) => setSelectedPeriod(e.target.value)} 
+                            value={selectedYear} 
+                            onChange={(e) => setSelectedYear(e.target.value)} 
                             className="bg-transparent border-none text-sm font-bold text-gray-700 focus:ring-0 outline-none pr-8 cursor-pointer"
                         >
-                            <option value="todos">Todos los Períodos</option>
-                            {availablePeriods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                            <option value="todos">Todos los Años</option>
+                            {availableYears.map(year => <option key={year} value={year}>{year}</option>)}
+                        </select>
+                    </div>
+                    <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2">
+                        <Icon name="Clock" className="w-4 h-4 text-gray-400 ml-2"/>
+                        <select 
+                            value={selectedMonth} 
+                            onChange={(e) => setSelectedMonth(e.target.value)} 
+                            className="bg-transparent border-none text-sm font-bold text-gray-700 focus:ring-0 outline-none pr-8 cursor-pointer"
+                        >
+                            {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                         </select>
                     </div>
                     <button 
@@ -631,7 +882,7 @@ const BillingRequestsPage = () => {
                     </div>
                     <div className="relative z-10">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
-                            Total Facturado {selectedPeriod === 'todos' ? '(Mes Actual)' : `(${availablePeriods.find(p => p.value === selectedPeriod)?.label || ''})`}
+                            Total Facturado {getPeriodLabel()}
                         </p>
                         <h3 className="text-3xl font-black text-gray-900 tracking-tight">{formatCurrency(metrics.totalFacturado)}</h3>
                     </div>
@@ -645,7 +896,7 @@ const BillingRequestsPage = () => {
                     </div>
                     <div className="relative z-10">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
-                            Pendiente {selectedPeriod === 'todos' ? '(Mes Actual)' : `(${availablePeriods.find(p => p.value === selectedPeriod)?.label || ''})`}
+                            Pendiente {getPeriodLabel()}
                         </p>
                         <h3 className="text-3xl font-black text-gray-900 tracking-tight">{formatCurrency(metrics.totalPendiente)}</h3>
                     </div>
@@ -1340,16 +1591,21 @@ const BillingRequestsPage = () => {
                 />
             )}
             
-            {/* Modal de Creación */}
+            {/* Modal de Creación (Nivel Completo con Drag & Drop y Lightbox) */}
             {showModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[32px] shadow-2xl max-w-lg w-full p-8 animate-in fade-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+                <div 
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                >
+                    <div className="bg-white rounded-[32px] shadow-2xl max-w-lg w-full p-8 animate-in fade-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto relative">
                         <div className="flex justify-between items-start mb-6">
                             <div>
                                 <h3 className="text-2xl font-black text-gray-900 tracking-tight">Nueva Solicitud</h3>
-                                <p className="text-gray-500 text-sm font-medium mt-1">Sube un comprobante o registra un pago manual.</p>
+                                <p className="text-gray-500 text-sm font-medium mt-1">Sube uno o varios comprobantes para análisis IA o registra un pago manual.</p>
                             </div>
-                            <button onClick={() => setShowModal(false)} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl transition-all">
+                            <button onClick={resetModalState} disabled={uploading} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl transition-all disabled:opacity-50">
                                 <Icon name="X" size={24}/>
                             </button>
                         </div>
@@ -1357,31 +1613,201 @@ const BillingRequestsPage = () => {
                         <div className="flex bg-gray-50 p-1.5 rounded-2xl mb-6 border border-gray-100">
                             <button 
                                 onClick={() => setCreateMode('file')} 
+                                disabled={uploading}
                                 className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${createMode === 'file' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}
                             >
-                                Adjuntar Archivo
+                                Adjuntar Archivos
                             </button>
                             <button 
                                 onClick={() => setCreateMode('manual')} 
+                                disabled={uploading}
                                 className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${createMode === 'manual' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}
                             >
                                 Carga Manual
                             </button>
                         </div>
 
-                        <form onSubmit={handleCreateRequest} className="space-y-4">
+                        <form onSubmit={handleCreateRequest} className="space-y-5">
                             {createMode === 'file' ? (
                                 <div className="space-y-4">
-                                    <label className="group block">
-                                        <div className="border-4 border-dashed border-gray-100 rounded-2xl p-6 text-center group-hover:border-blue-100 group-hover:bg-blue-50/30 transition-all cursor-pointer">
-                                            <div className="bg-blue-50 w-12 h-12 rounded-xl flex items-center justify-center text-blue-600 mx-auto mb-3 group-hover:scale-110 transition-transform">
-                                                <Icon name="Search" size={24}/>
+                                    {/* Zona de Drop / Selección con Drag & Drop Interactivo */}
+                                    {newRequestFiles.length === 0 ? (
+                                        <label 
+                                            className="group block"
+                                            onDragOver={handleDragOver}
+                                            onDragLeave={handleDragLeave}
+                                            onDrop={handleDrop}
+                                        >
+                                            <div className={`border-4 border-dashed rounded-3xl p-8 text-center transition-all cursor-pointer ${
+                                                isDragging 
+                                                    ? 'border-blue-500 bg-blue-50/80 ring-4 ring-blue-100 scale-[1.02]' 
+                                                    : 'border-gray-100 group-hover:border-blue-200 group-hover:bg-blue-50/30'
+                                            }`}>
+                                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 transition-transform shadow-sm ${
+                                                    isDragging ? 'bg-blue-600 text-white scale-125' : 'bg-blue-50 text-blue-600 group-hover:scale-110'
+                                                }`}>
+                                                    <Icon name={isDragging ? 'DownloadCloud' : 'Search'} size={26}/>
+                                                </div>
+                                                <p className="text-sm font-black text-gray-800">
+                                                    {isDragging ? '¡Suelta tus comprobantes aquí!' : 'Arrastra o Selecciona Comprobantes'}
+                                                </p>
+                                                <p className="text-xs text-gray-400 font-bold mt-1.5 uppercase tracking-wider">
+                                                    Hasta {MAX_FILES} archivos (JPG, PNG, WEBP o PDF)
+                                                </p>
+                                                <div className="flex justify-center gap-2 mt-3">
+                                                    <span className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-black rounded-lg uppercase tracking-widest">
+                                                        Máx. 5 MB c/u
+                                                    </span>
+                                                    <span className="px-3 py-1 bg-gray-100 text-gray-600 text-[10px] font-black rounded-lg uppercase tracking-widest">
+                                                        Arrastrar & Soltar
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <p className="text-sm font-black text-gray-800">{newRequestFile ? newRequestFile.name : 'Subir Comprobante'}</p>
-                                            <p className="text-xs text-gray-400 font-bold mt-1.5 uppercase tracking-widest">{newRequestFile ? 'Archivo seleccionado' : 'Imagen o PDF'}</p>
+                                            <input 
+                                                type="file" 
+                                                className="hidden" 
+                                                multiple 
+                                                onChange={handleFileSelection} 
+                                                accept="image/jpeg,image/png,image/webp,application/pdf"
+                                                disabled={uploading}
+                                            />
+                                        </label>
+                                    ) : (
+                                        <div 
+                                            className="space-y-3"
+                                            onDragOver={handleDragOver}
+                                            onDragLeave={handleDragLeave}
+                                            onDrop={handleDrop}
+                                        >
+                                            {/* Header de archivos seleccionados */}
+                                            <div className={`flex justify-between items-center px-4 py-2.5 rounded-2xl border transition-all ${
+                                                isDragging ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-100' : 'bg-gray-50/80 border-gray-100'
+                                            }`}>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="px-2.5 py-0.5 bg-blue-600 text-white text-[10px] font-black rounded-lg">
+                                                        {newRequestFiles.length} / {MAX_FILES}
+                                                    </span>
+                                                    <span className="text-xs font-bold text-gray-600">
+                                                        Comprobantes ({ (newRequestFiles.reduce((sum, item) => sum + item.file.size, 0) / (1024 * 1024)).toFixed(2) } MB)
+                                                    </span>
+                                                </div>
+                                                {newRequestFiles.length < MAX_FILES && !uploading && (
+                                                    <label className="text-[11px] font-black text-blue-600 hover:text-blue-700 cursor-pointer flex items-center gap-1">
+                                                        <Icon name="PlusCircle" size={14}/> Agregar más
+                                                        <input 
+                                                            type="file" 
+                                                            className="hidden" 
+                                                            multiple 
+                                                            onChange={handleFileSelection} 
+                                                            accept="image/jpeg,image/png,image/webp,application/pdf"
+                                                        />
+                                                    </label>
+                                                )}
+                                            </div>
+
+                                            {/* Lista scrolleable de comprobantes con zoom preview */}
+                                            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                                {newRequestFiles.map((item, index) => (
+                                                    <div 
+                                                        key={item.id} 
+                                                        className="flex items-center justify-between p-2.5 bg-white border border-gray-100 rounded-2xl shadow-sm hover:border-blue-100 transition-all group"
+                                                    >
+                                                        <div className="flex items-center gap-3 min-w-0 flex-1 mr-2">
+                                                            {/* Thumbnail / Icono con botón de zoom */}
+                                                            <div className="relative group/thumb shrink-0">
+                                                                {item.isPdf ? (
+                                                                    <div className="w-11 h-11 rounded-xl bg-red-50 text-red-600 flex flex-col items-center justify-center font-black text-[9px] border border-red-100">
+                                                                        <Icon name="FileText" size={16}/>
+                                                                        <span>PDF</span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div 
+                                                                        onClick={() => setPreviewItem(item)} 
+                                                                        className="cursor-pointer relative overflow-hidden rounded-xl"
+                                                                        title="Ver imagen ampliada"
+                                                                    >
+                                                                        <img 
+                                                                            src={item.previewUrl} 
+                                                                            alt={item.name} 
+                                                                            className="w-11 h-11 rounded-xl object-cover border border-gray-100 bg-gray-50 group-hover/thumb:scale-105 transition-transform"
+                                                                        />
+                                                                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                                                            <Icon name="Maximize2" size={14}/>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="text-xs font-bold text-gray-800 truncate" title={item.name}>
+                                                                    {index + 1}. {item.name}
+                                                                </p>
+                                                                <div className="flex items-center gap-2 mt-0.5">
+                                                                    <span className="text-[10px] font-bold text-gray-400">
+                                                                        {item.sizeFormatted}
+                                                                    </span>
+                                                                    <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 bg-gray-100 text-gray-600 rounded">
+                                                                        {item.isPdf ? 'PDF' : item.name.split('.').pop()?.toUpperCase() || 'IMG'}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            {!item.isPdf && (
+                                                                <button 
+                                                                    type="button" 
+                                                                    onClick={() => setPreviewItem(item)} 
+                                                                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                                                    title="Ver comprobante"
+                                                                >
+                                                                    <Icon name="Maximize2" size={16}/>
+                                                                </button>
+                                                            )}
+                                                            {!uploading && (
+                                                                <button 
+                                                                    type="button" 
+                                                                    onClick={() => handleRemoveFile(item.id)} 
+                                                                    className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                                                    title="Eliminar archivo"
+                                                                >
+                                                                    <Icon name="Trash2" size={16}/>
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
-                                        <input type="file" className="hidden" onChange={(e) => setNewRequestFile(e.target.files[0])} accept="image/*,application/pdf"/>
-                                    </label>
+                                    )}
+
+                                    {/* Feedback de error de archivos */}
+                                    {fileError && (
+                                        <div className="bg-amber-50 border border-amber-100 p-3 rounded-2xl flex items-start gap-2.5 text-amber-800 text-xs font-medium animate-fadeIn">
+                                            <Icon name="AlertTriangle" size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                                            <span>{fileError}</span>
+                                        </div>
+                                    )}
+
+                                    {/* Progreso de subida en tiempo real */}
+                                    {uploading && (
+                                        <div className="bg-blue-50/80 border border-blue-100 p-4 rounded-2xl space-y-2 animate-pulse">
+                                            <div className="flex justify-between items-center text-xs font-bold text-blue-900">
+                                                <span className="flex items-center gap-2">
+                                                    <Icon name="Cpu" size={14} className="animate-spin text-blue-600"/>
+                                                    Subiendo comprobante {uploadProgress.current} de {uploadProgress.total}...
+                                                </span>
+                                                <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
+                                            </div>
+                                            <div className="w-full bg-blue-100 rounded-full h-2 overflow-hidden">
+                                                <div 
+                                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                                    style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                                                ></div>
+                                            </div>
+                                            <p className="text-[10px] text-blue-700 font-mono truncate">
+                                                {uploadProgress.fileName}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="space-y-4">
@@ -1421,21 +1847,87 @@ const BillingRequestsPage = () => {
                             )}
 
                             <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Nota adicional (Opcional)</label>
-                                <textarea placeholder="¿Algún detalle que debamos saber?" value={newRequestNote} onChange={e => setNewRequestNote(e.target.value)} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-medium text-gray-700 min-h-[80px] resize-none"></textarea>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">
+                                    {createMode === 'file' && newRequestFiles.length > 1
+                                        ? `Nota adicional compartida (${newRequestFiles.length} comprobantes - Opcional)`
+                                        : 'Nota adicional (Opcional)'}
+                                </label>
+                                <textarea 
+                                    placeholder={createMode === 'file' && newRequestFiles.length > 1 
+                                        ? "Esta nota se guardará en todas las solicitudes del lote..." 
+                                        : "¿Algún detalle que debamos saber?"} 
+                                    value={newRequestNote} 
+                                    onChange={e => setNewRequestNote(e.target.value)} 
+                                    disabled={uploading}
+                                    className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-medium text-gray-700 min-h-[80px] resize-none disabled:opacity-50"
+                                ></textarea>
                             </div>
 
                             <div className="flex gap-4 pt-2">
-                                <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 rounded-2xl transition-all">Cancelar</button>
+                                <button 
+                                    type="button" 
+                                    onClick={resetModalState} 
+                                    disabled={uploading}
+                                    className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 rounded-2xl transition-all disabled:opacity-50"
+                                >
+                                    Cancelar
+                                </button>
                                 <button 
                                     type="submit" 
-                                    disabled={uploading} 
-                                    className="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all transform active:scale-95 disabled:opacity-50"
+                                    disabled={uploading || (createMode === 'file' && newRequestFiles.length === 0)} 
+                                    className="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {uploading ? 'Procesando...' : 'Guardar Solicitud'}
+                                    {uploading 
+                                        ? `Procesando (${uploadProgress.current}/${uploadProgress.total})...` 
+                                        : createMode === 'file' && newRequestFiles.length > 1
+                                            ? `Guardar ${newRequestFiles.length} Solicitudes`
+                                            : 'Guardar Solicitud'}
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Lightbox / Modal de Vista Previa Ampliada */}
+            {previewItem && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[120] flex items-center justify-center p-6 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-[32px] overflow-hidden max-w-2xl w-full shadow-2xl flex flex-col max-h-[90vh]">
+                        <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                            <div>
+                                <h4 className="text-sm font-black text-gray-900 truncate max-w-md">{previewItem.name}</h4>
+                                <p className="text-[10px] font-bold text-gray-400">{previewItem.sizeFormatted}</p>
+                            </div>
+                            <button 
+                                onClick={() => setPreviewItem(null)} 
+                                className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
+                            >
+                                <Icon name="X" size={20}/>
+                            </button>
+                        </div>
+                        <div className="p-6 flex items-center justify-center overflow-auto bg-gray-950/5">
+                            {previewItem.isPdf ? (
+                                <div className="p-12 text-center">
+                                    <Icon name="FileText" size={64} className="text-red-500 mx-auto mb-4"/>
+                                    <p className="font-bold text-gray-800 text-sm">Archivo PDF seleccionado</p>
+                                    <p className="text-xs text-gray-400 mt-1">{previewItem.name}</p>
+                                </div>
+                            ) : (
+                                <img 
+                                    src={previewItem.previewUrl} 
+                                    alt={previewItem.name} 
+                                    className="max-h-[65vh] w-auto object-contain rounded-2xl shadow-md"
+                                />
+                            )}
+                        </div>
+                        <div className="p-4 border-t border-gray-100 bg-white flex justify-end">
+                            <button 
+                                onClick={() => setPreviewItem(null)} 
+                                className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-black transition-all"
+                            >
+                                Cerrar Vista Previa
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
