@@ -471,7 +471,16 @@ const BillingRequestsPage = () => {
     const MAX_FILES = 10;
     const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
     const MAX_TOTAL_SIZE = 30 * 1024 * 1024; // 30 MB
-    const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'];
+    const SAFE_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+    const SAFE_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
+
+    const getSafePreviewUrl = (url) => {
+        if (!url || typeof url !== 'string') return '';
+        if (url.startsWith('blob:') || url.startsWith('https://') || url.startsWith('http://')) {
+            return url;
+        }
+        return '';
+    };
 
     const processFiles = (fileList) => {
         setFileError(null);
@@ -488,11 +497,11 @@ const BillingRequestsPage = () => {
             }
 
             const fileNameLower = file.name.toLowerCase();
-            const hasValidExt = ALLOWED_EXTENSIONS.some(ext => fileNameLower.endsWith(ext));
-            const hasValidMime = file.type.startsWith('image/') || file.type === 'application/pdf';
+            const isPdf = file.type === 'application/pdf' || fileNameLower.endsWith('.pdf');
+            const isSafeImage = (SAFE_IMAGE_MIMES.includes(file.type) || SAFE_IMAGE_EXTS.some(ext => fileNameLower.endsWith(ext))) && !fileNameLower.endsWith('.svg');
 
-            if (!hasValidExt && !hasValidMime) {
-                rejectedReasons.push(`"${file.name}": Formato no permitido (solo imágenes JPG/PNG/WEBP o PDF).`);
+            if (!isPdf && !isSafeImage) {
+                rejectedReasons.push(`"${file.name}": Formato no permitido (solo imágenes JPG, PNG, WEBP o PDF).`);
                 continue;
             }
 
@@ -513,8 +522,7 @@ const BillingRequestsPage = () => {
                 break;
             }
 
-            const isPdf = file.type === 'application/pdf' || fileNameLower.endsWith('.pdf');
-            const previewUrl = isPdf ? null : URL.createObjectURL(file);
+            const previewUrl = isSafeImage ? URL.createObjectURL(file) : null;
 
             updatedList.push({
                 id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -1727,7 +1735,7 @@ const BillingRequestsPage = () => {
                                                                         title="Ver imagen ampliada"
                                                                     >
                                                                         <img 
-                                                                            src={item.previewUrl} 
+                                                                            src={getSafePreviewUrl(item.previewUrl)} 
                                                                             alt={item.name} 
                                                                             className="w-11 h-11 rounded-xl object-cover border border-gray-100 bg-gray-50 group-hover/thumb:scale-105 transition-transform"
                                                                         />
@@ -1914,7 +1922,7 @@ const BillingRequestsPage = () => {
                                 </div>
                             ) : (
                                 <img 
-                                    src={previewItem.previewUrl} 
+                                    src={getSafePreviewUrl(previewItem.previewUrl)} 
                                     alt={previewItem.name} 
                                     className="max-h-[65vh] w-auto object-contain rounded-2xl shadow-md"
                                 />
