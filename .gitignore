@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Testing / Emulators scripts locales
+seed_emulator_admin.js
+create_admin_user.js
+
