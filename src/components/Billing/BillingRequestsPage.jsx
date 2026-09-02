@@ -19,6 +19,215 @@ import ConfirmModal from '../Common/ConfirmModal';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
+const WEBHOOK_URL = "https://us-central1-gyrconsultores-82422.cloudfunctions.net/whatsappWebhook";
+
+/** Modal de configuración de conexión WhatsApp — componente separado para respetar reglas de hooks */
+const WhatsAppConnectionModal = ({ onClose }) => {
+    const [expandedOption, setExpandedOption] = useState(null);
+    const [copied, setCopied] = useState(false);
+
+    const copyWebhook = () => {
+        navigator.clipboard.writeText(WEBHOOK_URL);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    const StepItem = ({ step, title, desc, extra, link, links, color = 'blue' }) => (
+        <li className="flex gap-3 items-start">
+            <span className={`shrink-0 w-6 h-6 rounded-full bg-${color}-600 text-white text-[10px] font-black flex items-center justify-center mt-0.5`}>{step}</span>
+            <div className="space-y-1 flex-1">
+                <p className="text-xs font-bold text-gray-800">{title}</p>
+                <p className="text-[11px] text-gray-500 leading-relaxed">{desc}</p>
+                {extra && (
+                    <div className="mt-1 flex items-center gap-2">
+                        <code className={`text-[10px] bg-white border border-${color}-200 text-${color}-700 px-2 py-1 rounded-lg font-mono break-all flex-1`}>{extra}</code>
+                        <button onClick={copyWebhook} className={`shrink-0 text-${color}-600 hover:text-${color}-800 transition-colors`} title="Copiar URL">
+                            <Icon name={copied ? "Check" : "Copy"} size={13}/>
+                        </button>
+                    </div>
+                )}
+                {link && (
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 text-[11px] text-${color}-600 font-bold hover:underline mt-0.5`}>
+                        <Icon name="ExternalLink" size={12}/> {link.label}
+                    </a>
+                )}
+                {links && (
+                    <div className="flex gap-3 mt-1">
+                        {links.map(l => (
+                            <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 text-[11px] text-${color}-600 font-bold hover:underline`}>
+                                <Icon name="ExternalLink" size={12}/> {l.label}
+                            </a>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </li>
+    );
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white rounded-[32px] shadow-2xl max-w-xl w-full p-8 max-h-[90vh] overflow-y-auto">
+                {/* Header */}
+                <div className="flex justify-between items-start mb-6">
+                    <div className="flex items-center gap-3">
+                        <div className="p-3 bg-emerald-100 text-emerald-600 rounded-2xl">
+                            <Icon name="MessageCircle" size={28}/>
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-black text-gray-900">Conexión de WhatsApp</h3>
+                            <p className="text-xs text-gray-500 font-medium">Recepción y clasificación automática de comprobantes</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl">
+                        <Icon name="X" size={20}/>
+                    </button>
+                </div>
+
+                <div className="space-y-5">
+                    {/* Cómo funciona */}
+                    <div className="bg-emerald-50/60 p-5 rounded-2xl border border-emerald-100 space-y-2">
+                        <h4 className="text-xs font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                            <Icon name="CheckCircle" size={14}/> ¿Cómo funciona la vinculación?
+                        </h4>
+                        <p className="text-xs text-emerald-800 leading-relaxed font-medium">
+                            ¡Es 100% automática! Los comprobantes que llegan a tu número de WhatsApp Business son reenviados a nuestro Webhook. La IA detecta el emisor, receptor, monto y CUIT; si el remitente o el CUIT coincide con algún cliente del estudio, <strong>se asocia automáticamente</strong>.
+                        </p>
+                    </div>
+
+                    {/* URL del Webhook */}
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block px-1">
+                            URL de tu Webhook Cloud Functions (Listo para usar)
+                        </label>
+                        <div className="flex items-center gap-2">
+                            <input type="text" readOnly value={WEBHOOK_URL}
+                                className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 select-all outline-none"
+                            />
+                            <button onClick={copyWebhook}
+                                className={`px-4 py-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${copied ? 'bg-emerald-500 text-white' : 'bg-gray-800 hover:bg-black text-white'}`}
+                            >
+                                <Icon name={copied ? "Check" : "Copy"} size={14}/>
+                                {copied ? '¡Copiado!' : 'Copiar'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Opciones como acordeones */}
+                    <div className="space-y-3">
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-1">
+                            Elegí tu método de conexión
+                        </h4>
+
+                        {/* Opción 1 – Evolution API */}
+                        <div className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
+                            expandedOption === 1 ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-gray-50 hover:border-blue-200 hover:bg-blue-50/20'
+                        }`}>
+                            <button onClick={() => setExpandedOption(expandedOption === 1 ? null : 1)}
+                                className="w-full p-4 flex items-center gap-3 text-left">
+                                <div className="p-2 bg-blue-100 text-blue-700 rounded-xl shrink-0"><Icon name="Smartphone" size={16}/></div>
+                                <div className="flex-1">
+                                    <p className="font-black text-gray-800 text-xs">Opción 1: Evolution API / Baileys</p>
+                                    <p className="text-[11px] text-gray-500">Recomendada · Escaneo QR único, sin perder tu app</p>
+                                </div>
+                                <div className={`text-blue-500 transition-transform duration-200 ${expandedOption === 1 ? 'rotate-180' : ''}`}>
+                                    <Icon name="ChevronDown" size={18}/>
+                                </div>
+                            </button>
+                            {expandedOption === 1 && (
+                                <div className="px-4 pb-5 space-y-4">
+                                    <p className="text-[11px] text-gray-600 leading-relaxed">
+                                        Evolution API es un servidor que conecta tu WhatsApp Business a cualquier webhook. Se instala en un VPS propio o en la nube y solo necesitás escanear el QR una sola vez.
+                                    </p>
+                                    <ol className="space-y-3">
+                                        <StepItem step={1} color="blue"
+                                            title="Instalá Evolution API en tu servidor"
+                                            desc="Necesitás un VPS (DigitalOcean, Hetzner, etc.) con Docker. Seguí la guía oficial:"
+                                            link={{ label: "Ver documentación oficial de Evolution API →", url: "https://doc.evolution-api.com/v2/pt/get-started/introduction" }}
+                                        />
+                                        <StepItem step={2} color="blue"
+                                            title="Creá una instancia de WhatsApp"
+                                            desc="Desde el panel de Evolution API (o vía API REST), creás una nueva instancia, escaneás el QR con tu celular y tu número queda vinculado."
+                                        />
+                                        <StepItem step={3} color="blue"
+                                            title="Configurá el Webhook en la instancia"
+                                            desc="En la configuración de la instancia, ingresá esta URL en el campo Webhook URL y activá los eventos: MESSAGES_UPSERT y MESSAGES_UPDATE."
+                                            extra={WEBHOOK_URL}
+                                        />
+                                        <StepItem step={4} color="blue"
+                                            title="¡Listo! La conexión es automática"
+                                            desc="Desde ese momento, cada foto o PDF que recibas en WhatsApp se procesará con la IA y aparecerá en esta bandeja."
+                                        />
+                                    </ol>
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                                        <p className="text-[11px] text-amber-800 font-medium">
+                                            💡 <strong>Sin servidor propio:</strong> Podés usar{' '}
+                                            <a href="https://app.evolution-api.com" target="_blank" rel="noopener noreferrer" className="underline font-bold">Evolution API Cloud</a>{' '}
+                                            (versión gestionada) o un hosting con Docker preconfigurado.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Opción 2 – Make / n8n / Zapier */}
+                        <div className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
+                            expandedOption === 2 ? 'border-indigo-300 bg-indigo-50/40' : 'border-gray-200 bg-gray-50 hover:border-indigo-200 hover:bg-indigo-50/20'
+                        }`}>
+                            <button onClick={() => setExpandedOption(expandedOption === 2 ? null : 2)}
+                                className="w-full p-4 flex items-center gap-3 text-left">
+                                <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl shrink-0"><Icon name="Layers" size={16}/></div>
+                                <div className="flex-1">
+                                    <p className="font-black text-gray-800 text-xs">Opción 2: Make / n8n / Zapier</p>
+                                    <p className="text-[11px] text-gray-500">Sin servidor · Conectás tu WhatsApp vía automatización</p>
+                                </div>
+                                <div className={`text-indigo-500 transition-transform duration-200 ${expandedOption === 2 ? 'rotate-180' : ''}`}>
+                                    <Icon name="ChevronDown" size={18}/>
+                                </div>
+                            </button>
+                            {expandedOption === 2 && (
+                                <div className="px-4 pb-5 space-y-4">
+                                    <p className="text-[11px] text-gray-600 leading-relaxed">
+                                        Si ya tenés WhatsApp Business conectado a Make, n8n o Zapier, solo necesitás agregar un paso HTTP POST que reenvíe el mensaje a nuestro webhook.
+                                    </p>
+                                    <ol className="space-y-3">
+                                        <StepItem step={1} color="indigo"
+                                            title="Abrí tu plataforma de automatización"
+                                            desc="Creá un nuevo Escenario (Make), Workflow (n8n) o Zap (Zapier) con el trigger: 'Mensaje entrante de WhatsApp'."
+                                            links={[
+                                                { label: "Ir a Make →", url: "https://www.make.com" },
+                                                { label: "Ir a n8n →", url: "https://n8n.io" },
+                                            ]}
+                                        />
+                                        <StepItem step={2} color="indigo"
+                                            title="Agrega un módulo HTTP POST"
+                                            desc="Añadí un paso 'HTTP Request' con método POST y la siguiente URL:"
+                                            extra={WEBHOOK_URL}
+                                        />
+                                        <StepItem step={3} color="indigo"
+                                            title="Mapeá el cuerpo del mensaje"
+                                            desc="En el body, mapeá: número de teléfono del remitente (phone), texto del mensaje (body) y si hay adjunto, su URL (mediaUrl / fileUrl)."
+                                        />
+                                        <StepItem step={4} color="indigo"
+                                            title="Activá y probá el flujo"
+                                            desc="Enviá un comprobante de prueba. Debería aparecer en esta bandeja en segundos con la clasificación automática de la IA."
+                                        />
+                                    </ol>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <button onClick={onClose}
+                        className="w-full py-3.5 bg-gray-900 hover:bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg"
+                    >
+                        Entendido
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const MONTHS = [
     { value: 'todos', label: 'Todos los Meses' },
     { value: '1', label: 'Enero' },
@@ -2341,96 +2550,202 @@ const BillingRequestsPage = () => {
             )}
 
             {/* Modal de Conexión y Vinculación WhatsApp */}
-            {showWhatsAppModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[32px] shadow-2xl max-w-xl w-full p-8 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
-                        <div className="flex justify-between items-start mb-6">
-                            <div className="flex items-center gap-3">
-                                <div className="p-3 bg-emerald-100 text-emerald-600 rounded-2xl">
-                                    <Icon name="MessageCircle" size={28}/>
+                                <Icon name="X" size={28}/>
+                            </button>
+                        </div>
+                        
+                        <form onSubmit={handleSaveEdits} className="space-y-10">
+                            {/* Operation Details Section */}
+                            <section>
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="w-1.5 h-6 bg-yellow-400 rounded-full"></div>
+                                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Información General</h4>
                                 </div>
-                                <div>
-                                    <h3 className="text-xl font-black text-gray-900">Conexión de WhatsApp</h3>
-                                    <p className="text-xs text-gray-500 font-medium">Recepción y clasificación automática de comprobantes</p>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-yellow-50/50 p-8 rounded-[32px] border border-yellow-100">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Fecha</label>
+                                        <input type="date" value={editFormData.fecha_pago} onChange={e => setEditFormData({...editFormData, fecha_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Hora</label>
+                                        <input type="time" value={editFormData.hora_pago} onChange={e => setEditFormData({...editFormData, hora_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Monto Total</label>
+                                        <input type="number" step="0.01" value={editFormData.monto_total} onChange={e => setEditFormData({...editFormData, monto_total: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-black text-lg text-gray-900 shadow-sm"/>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Tipo de Comprobante</label>
+                                        <input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: Transferencia"/>
+                                    </div>
+                                    <div className="md:col-span-2 space-y-2">
+                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Número de Operación</label>
+                                        <input type="text" value={editFormData.numero_operacion} onChange={e => setEditFormData({...editFormData, numero_operacion: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="ID de transacción / Referencia"/>
+                                    </div>
                                 </div>
+                            </section>
+
+                            {/* Parties Section */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                                <section>
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <div className="w-1.5 h-6 bg-gray-400 rounded-full"></div>
+                                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Emisor (Origen)</h4>
+                                    </div>
+                                    <div className="bg-gray-50 p-8 rounded-[32px] border border-gray-100 space-y-5">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-500 uppercase px-1">Nombre / Razón Social</label>
+                                            <input value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase px-1">CUIT</label>
+                                                <input value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase px-1">Banco / Billetera</label>
+                                                <input value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section>
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <div className="w-1.5 h-6 bg-blue-500 rounded-full"></div>
+                                        <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Receptor (Cliente)</h4>
+                                    </div>
+                                    <div className="bg-blue-50/50 p-8 rounded-[32px] border border-blue-100 space-y-5">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-blue-600 uppercase px-1">Nombre / Razón Social</label>
+                                            <input value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-blue-600 uppercase px-1">WhatsApp Notificación</label>
+                                            <div className="relative">
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg">📱</span>
+                                                <input type="tel" placeholder="549..." value={editFormData.userPhone} onChange={e => setEditFormData({...editFormData, userPhone: e.target.value})} className="w-full pl-12 pr-4 py-3 bg-white border-2 border-blue-100 focus:border-blue-300 rounded-xl transition-all outline-none font-black text-blue-800 shadow-sm"/>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-blue-600 uppercase px-1">CUIT</label>
+                                                <input value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-blue-600 uppercase px-1">Banco / Billetera</label>
+                                                <input value={editFormData.banco_receptor} onChange={e => setEditFormData({...editFormData, banco_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
                             </div>
-                            <button onClick={() => setShowWhatsAppModal(false)} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl">
+
+                            <section>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Concepto Detectado / Detalle Adicional</label>
+                                    <textarea rows="3" value={editFormData.concepto_detectado} onChange={e => setEditFormData({...editFormData, concepto_detectado: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-[24px] transition-all outline-none font-medium text-gray-700 resize-none shadow-inner"></textarea>
+                                </div>
+                            </section>
+
+                            <section>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Nota adicional (Cliente)</label>
+                                    <textarea rows="3" placeholder="Sin nota adicional" value={editFormData.note} onChange={e => setEditFormData({...editFormData, note: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-[24px] transition-all outline-none font-medium text-gray-700 resize-none shadow-inner"></textarea>
+                                </div>
+                            </section>
+
+                            <div className="flex gap-6 pt-6 border-t border-gray-100">
+                                <button type="button" onClick={() => setEditingRequest(null)} className="flex-1 py-5 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 rounded-2xl transition-all">Descartar Cambios</button>
+                                <button 
+                                    type="submit" 
+                                    className="flex-[2] bg-gray-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl shadow-gray-200 hover:bg-black transition-all transform active:scale-95"
+                                >
+                                    Confirmar y Guardar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Asignación de Cliente en 1 Clic (Para comprobantes WhatsApp unassigned) */}
+            {assigningRequest && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[32px] shadow-2xl max-w-md w-full p-8 animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[10px] font-black uppercase tracking-wider mb-2">
+                                    <Icon name="AlertCircle" size={12}/> Comprobante Sin Asignar
+                                </div>
+                                <h3 className="text-xl font-black text-gray-900">Vincular a un Cliente</h3>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Selecciona el cliente del estudio al que corresponde este comprobante.
+                                </p>
+                            </div>
+                            <button onClick={() => setAssigningRequest(null)} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl">
                                 <Icon name="X" size={20}/>
                             </button>
                         </div>
 
-                        <div className="space-y-6">
-                            {/* Explicación de cómo funciona */}
-                            <div className="bg-emerald-50/60 p-5 rounded-2xl border border-emerald-100 space-y-2">
-                                <h4 className="text-xs font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-                                    <Icon name="CheckCircle" size={14}/> ¿Cómo funciona la vinculación?
-                                </h4>
-                                <p className="text-xs text-emerald-800 leading-relaxed font-medium">
-                                    ¡Es 100% automática! Los comprobantes que llegan a tu número de WhatsApp Business son reenviados a nuestro Webhook. La IA detecta el emisor, receptor, monto y CUIT; si el remitente o el CUIT coincide con algún cliente del estudio, <strong>se asocia automáticamente</strong>.
-                                </p>
+                        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 mb-6 space-y-2 text-xs">
+                            <div className="flex justify-between text-gray-600">
+                                <span className="font-bold">Remitente WhatsApp:</span>
+                                <span className="font-mono">{assigningRequest.senderPhone || assigningRequest.userPhone || 'S/D'}</span>
                             </div>
-
-                            {/* Datos del Webhook */}
-                            <div className="space-y-3">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block px-1">
-                                    URL de tu Webhook Cloud Functions (Listo para usar)
-                                </label>
-                                <div className="flex items-center gap-2">
-                                    <input 
-                                        type="text" 
-                                        readOnly 
-                                        value="https://us-central1-gyrconsultores-82422.cloudfunctions.net/whatsappWebhook" 
-                                        className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 select-all outline-none"
-                                    />
-                                    <button 
-                                        onClick={() => {
-                                            navigator.clipboard.writeText("https://us-central1-gyrconsultores-82422.cloudfunctions.net/whatsappWebhook");
-                                            alert("¡URL del Webhook copiada al portapapeles!");
-                                        }}
-                                        className="bg-gray-800 hover:bg-black text-white px-4 py-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
-                                    >
-                                        <Icon name="Copy" size={14}/> Copiar
-                                    </button>
-                                </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span className="font-bold">Monto:</span>
+                                <span className="font-bold text-gray-900">{formatCurrency(assigningRequest.aiData?.monto_total || 0)}</span>
                             </div>
-
-                            {/* Opciones de Integración */}
-                            <div className="space-y-3">
-                                <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-1">
-                                    Opciones de conexión para no perder el WhatsApp en el celular
-                                </h4>
-                                
-                                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-start gap-3">
-                                    <div className="p-2 bg-blue-100 text-blue-700 rounded-xl mt-0.5">
-                                        <Icon name="Smartphone" size={16}/>
-                                    </div>
-                                    <div className="text-xs space-y-1">
-                                        <p className="font-black text-gray-800">Opción 1: Evolution API / Baileys (Recomendada)</p>
-                                        <p className="text-gray-500">Permite escanear un código QR una sola vez manteniendo la app oficial activa en tu celular. Configuras este webhook y cada foto/PDF recibido se procesa automáticamente.</p>
-                                    </div>
-                                </div>
-
-                                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-start gap-3">
-                                    <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl mt-0.5">
-                                        <Icon name="Layers" size={16}/>
-                                    </div>
-                                    <div className="text-xs space-y-1">
-                                        <p className="font-black text-gray-800">Opción 2: Make / n8n / Zapier</p>
-                                        <p className="text-gray-500">Conectas tu disparador de WhatsApp y agregas un módulo HTTP POST enviando el teléfono del remitente y el enlace o archivo hacia la URL de arriba.</p>
-                                    </div>
-                                </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span className="font-bold">Emisor Detectado:</span>
+                                <span>{assigningRequest.aiData?.nombre_emisor || 'Desconocido'}</span>
                             </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span className="font-bold">Receptor Detectado:</span>
+                                <span>{assigningRequest.aiData?.nombre_receptor || 'Desconocido'}</span>
+                            </div>
+                        </div>
 
-                            <button 
-                                onClick={() => setShowWhatsAppModal(false)}
-                                className="w-full py-3.5 bg-gray-900 hover:bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg"
+                        <div className="space-y-4 mb-6">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block px-1">
+                                Seleccionar Cliente del Estudio
+                            </label>
+                            <select 
+                                value={selectedAssignUserId} 
+                                onChange={(e) => setSelectedAssignUserId(e.target.value)}
+                                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold text-gray-800 outline-none focus:ring-4 focus:ring-blue-100 transition-all text-sm"
                             >
-                                Entendido
+                                <option value="">-- Elige un cliente registrado --</option>
+                                {systemUsers.map(u => (
+                                    <option key={u.id} value={u.id}>
+                                        {u.nombre || u.email} {u.cuit ? `(CUIT: ${u.cuit})` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => setAssigningRequest(null)}
+                                className="flex-1 py-3 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 rounded-xl transition-all"
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={handleAssignClient}
+                                disabled={!selectedAssignUserId}
+                                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 transition-all disabled:opacity-50"
+                            >
+                                Asignar Ahora
                             </button>
                         </div>
                     </div>
                 </div>
             )}
+
+            {/* Modal de Conexión y Vinculación WhatsApp */}
+            {showWhatsAppModal && <WhatsAppConnectionModal onClose={() => setShowWhatsAppModal(false)} />}
         </div>
     );
 };
