@@ -45,6 +45,7 @@ const BillingRequestsPage = () => {
     const [filterType, setFilterType] = useState('todos'); // 'todos' | 'venta' | 'compra' | 'gasto' | 'unassigned'
     const [assigningRequest, setAssigningRequest] = useState(null); // Request unassigned para asignar cliente
     const [selectedAssignUserId, setSelectedAssignUserId] = useState('');
+    const [showWhatsAppModal, setShowWhatsAppModal] = useState(false); // Modal de conexión / webhook WhatsApp
     const [expandedRowId, setExpandedRowId] = useState(null); 
     const [selectedClient, setSelectedClient] = useState('todos');
     const [selectedYear, setSelectedYear] = useState('todos');
@@ -935,6 +936,13 @@ const BillingRequestsPage = () => {
                             {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                         </select>
                     </div>
+                    <button 
+                        onClick={() => setShowWhatsAppModal(true)} 
+                        className="bg-emerald-600 text-white px-5 py-3 rounded-2xl hover:bg-emerald-700 flex items-center font-bold shadow-lg shadow-emerald-100 transition-all transform active:scale-95 text-sm"
+                        title="Conectar línea de WhatsApp o configurar Webhook"
+                    >
+                        <Icon name="MessageCircle" className="w-5 h-5 mr-2"/> WhatsApp
+                    </button>
                     <button 
                         onClick={() => setShowModal(true)} 
                         className="bg-blue-600 text-white px-6 py-3 rounded-2xl hover:bg-blue-700 flex items-center font-bold shadow-lg shadow-blue-100 transition-all transform active:scale-95"
@@ -2326,6 +2334,98 @@ const BillingRequestsPage = () => {
                                 className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 transition-all disabled:opacity-50"
                             >
                                 Asignar Ahora
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Conexión y Vinculación WhatsApp */}
+            {showWhatsAppModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[32px] shadow-2xl max-w-xl w-full p-8 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-start mb-6">
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 bg-emerald-100 text-emerald-600 rounded-2xl">
+                                    <Icon name="MessageCircle" size={28}/>
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-gray-900">Conexión de WhatsApp</h3>
+                                    <p className="text-xs text-gray-500 font-medium">Recepción y clasificación automática de comprobantes</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowWhatsAppModal(false)} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl">
+                                <Icon name="X" size={20}/>
+                            </button>
+                        </div>
+
+                        <div className="space-y-6">
+                            {/* Explicación de cómo funciona */}
+                            <div className="bg-emerald-50/60 p-5 rounded-2xl border border-emerald-100 space-y-2">
+                                <h4 className="text-xs font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Icon name="CheckCircle" size={14}/> ¿Cómo funciona la vinculación?
+                                </h4>
+                                <p className="text-xs text-emerald-800 leading-relaxed font-medium">
+                                    ¡Es 100% automática! Los comprobantes que llegan a tu número de WhatsApp Business son reenviados a nuestro Webhook. La IA detecta el emisor, receptor, monto y CUIT; si el remitente o el CUIT coincide con algún cliente del estudio, <strong>se asocia automáticamente</strong>.
+                                </p>
+                            </div>
+
+                            {/* Datos del Webhook */}
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block px-1">
+                                    URL de tu Webhook Cloud Functions (Listo para usar)
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <input 
+                                        type="text" 
+                                        readOnly 
+                                        value="https://us-central1-gyrconsultores-82422.cloudfunctions.net/whatsappWebhook" 
+                                        className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 select-all outline-none"
+                                    />
+                                    <button 
+                                        onClick={() => {
+                                            navigator.clipboard.writeText("https://us-central1-gyrconsultores-82422.cloudfunctions.net/whatsappWebhook");
+                                            alert("¡URL del Webhook copiada al portapapeles!");
+                                        }}
+                                        className="bg-gray-800 hover:bg-black text-white px-4 py-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                                    >
+                                        <Icon name="Copy" size={14}/> Copiar
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Opciones de Integración */}
+                            <div className="space-y-3">
+                                <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-1">
+                                    Opciones de conexión para no perder el WhatsApp en el celular
+                                </h4>
+                                
+                                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-start gap-3">
+                                    <div className="p-2 bg-blue-100 text-blue-700 rounded-xl mt-0.5">
+                                        <Icon name="Smartphone" size={16}/>
+                                    </div>
+                                    <div className="text-xs space-y-1">
+                                        <p className="font-black text-gray-800">Opción 1: Evolution API / Baileys (Recomendada)</p>
+                                        <p className="text-gray-500">Permite escanear un código QR una sola vez manteniendo la app oficial activa en tu celular. Configuras este webhook y cada foto/PDF recibido se procesa automáticamente.</p>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-start gap-3">
+                                    <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl mt-0.5">
+                                        <Icon name="Layers" size={16}/>
+                                    </div>
+                                    <div className="text-xs space-y-1">
+                                        <p className="font-black text-gray-800">Opción 2: Make / n8n / Zapier</p>
+                                        <p className="text-gray-500">Conectas tu disparador de WhatsApp y agregas un módulo HTTP POST enviando el teléfono del remitente y el enlace o archivo hacia la URL de arriba.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={() => setShowWhatsAppModal(false)}
+                                className="w-full py-3.5 bg-gray-900 hover:bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg"
+                            >
+                                Entendido
                             </button>
                         </div>
                     </div>
