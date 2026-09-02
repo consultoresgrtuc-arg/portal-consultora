@@ -42,6 +42,9 @@ const BillingRequestsPage = () => {
     const [error, setError] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [filterStatus, setFilterStatus] = useState('pending'); 
+    const [filterType, setFilterType] = useState('todos'); // 'todos' | 'venta' | 'compra' | 'gasto' | 'unassigned'
+    const [assigningRequest, setAssigningRequest] = useState(null); // Request unassigned para asignar cliente
+    const [selectedAssignUserId, setSelectedAssignUserId] = useState('');
     const [expandedRowId, setExpandedRowId] = useState(null); 
     const [selectedClient, setSelectedClient] = useState('todos');
     const [selectedYear, setSelectedYear] = useState('todos');
@@ -262,6 +265,13 @@ const BillingRequestsPage = () => {
             });
         }
 
+        // Filtrado por tipo contable
+        if (filterType === 'unassigned') {
+            data = data.filter(req => req.userId === 'unassigned' || req.status === 'unassigned');
+        } else if (filterType !== 'todos') {
+            data = data.filter(req => (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === filterType);
+        }
+
         if (filterStatus === 'completed') {
             return (selectedYear !== 'todos' || selectedMonth !== 'todos') 
                 ? data.filter(r => r.status === 'completed') 
@@ -269,7 +279,7 @@ const BillingRequestsPage = () => {
         } else {
             return data.filter(r => r.status !== 'completed');
         }
-    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, filterStatus, clientDictionary]);
+    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, filterStatus, filterType, clientDictionary]);
 
     const metrics = useMemo(() => {
         let baseData = visibleRequests;
@@ -792,6 +802,71 @@ const BillingRequestsPage = () => {
         } catch(e) {} 
     };
 
+    const handleAssignClient = async () => {
+        if (!assigningRequest || !selectedAssignUserId) return;
+        const targetUser = systemUsers.find(u => u.id === selectedAssignUserId);
+        if (!targetUser) return;
+
+        try {
+            await updateDoc(doc(db, 'billing_requests', assigningRequest.id), {
+                userId: targetUser.id,
+                userName: targetUser.nombre || targetUser.email || 'Cliente Asignado',
+                userPhone: targetUser.telefono || assigningRequest.userPhone || '',
+                userModoFacturacion: targetUser.modoFacturacion || 'estudio',
+                status: 'pending'
+            });
+            setAssigningRequest(null);
+            setSelectedAssignUserId('');
+            alert(`Comprobante asignado con éxito a ${targetUser.nombre || targetUser.email}`);
+        } catch (err) {
+            console.error("Error al asignar cliente:", err);
+            alert("Error al asignar el comprobante al cliente.");
+        }
+    };
+
+    const handleExportToOperations = async (req) => {
+        if (!req.userId || req.userId === 'unassigned') {
+            return alert("Primero debes asignar este comprobante a un cliente.");
+        }
+
+        const monto = req.aiData?.monto_total || 0;
+        if (!monto) return alert("El comprobante no tiene un monto válido registrado.");
+
+        const tipo = req.clasificacionContable === 'gasto' ? 'gasto' : (req.clasificacionContable === 'compra' ? 'compra' : 'venta');
+        const desc = req.aiData?.concepto_detectado || `${tipo.toUpperCase()} - ${req.aiData?.nombre_emisor || 'Comprobante'}`;
+        const fechaStr = req.aiData?.fecha_pago || new Date().toISOString().split('T')[0];
+        const localDate = new Date(fechaStr + 'T00:00:00-03:00');
+
+        if (!confirm(`¿Deseas asentar este registro de ${formatCurrency(monto)} como '${tipo.toUpperCase()}' en el Libro de Operaciones del cliente?`)) {
+            return;
+        }
+
+        try {
+            await addDoc(collection(db, 'users', req.userId, 'operations'), {
+                type: tipo,
+                amount: parseFloat(monto),
+                description: desc,
+                fechaEmision: Timestamp.fromDate(localDate),
+                year: localDate.getFullYear(),
+                month: localDate.getMonth() + 1,
+                day: localDate.getDate(),
+                billingRequestId: req.id,
+                source: req.source || 'web'
+            });
+
+            await updateDoc(doc(db, 'billing_requests', req.id), {
+                exportedToOperations: true,
+                status: 'completed',
+                completedAt: Timestamp.now()
+            });
+
+            alert(`✅ Operación asentada con éxito en el libro del cliente.`);
+        } catch (err) {
+            console.error("Error al exportar operación:", err);
+            alert("Error al registrar la operación en el libro diario.");
+        }
+    };
+
     const toggleDetails = (id) => setExpandedRowId(expandedRowId === id ? null : id);
 
     const sendWhatsAppNotification = (req) => {
@@ -955,6 +1030,15 @@ const BillingRequestsPage = () => {
                     </button>
                     <button 
                         onClick={() => {
+                            setFilterStatus('completed');
+                            setSelectedConsolidatedClient(null);
+                        }} 
+                        className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all ${filterStatus === 'completed' ? 'bg-white shadow-sm text-green-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        Finalizados / Facturados ({visibleRequests.filter(r => r.status === 'completed').length})
+                    </button>
+                    <button 
+                        onClick={() => {
                             setFilterStatus('summary');
                             setSelectedConsolidatedClient(null);
                         }} 
@@ -963,6 +1047,43 @@ const BillingRequestsPage = () => {
                         Consolidado Clientes ({clientBillingSummary.length})
                     </button>
                 </div>
+
+                {/* Sub-filtros por Clasificación Contable */}
+                {filterStatus !== 'summary' && (
+                    <div className="flex flex-wrap items-center gap-2 p-4 bg-gray-50/50 border-b border-gray-100">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 mr-2">Tipo Contable:</span>
+                        <button 
+                            onClick={() => setFilterType('todos')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${filterType === 'todos' ? 'bg-gray-800 text-white shadow-sm' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'}`}
+                        >
+                            Todos
+                        </button>
+                        <button 
+                            onClick={() => setFilterType('venta')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${filterType === 'venta' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white text-emerald-700 hover:bg-emerald-50 border border-emerald-200'}`}
+                        >
+                            <span className="w-2 h-2 rounded-full bg-emerald-400"></span> Ventas / Cobros
+                        </button>
+                        <button 
+                            onClick={() => setFilterType('compra')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${filterType === 'compra' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-blue-700 hover:bg-blue-50 border border-blue-200'}`}
+                        >
+                            <span className="w-2 h-2 rounded-full bg-blue-400"></span> Compras
+                        </button>
+                        <button 
+                            onClick={() => setFilterType('gasto')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${filterType === 'gasto' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white text-purple-700 hover:bg-purple-50 border border-purple-200'}`}
+                        >
+                            <span className="w-2 h-2 rounded-full bg-purple-400"></span> Gastos
+                        </button>
+                        <button 
+                            onClick={() => setFilterType('unassigned')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${filterType === 'unassigned' ? 'bg-amber-600 text-white shadow-sm' : 'bg-white text-amber-700 hover:bg-amber-50 border border-amber-200'}`}
+                        >
+                            <span className="w-2 h-2 rounded-full bg-amber-400"></span> Sin Asignar ({visibleRequests.filter(r => r.userId === 'unassigned' || r.status === 'unassigned').length})
+                        </button>
+                    </div>
+                )}
 
                 <div className="overflow-x-auto">
                     {filterStatus === 'summary' ? (
@@ -1373,9 +1494,35 @@ const BillingRequestsPage = () => {
                                                         <span className="text-[10px] font-black uppercase tracking-widest">IA Analizando...</span>
                                                     </div>
                                                 ) : (
-                                                    <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-black uppercase tracking-widest">
-                                                        {req.isManualEntry ? 'Manual' : (req.aiData?.banco_receptor || 'Extraído')}
-                                                    </span>
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        {/* Badge de Origen WhatsApp */}
+                                                        {req.source === 'whatsapp' && (
+                                                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                                                                <Icon name="MessageCircle" size={10} /> WA
+                                                            </span>
+                                                        )}
+                                                        {/* Badge de Clasificación Contable */}
+                                                        {(() => {
+                                                            const tipo = req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta';
+                                                            if (tipo === 'gasto') {
+                                                                return <span className="px-2.5 py-0.5 bg-purple-100 text-purple-700 rounded-full text-[9px] font-black uppercase tracking-wider">Gasto</span>;
+                                                            } else if (tipo === 'compra') {
+                                                                return <span className="px-2.5 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[9px] font-black uppercase tracking-wider">Compra</span>;
+                                                            } else {
+                                                                return <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[9px] font-black uppercase tracking-wider">Venta/Cobro</span>;
+                                                            }
+                                                        })()}
+                                                        {/* Badge de Banco / Manual */}
+                                                        <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[9px] font-bold uppercase tracking-wider">
+                                                            {req.isManualEntry ? 'Manual' : (req.aiData?.banco_receptor || 'Extraído')}
+                                                        </span>
+                                                        {/* Badge Sin Asignar */}
+                                                        {(req.userId === 'unassigned' || req.status === 'unassigned') && (
+                                                            <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-[9px] font-black uppercase tracking-wider animate-pulse">
+                                                                Sin Asignar
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </td>
                                             <td className="px-8 py-6 text-right">
@@ -1460,6 +1607,17 @@ const BillingRequestsPage = () => {
                                                                     <p className="text-[10px] font-black text-gray-400 uppercase">Concepto / Referencia</p>
                                                                     <p className="text-sm font-medium text-gray-600 italic">"{req.aiData?.concepto_detectado || 'Sin descripción'}"</p>
                                                                 </div>
+
+                                                                {/* Justificación de Clasificación IA */}
+                                                                {req.aiData?.justificacion_clasificacion && (
+                                                                    <div className="mt-4 p-3 bg-purple-50 rounded-xl border border-purple-100">
+                                                                        <p className="text-[10px] font-black text-purple-700 uppercase flex items-center gap-1">
+                                                                            <Icon name="Cpu" size={12}/> Clasificación IA: {(req.clasificacionContable || req.aiData.clasificacion_contable || 'venta').toUpperCase()}
+                                                                        </p>
+                                                                        <p className="text-xs text-purple-900 mt-0.5">{req.aiData.justificacion_clasificacion}</p>
+                                                                    </div>
+                                                                )}
+
                                                                 {req.note && (
                                                                     <div className="space-y-1 mt-4 p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50">
                                                                         <p className="text-[10px] font-black text-blue-800 uppercase flex items-center gap-1.5">
@@ -1522,10 +1680,31 @@ const BillingRequestsPage = () => {
                                                                             </div>
                                                                             <button 
                                                                                 onClick={() => markAsDone(req.id)} 
-                                                                                className="w-full bg-white text-gray-700 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all shadow-sm border border-gray-200"
+                                                                                className="w-full bg-white text-gray-700 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all shadow-sm border border-gray-200 flex items-center justify-center gap-2"
                                                                             >
-                                                                                Marcar como Facturado
+                                                                                <Icon name="Check" size={14}/> Marcar como Facturado
                                                                             </button>
+
+                                                                            {/* Botón para Compras o Gastos: Asentar en Libro Diario */}
+                                                                            <button 
+                                                                                onClick={() => handleExportToOperations(req)} 
+                                                                                className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2"
+                                                                            >
+                                                                                <Icon name="BookOpen" size={14}/> Asentar en Libro de Operaciones
+                                                                            </button>
+
+                                                                            {/* Si está sin asignar, botón prioritario para asignar cliente */}
+                                                                            {(req.userId === 'unassigned' || req.status === 'unassigned') && userData?.isAdmin && (
+                                                                                <button 
+                                                                                    onClick={() => {
+                                                                                        setAssigningRequest(req);
+                                                                                        setSelectedAssignUserId('');
+                                                                                    }}
+                                                                                    className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-md shadow-amber-100 flex items-center justify-center gap-2 animate-bounce"
+                                                                                >
+                                                                                    <Icon name="UserPlus" size={14}/> Asignar Cliente a este Comprobante
+                                                                                </button>
+                                                                            )}
                                                                         </div>
                                                                     )
                                                                 ) : (
@@ -1556,6 +1735,15 @@ const BillingRequestsPage = () => {
                                                                                     <Icon name="DownloadCloud" size={18}/> Descargar Comprobante PDF
                                                                                 </a>
                                                                             </div>
+                                                                        )}
+
+                                                                        {!req.exportedToOperations && (
+                                                                            <button 
+                                                                                onClick={() => handleExportToOperations(req)} 
+                                                                                className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2 mt-2"
+                                                                            >
+                                                                                <Icon name="BookOpen" size={14}/> Asentar en Libro de Operaciones
+                                                                            </button>
                                                                         )}
                                                                     </div>
                                                                 )}
@@ -2065,6 +2253,81 @@ const BillingRequestsPage = () => {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Asignación de Cliente en 1 Clic (Para comprobantes WhatsApp unassigned) */}
+            {assigningRequest && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[32px] shadow-2xl max-w-md w-full p-8 animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[10px] font-black uppercase tracking-wider mb-2">
+                                    <Icon name="AlertCircle" size={12}/> Comprobante Sin Asignar
+                                </div>
+                                <h3 className="text-xl font-black text-gray-900">Vincular a un Cliente</h3>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Selecciona el cliente del estudio al que corresponde este comprobante.
+                                </p>
+                            </div>
+                            <button onClick={() => setAssigningRequest(null)} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl">
+                                <Icon name="X" size={20}/>
+                            </button>
+                        </div>
+
+                        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 mb-6 space-y-2 text-xs">
+                            <div className="flex justify-between text-gray-600">
+                                <span className="font-bold">Remitente WhatsApp:</span>
+                                <span className="font-mono">{assigningRequest.senderPhone || assigningRequest.userPhone || 'S/D'}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span className="font-bold">Monto:</span>
+                                <span className="font-bold text-gray-900">{formatCurrency(assigningRequest.aiData?.monto_total || 0)}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span className="font-bold">Emisor Detectado:</span>
+                                <span>{assigningRequest.aiData?.nombre_emisor || 'Desconocido'}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span className="font-bold">Receptor Detectado:</span>
+                                <span>{assigningRequest.aiData?.nombre_receptor || 'Desconocido'}</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 mb-6">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block px-1">
+                                Seleccionar Cliente del Estudio
+                            </label>
+                            <select 
+                                value={selectedAssignUserId} 
+                                onChange={(e) => setSelectedAssignUserId(e.target.value)}
+                                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold text-gray-800 outline-none focus:ring-4 focus:ring-blue-100 transition-all text-sm"
+                            >
+                                <option value="">-- Elige un cliente registrado --</option>
+                                {systemUsers.map(u => (
+                                    <option key={u.id} value={u.id}>
+                                        {u.nombre || u.email} {u.cuit ? `(CUIT: ${u.cuit})` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => setAssigningRequest(null)}
+                                className="flex-1 py-3 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 rounded-xl transition-all"
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={handleAssignClient}
+                                disabled={!selectedAssignUserId}
+                                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 transition-all disabled:opacity-50"
+                            >
+                                Asignar Ahora
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
