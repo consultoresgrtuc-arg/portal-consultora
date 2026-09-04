@@ -962,7 +962,9 @@ const BillingRequestsPage = () => {
             hora_pago: req.aiData?.hora_pago || '', 
             monto_total: req.aiData?.monto_total || 0,
             tipo_comprobante: req.aiData?.tipo_comprobante || '',
+            aplicacion_pago: req.aiData?.aplicacion_pago || '',
             numero_operacion: req.aiData?.numero_operacion || '', 
+            codigo_identificacion: req.aiData?.codigo_identificacion || '',
             cuit_emisor: req.aiData?.cuit_emisor || '',
             nombre_emisor: req.aiData?.nombre_emisor || '',
             banco_origen: req.aiData?.banco_origen || '',
@@ -1777,16 +1779,35 @@ const BillingRequestsPage = () => {
                                                                         <Icon name="Edit" size={14}/> {req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'Procesando...' : 'Corregir'}
                                                                     </button>
                                                                 </div>
-                                                                <div className="grid grid-cols-2 gap-6 mb-8">
+                                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                                                                     <div>
                                                                         <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Pago</p>
-                                                                        <p className="font-bold text-gray-800">{req.aiData?.fecha_pago || 'S/D'}</p>
+                                                                        <p className="font-bold text-gray-800 text-sm">{req.aiData?.fecha_pago || 'S/D'}</p>
                                                                     </div>
                                                                     <div>
-                                                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Tipo Comprobante</p>
-                                                                        <p className="font-bold text-gray-800">{req.aiData?.tipo_comprobante || 'S/D'}</p>
+                                                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Tipo</p>
+                                                                        <p className="font-bold text-gray-800 text-sm">{req.aiData?.tipo_comprobante || 'S/D'}</p>
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Plataforma / App</p>
+                                                                        <p className="font-bold text-blue-700 text-sm">{req.aiData?.aplicacion_pago || req.aiData?.banco_origen || 'S/D'}</p>
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-1">N.° Operación</p>
+                                                                        <p className="font-bold text-gray-800 font-mono text-xs truncate" title={req.aiData?.numero_operacion}>{req.aiData?.numero_operacion || 'S/D'}</p>
                                                                     </div>
                                                                 </div>
+
+                                                                {req.aiData?.codigo_identificacion && (
+                                                                    <div className="mb-6 bg-amber-50/80 px-4 py-3 rounded-2xl border border-amber-200/60 flex items-center justify-between gap-3 shadow-xs">
+                                                                        <span className="text-[10px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+                                                                            <Icon name="Key" size={13} className="text-amber-600"/> Código Identificación Único:
+                                                                        </span>
+                                                                        <span className="font-mono text-xs font-black text-amber-950 bg-white px-2.5 py-1 rounded-lg border border-amber-200/70 select-all truncate">
+                                                                            {req.aiData.codigo_identificacion}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                                 
                                                                 <div className="space-y-4 mb-8">
                                                                     <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
@@ -2383,9 +2404,19 @@ const BillingRequestsPage = () => {
                                         <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Tipo de Comprobante</label>
                                         <input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: Transferencia"/>
                                     </div>
-                                    <div className="md:col-span-2 space-y-2">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Plataforma / App</label>
+                                        <input type="text" value={editFormData.aplicacion_pago} onChange={e => setEditFormData({...editFormData, aplicacion_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: Mercado Pago, Cuenta DNI, BBVA"/>
+                                    </div>
+                                    <div className="space-y-2">
                                         <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Número de Operación</label>
                                         <input type="text" value={editFormData.numero_operacion} onChange={e => setEditFormData({...editFormData, numero_operacion: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="ID de transacción / Referencia"/>
+                                    </div>
+                                    <div className="md:col-span-3 space-y-2">
+                                        <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest px-1 flex items-center gap-1.5">
+                                            <Icon name="Key" size={12}/> Código de Identificación Único
+                                        </label>
+                                        <input type="text" value={editFormData.codigo_identificacion} onChange={e => setEditFormData({...editFormData, codigo_identificacion: e.target.value})} className="w-full p-3 bg-amber-50/50 border border-amber-200/60 focus:ring-2 focus:ring-amber-300 rounded-xl transition-all outline-none font-mono text-xs font-bold text-amber-950 shadow-sm" placeholder="Código alfanumérico único COELSA / Transacción"/>
                                     </div>
                                 </div>
                             </section>
