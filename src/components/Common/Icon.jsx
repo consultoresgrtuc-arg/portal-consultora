@@ -51,7 +51,12 @@ import {
   Maximize2,
   DownloadCloud,
   FilePlus,
-  ArrowRight
+  ArrowRight,
+  LineChart,
+  Layers,
+  Award,
+  Activity,
+  ChevronRight
 } from 'lucide-react';
 
 const Icons = {
@@ -106,7 +111,12 @@ const Icons = {
   Maximize2,
   DownloadCloud,
   FilePlus,
-  ArrowRight
+  ArrowRight,
+  LineChart,
+  Layers,
+  Award,
+  Activity,
+  ChevronRight
 };
 
 const Icon = ({ name, ...props }) => {

@@ -87,3 +87,79 @@ body {
   @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-md font-semibold hover:bg-gray-300 transition-colors;
 }
 
+/* Reglas de Impresión Profesional */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  html, body {
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Resetear contenedores con altura fija o scroll que cortan la impresión a 1 página */
+  .h-screen,
+  div[class*="h-screen"],
+  .overflow-hidden,
+  .overflow-y-auto,
+  main {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+    position: static !important;
+  }
+
+  /* Ocultar elementos de navegación y decorativos */
+  .no-print,
+  header,
+  nav,
+  aside,
+  button,
+  .modal-overlay {
+    display: none !important;
+  }
+
+  /* Contenedor de impresión */
+  .print-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: white !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+
+  /* Evitar cortes indeseados en tarjetas y tablas */
+  .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  table {
+    page-break-inside: auto !important;
+    width: 100% !important;
+  }
+
+  tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+}
+
