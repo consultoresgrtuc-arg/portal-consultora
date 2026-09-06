@@ -349,13 +349,13 @@ const BillingRequestsPage = () => {
         return dict;
     }, [systemUsers]);
 
-    // 1. Security check
-    if (!loading && !userData?.isAdmin && !userData?.servicioFacturacion) {
+    // 1. Security check (activo por defecto salvo que se haya desactivado explícitamente)
+    if (!loading && !userData?.isAdmin && (userData?.servicioFacturacion === false || userData?.permisos?.facturacion === false)) {
         return (
             <div className="p-12 text-center animate-fade-in">
                 <Icon name="ShieldAlert" className="w-20 h-20 text-red-100 mx-auto mb-6" />
                 <h2 className="text-3xl font-black text-gray-800">Acceso Restringido</h2>
-                <p className="text-gray-500 mt-2">No tienes activo el servicio de facturación.</p>
+                <p className="text-gray-500 mt-2">El servicio de facturación no se encuentra disponible para tu cuenta.</p>
             </div>
         );
     }
@@ -950,19 +950,35 @@ const BillingRequestsPage = () => {
         } 
     };
 
+    const handleQuickChangeClasificacion = async (reqId, newClasif) => {
+        try {
+            await updateDoc(doc(db, 'billing_requests', reqId), {
+                clasificacionContable: newClasif,
+                'aiData.clasificacion_contable': newClasif
+            });
+        } catch (error) {
+            console.error("Error al actualizar clasificación:", error);
+            alert("No se pudo actualizar la clasificación contable.");
+        }
+    };
+
     const openEditModal = (req) => {
         if (req.status === 'pending' && !req.aiData && !req.isManualEntry) {
             return alert("⏳ Por favor, espere a que la IA termine de analizar el comprobante.");
         }
 
         const phoneToShow = getReceptorPhone(req);
+        const initialApp = (req.aiData?.aplicacion_pago && req.aiData.aplicacion_pago.toLowerCase() !== 'otro')
+            ? req.aiData.aplicacion_pago
+            : (req.aiData?.banco_receptor || '');
 
         setEditFormData({
+            clasificacion_contable: req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta',
             fecha_pago: req.aiData?.fecha_pago || '',
             hora_pago: req.aiData?.hora_pago || '', 
             monto_total: req.aiData?.monto_total || 0,
             tipo_comprobante: req.aiData?.tipo_comprobante || '',
-            aplicacion_pago: req.aiData?.aplicacion_pago || '',
+            aplicacion_pago: initialApp,
             numero_operacion: req.aiData?.numero_operacion || '', 
             codigo_identificacion: req.aiData?.codigo_identificacion || '',
             cuit_emisor: req.aiData?.cuit_emisor || '',
@@ -982,9 +998,16 @@ const BillingRequestsPage = () => {
         e.preventDefault(); 
         if (!editingRequest) return; 
         try { 
-            const { userPhone, note, ...aiDataFields } = editFormData;
+            const { userPhone, note, clasificacion_contable, ...aiDataFields } = editFormData;
+            const finalClasif = clasificacion_contable || 'venta';
             await updateDoc(doc(db, 'billing_requests', editingRequest.id), { 
-                aiData: { ...aiDataFields, monto_total: parseFloat(editFormData.monto_total) },
+                clasificacionContable: finalClasif,
+                aiData: { 
+                    ...(editingRequest.aiData || {}),
+                    ...aiDataFields, 
+                    clasificacion_contable: finalClasif,
+                    monto_total: parseFloat(editFormData.monto_total) || 0 
+                },
                 userPhone: userPhone,
                 note: note || ''
             }); 
@@ -1790,7 +1813,13 @@ const BillingRequestsPage = () => {
                                                                     </div>
                                                                     <div>
                                                                         <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Plataforma / App</p>
-                                                                        <p className="font-bold text-blue-700 text-sm">{req.aiData?.aplicacion_pago || req.aiData?.banco_origen || 'S/D'}</p>
+                                                                        <p className="font-bold text-blue-700 text-sm">
+                                                                            {(() => {
+                                                                                const app = req.aiData?.aplicacion_pago;
+                                                                                if (app && app.toLowerCase() !== 'otro') return app;
+                                                                                return req.aiData?.banco_receptor || 'Otro';
+                                                                            })()}
+                                                                        </p>
                                                                     </div>
                                                                     <div>
                                                                         <p className="text-[10px] font-black text-gray-400 uppercase mb-1">N.° Operación</p>
@@ -1846,15 +1875,54 @@ const BillingRequestsPage = () => {
                                                                     <p className="text-sm font-medium text-gray-600 italic">"{req.aiData?.concepto_detectado || 'Sin descripción'}"</p>
                                                                 </div>
 
-                                                                {/* Justificación de Clasificación IA */}
-                                                                {req.aiData?.justificacion_clasificacion && (
-                                                                    <div className="mt-4 p-3 bg-purple-50 rounded-xl border border-purple-100">
-                                                                        <p className="text-[10px] font-black text-purple-700 uppercase flex items-center gap-1">
-                                                                            <Icon name="Cpu" size={12}/> Clasificación IA: {(req.clasificacionContable || req.aiData.clasificacion_contable || 'venta').toUpperCase()}
+                                                                {/* Justificación de Clasificación IA y Selector Rápido */}
+                                                                <div className="mt-4 p-4 bg-purple-50/70 rounded-2xl border border-purple-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                                    <div className="space-y-1">
+                                                                        <p className="text-[10px] font-black text-purple-700 uppercase flex items-center gap-1.5">
+                                                                            <Icon name="Cpu" size={13}/> Clasificación IA: <span className="font-extrabold underline tracking-wide">{(req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta').toUpperCase()}</span>
                                                                         </p>
-                                                                        <p className="text-xs text-purple-900 mt-0.5">{req.aiData.justificacion_clasificacion}</p>
+                                                                        <p className="text-xs text-purple-900 leading-relaxed">{req.aiData?.justificacion_clasificacion || 'Comprobante procesado por IA.'}</p>
                                                                     </div>
-                                                                )}
+                                                                    <div className="flex items-center gap-1.5 shrink-0 bg-white p-1.5 rounded-xl border border-purple-200/60 shadow-xs">
+                                                                        <span className="text-[9px] font-black text-gray-400 uppercase px-1">Cambiar a:</span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => { e.stopPropagation(); handleQuickChangeClasificacion(req.id, 'venta'); }}
+                                                                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${
+                                                                                (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === 'venta'
+                                                                                    ? 'bg-emerald-600 text-white shadow-xs'
+                                                                                    : 'text-gray-600 hover:text-emerald-700 hover:bg-emerald-50'
+                                                                            }`}
+                                                                            title="Marcar como Venta / Cobro"
+                                                                        >
+                                                                            Venta
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => { e.stopPropagation(); handleQuickChangeClasificacion(req.id, 'compra'); }}
+                                                                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${
+                                                                                (req.clasificacionContable || req.aiData?.clasificacion_contable) === 'compra'
+                                                                                    ? 'bg-blue-600 text-white shadow-xs'
+                                                                                    : 'text-gray-600 hover:text-blue-700 hover:bg-blue-50'
+                                                                            }`}
+                                                                            title="Marcar como Compra"
+                                                                        >
+                                                                            Compra
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => { e.stopPropagation(); handleQuickChangeClasificacion(req.id, 'gasto'); }}
+                                                                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${
+                                                                                (req.clasificacionContable || req.aiData?.clasificacion_contable) === 'gasto'
+                                                                                    ? 'bg-purple-600 text-white shadow-xs'
+                                                                                    : 'text-gray-600 hover:text-purple-700 hover:bg-purple-50'
+                                                                            }`}
+                                                                            title="Marcar como Gasto"
+                                                                        >
+                                                                            Gasto
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
 
                                                                 {req.note && (
                                                                     <div className="space-y-1 mt-4 p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50">
@@ -2387,36 +2455,89 @@ const BillingRequestsPage = () => {
                                     <div className="w-1.5 h-6 bg-yellow-400 rounded-full"></div>
                                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Información General</h4>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-yellow-50/50 p-8 rounded-[32px] border border-yellow-100">
+                                <div className="space-y-6 bg-yellow-50/50 p-8 rounded-[32px] border border-yellow-100">
+                                    {/* Selector de Clasificación Contable */}
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Fecha</label>
-                                        <input type="date" value={editFormData.fecha_pago} onChange={e => setEditFormData({...editFormData, fecha_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Hora</label>
-                                        <input type="time" value={editFormData.hora_pago} onChange={e => setEditFormData({...editFormData, hora_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Monto Total</label>
-                                        <input type="number" step="0.01" value={editFormData.monto_total} onChange={e => setEditFormData({...editFormData, monto_total: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-black text-lg text-gray-900 shadow-sm"/>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Tipo de Comprobante</label>
-                                        <input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: Transferencia"/>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Plataforma / App</label>
-                                        <input type="text" value={editFormData.aplicacion_pago} onChange={e => setEditFormData({...editFormData, aplicacion_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: Mercado Pago, Cuenta DNI, BBVA"/>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Número de Operación</label>
-                                        <input type="text" value={editFormData.numero_operacion} onChange={e => setEditFormData({...editFormData, numero_operacion: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="ID de transacción / Referencia"/>
-                                    </div>
-                                    <div className="md:col-span-3 space-y-2">
-                                        <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest px-1 flex items-center gap-1.5">
-                                            <Icon name="Key" size={12}/> Código de Identificación Único
+                                        <label className="text-[10px] font-black text-yellow-800 uppercase tracking-widest px-1 flex items-center gap-1.5">
+                                            <Icon name="Tag" size={13}/> Clasificación Contable
                                         </label>
-                                        <input type="text" value={editFormData.codigo_identificacion} onChange={e => setEditFormData({...editFormData, codigo_identificacion: e.target.value})} className="w-full p-3 bg-amber-50/50 border border-amber-200/60 focus:ring-2 focus:ring-amber-300 rounded-xl transition-all outline-none font-mono text-xs font-bold text-amber-950 shadow-sm" placeholder="Código alfanumérico único COELSA / Transacción"/>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditFormData({ ...editFormData, clasificacion_contable: 'venta' })}
+                                                className={`p-3.5 rounded-2xl border-2 text-left sm:text-center transition-all flex flex-col justify-center items-start sm:items-center gap-1 ${
+                                                    (editFormData.clasificacion_contable || 'venta') === 'venta'
+                                                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-sm font-black'
+                                                        : 'bg-white border-transparent text-gray-600 hover:bg-gray-50 font-bold'
+                                                }`}
+                                            >
+                                                <span className="text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Venta / Cobro
+                                                </span>
+                                                <span className="text-[10px] text-emerald-700 font-medium opacity-80">Ingreso comercial a facturar</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditFormData({ ...editFormData, clasificacion_contable: 'compra' })}
+                                                className={`p-3.5 rounded-2xl border-2 text-left sm:text-center transition-all flex flex-col justify-center items-start sm:items-center gap-1 ${
+                                                    editFormData.clasificacion_contable === 'compra'
+                                                        ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-sm font-black'
+                                                        : 'bg-white border-transparent text-gray-600 hover:bg-gray-50 font-bold'
+                                                }`}
+                                            >
+                                                <span className="text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                                    <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span> Compra
+                                                </span>
+                                                <span className="text-[10px] text-blue-700 font-medium opacity-80">Factura de proveedor tercero</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditFormData({ ...editFormData, clasificacion_contable: 'gasto' })}
+                                                className={`p-3.5 rounded-2xl border-2 text-left sm:text-center transition-all flex flex-col justify-center items-start sm:items-center gap-1 ${
+                                                    editFormData.clasificacion_contable === 'gasto'
+                                                        ? 'bg-purple-50 border-purple-500 text-purple-900 shadow-sm font-black'
+                                                        : 'bg-white border-transparent text-gray-600 hover:bg-gray-50 font-bold'
+                                                }`}
+                                            >
+                                                <span className="text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                                    <span className="w-2 h-2 rounded-full bg-purple-500 inline-block"></span> Gasto
+                                                </span>
+                                                <span className="text-[10px] text-purple-700 font-medium opacity-80">Servicio, impuesto o comercio</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Fecha</label>
+                                            <input type="date" value={editFormData.fecha_pago} onChange={e => setEditFormData({...editFormData, fecha_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Hora</label>
+                                            <input type="time" value={editFormData.hora_pago} onChange={e => setEditFormData({...editFormData, hora_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Monto Total</label>
+                                            <input type="number" step="0.01" value={editFormData.monto_total} onChange={e => setEditFormData({...editFormData, monto_total: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-black text-lg text-gray-900 shadow-sm"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Tipo de Comprobante</label>
+                                            <input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: Transferencia"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Plataforma / App (Receptor)</label>
+                                            <input type="text" value={editFormData.aplicacion_pago} onChange={e => setEditFormData({...editFormData, aplicacion_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: YPF, Mercado Pago, Cuenta DNI, BBVA"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Número de Operación</label>
+                                            <input type="text" value={editFormData.numero_operacion} onChange={e => setEditFormData({...editFormData, numero_operacion: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="ID de transacción / Referencia"/>
+                                        </div>
+                                        <div className="md:col-span-3 space-y-2">
+                                            <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest px-1 flex items-center gap-1.5">
+                                                <Icon name="Key" size={12}/> Código de Identificación Único
+                                            </label>
+                                            <input type="text" value={editFormData.codigo_identificacion} onChange={e => setEditFormData({...editFormData, codigo_identificacion: e.target.value})} className="w-full p-3 bg-amber-50/50 border border-amber-200/60 focus:ring-2 focus:ring-amber-300 rounded-xl transition-all outline-none font-mono text-xs font-bold text-amber-950 shadow-sm" placeholder="Código alfanumérico único COELSA / Transacción"/>
+                                        </div>
                                     </div>
                                 </div>
                             </section>

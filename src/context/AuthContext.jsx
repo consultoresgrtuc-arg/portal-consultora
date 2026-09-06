@@ -85,6 +85,7 @@ export const AuthProvider = ({ children }) => {
                             categoriaTributaria: 'Monotributo',
                             telefono: firebaseUser.phoneNumber || '',
                             isAdmin: isAdminEmail,
+                            servicioFacturacion: true,
                             permisos: {
                                 dashboard: true,
                                 operaciones: true,

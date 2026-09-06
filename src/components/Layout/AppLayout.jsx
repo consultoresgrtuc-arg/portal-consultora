@@ -47,9 +47,9 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
         // Los clientes nunca ven el panel Admin
         if (link.moduleId === 'admin') return false;
         
-        // Regla especial para Facturación (mantiene compatibilidad con 'servicioFacturacion')
+        // Facturación aparece por defecto (ON), salvo que el admin lo haya escondido (false)
         if (link.moduleId === 'facturacion') {
-            return userData?.servicioFacturacion || userData?.permisos?.facturacion;
+            return userData?.servicioFacturacion !== false && userData?.permisos?.facturacion !== false;
         }
  
         // Para los demás módulos, se basa en 'permisos'. 

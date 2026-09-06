@@ -76,10 +76,12 @@ const AdminPage = ({ navigate }) => {
     };
 
     const toggleBillingService = async (targetUser) => {
-        const newState = !targetUser.servicioFacturacion;
+        const isCurrentlyActive = targetUser.servicioFacturacion !== false && targetUser.permisos?.facturacion !== false;
+        const newState = !isCurrentlyActive;
         try {
             await updateDoc(doc(db, "users", targetUser.id), {
                 servicioFacturacion: newState,
+                'permisos.facturacion': newState,
                 modoFacturacion: newState ? (targetUser.modoFacturacion || 'estudio') : targetUser.modoFacturacion
             });
         } catch (err) {
@@ -174,31 +176,37 @@ const AdminPage = ({ navigate }) => {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <div className="flex items-center gap-3">
-                                                <button 
-                                                    onClick={() => toggleBillingService(u)}
-                                                    className={`relative inline-flex items-center h-6 rounded-full w-12 transition-all duration-300 focus:outline-none ${u.servicioFacturacion ? 'bg-green-500' : 'bg-gray-200'}`}
-                                                >
-                                                    <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${u.servicioFacturacion ? 'translate-x-7' : 'translate-x-1'}`}/>
-                                                </button>
-                                                <span className={`text-[10px] font-black uppercase tracking-widest w-8 ${u.servicioFacturacion ? 'text-green-600' : 'text-gray-400'}`}>
-                                                    {u.servicioFacturacion ? 'ON' : 'OFF'}
-                                                </span>
-                                            </div>
+                                        {(() => {
+                                            const isBillingActive = u.servicioFacturacion !== false && u.permisos?.facturacion !== false;
+                                            return (
+                                                <div className="flex flex-col items-center gap-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <button 
+                                                            onClick={() => toggleBillingService(u)}
+                                                            className={`relative inline-flex items-center h-6 rounded-full w-12 transition-all duration-300 focus:outline-none ${isBillingActive ? 'bg-green-500' : 'bg-gray-200'}`}
+                                                            title={isBillingActive ? 'Hacer clic para esconder panel de facturación' : 'Hacer clic para activar panel de facturación'}
+                                                        >
+                                                            <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${isBillingActive ? 'translate-x-7' : 'translate-x-1'}`}/>
+                                                        </button>
+                                                        <span className={`text-[10px] font-black uppercase tracking-widest w-8 ${isBillingActive ? 'text-green-600' : 'text-gray-400'}`}>
+                                                            {isBillingActive ? 'ON' : 'OFF'}
+                                                        </span>
+                                                    </div>
 
-                                            {u.servicioFacturacion && (
-                                                <select 
-                                                    value={u.modoFacturacion || 'estudio'}
-                                                    onChange={(e) => changeBillingMode(u, e.target.value)}
-                                                    className={`text-[10px] font-black px-3 py-1.5 rounded-xl border-2 transition-all outline-none uppercase tracking-widest cursor-pointer
-                                                        ${(u.modoFacturacion || 'estudio') === 'estudio' ? 'bg-blue-50 text-blue-700 border-blue-100 hover:border-blue-200' : 'bg-purple-50 text-purple-700 border-purple-100 hover:border-purple-200'}`}
-                                                >
-                                                    <option value="estudio">Gestiono YO</option>
-                                                    <option value="cliente">Autogestión</option>
-                                                </select>
-                                            )}
-                                        </div>
+                                                    {isBillingActive && (
+                                                        <select 
+                                                            value={u.modoFacturacion || 'estudio'}
+                                                            onChange={(e) => changeBillingMode(u, e.target.value)}
+                                                            className={`text-[10px] font-black px-3 py-1.5 rounded-xl border-2 transition-all outline-none uppercase tracking-widest cursor-pointer
+                                                                ${(u.modoFacturacion || 'estudio') === 'estudio' ? 'bg-blue-50 text-blue-700 border-blue-100 hover:border-blue-200' : 'bg-purple-50 text-purple-700 border-purple-100 hover:border-purple-200'}`}
+                                                        >
+                                                            <option value="estudio">Gestiono YO</option>
+                                                            <option value="cliente">Autogestión</option>
+                                                        </select>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right">
                                         <div className="flex items-center justify-end gap-2">

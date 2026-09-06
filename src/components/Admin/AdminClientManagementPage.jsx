@@ -10,13 +10,17 @@ const AdminClientManagementPage = ({ userId, navigate }) => {
 
     const toggleModule = async (moduleId) => {
         const currentPerms = clientData?.permisos || {
-            dashboard: true, operaciones: true, gestion: true, finanzas: true, reportes: true, cliente: true, perfil: true, microcreditos: false, facturacion: false
+            dashboard: true, operaciones: true, gestion: true, finanzas: true, reportes: true, cliente: true, perfil: true, microcreditos: false, facturacion: true
         };
         
-        const newPerms = { ...currentPerms, [moduleId]: !currentPerms[moduleId] };
+        const newPerms = { ...currentPerms, [moduleId]: currentPerms[moduleId] !== false ? false : true };
         try {
-            await updateDoc(doc(db, "users", userId), { permisos: newPerms });
-            setClientData({ ...clientData, permisos: newPerms });
+            const updates = { permisos: newPerms };
+            if (moduleId === 'facturacion') {
+                updates.servicioFacturacion = newPerms.facturacion;
+            }
+            await updateDoc(doc(db, "users", userId), updates);
+            setClientData({ ...clientData, ...updates, permisos: newPerms });
         } catch(err) {
             alert("Error actualizando permiso: " + err.message);
         }
@@ -88,7 +92,7 @@ const AdminClientManagementPage = ({ userId, navigate }) => {
                                 { id: 'perfil', name: 'Perfil' }
                             ].map(mod => {
                                 const currentPerms = clientData?.permisos || {
-                                    dashboard: true, operaciones: true, gestion: true, finanzas: true, reportes: true, cliente: true, perfil: true, microcreditos: false, facturacion: false
+                                    dashboard: true, operaciones: true, gestion: true, finanzas: true, reportes: true, cliente: true, perfil: true, microcreditos: false, facturacion: true
                                 };
                                 const isEnabled = currentPerms[mod.id];
                                 return (
