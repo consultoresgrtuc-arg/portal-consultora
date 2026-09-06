@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db, storage } from '../../firebase';
+import { db, storage, functions } from '../../firebase';
+import { httpsCallable } from 'firebase/functions';
 import { 
   collection, 
   query, 
@@ -9,7 +10,7 @@ import {
   addDoc, 
   updateDoc, 
   doc, 
-  deleteDoc,
+  deleteDoc, 
   Timestamp 
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -256,6 +257,7 @@ const BillingRequestsPage = () => {
     const [selectedAssignUserId, setSelectedAssignUserId] = useState('');
     const [showWhatsAppModal, setShowWhatsAppModal] = useState(false); // Modal de conexión / webhook WhatsApp
     const [expandedRowId, setExpandedRowId] = useState(null); 
+    const [reanalyzingId, setReanalyzingId] = useState(null);
     const [selectedClient, setSelectedClient] = useState('todos');
     const [selectedYear, setSelectedYear] = useState('todos');
     const [selectedMonth, setSelectedMonth] = useState('todos');
@@ -962,8 +964,22 @@ const BillingRequestsPage = () => {
         }
     };
 
+    const handleReanalyze = async (req) => {
+        if (!req.id) return;
+        try {
+            setReanalyzingId(req.id);
+            const reanalyzeFn = httpsCallable(functions, 'reanalyzeBillingRequest');
+            await reanalyzeFn({ requestId: req.id });
+        } catch (err) {
+            console.error("Error al reanalizar comprobante:", err);
+            alert("No se pudo reanalizar el comprobante: " + (err.message || 'Error desconocido'));
+        } finally {
+            setReanalyzingId(null);
+        }
+    };
+
     const openEditModal = (req) => {
-        if (req.status === 'pending' && !req.aiData && !req.isManualEntry) {
+        if (req.status === 'pending' && !req.aiData && !req.isManualEntry && !req.aiError) {
             return alert("⏳ Por favor, espere a que la IA termine de analizar el comprobante.");
         }
 
@@ -1695,24 +1711,36 @@ const BillingRequestsPage = () => {
                                     <tr><td colSpan="5" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando solicitudes...</td></tr>
                                 ) : filteredRequests.length === 0 ? (
                                     <tr><td colSpan="5" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron registros con este filtro.</td></tr>
-                                ) : filteredRequests.map(req => (
+                                ) : filteredRequests.map(req => {
+                                    const hasAIError = req.status === 'error' || (Boolean(req.aiError) && !req.aiData);
+                                    const isReanalyzing = reanalyzingId === req.id;
+                                    const isAIAnalyzing = (req.status === 'pending' && !req.aiData && !req.isManualEntry && !hasAIError) || isReanalyzing;
+
+                                    return (
                                     <React.Fragment key={req.id}>
                                         <tr 
                                             className={`hover:bg-blue-50/50 cursor-pointer transition-all ${expandedRowId === req.id ? 'bg-blue-50/50' : ''}`} 
                                             onClick={() => toggleDetails(req.id)}
                                         >
                                             <td className="px-8 py-6 whitespace-nowrap text-sm font-bold text-gray-500">
-                                                {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
+                                                {isAIAnalyzing ? (
                                                     <div className="h-4 bg-gray-100 rounded-lg w-20 animate-pulse"></div>
                                                 ) : (
                                                     req.timestamp?.toDate().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
                                                 )}
                                             </td>
                                             <td className="px-8 py-6">
-                                                {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
+                                                {isAIAnalyzing ? (
                                                     <div className="space-y-2">
                                                         <div className="h-4 bg-blue-50 rounded-lg w-32 animate-pulse"></div>
                                                         <div className="h-3 bg-gray-50 rounded-lg w-24 animate-pulse"></div>
+                                                    </div>
+                                                ) : hasAIError ? (
+                                                    <div>
+                                                        <div className="text-sm font-black text-gray-900 leading-tight">{getUnifiedName(req)}</div>
+                                                        <div className="text-[10px] text-amber-600 font-bold flex items-center gap-1 mt-0.5">
+                                                            <Icon name="AlertTriangle" size={11} /> Pendiente de reanálisis IA
+                                                        </div>
                                                     </div>
                                                 ) : (
                                                     <>
@@ -1728,12 +1756,35 @@ const BillingRequestsPage = () => {
                                                 )}
                                             </td>
                                             <td className="px-8 py-6">
-                                                {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
+                                                {isReanalyzing ? (
+                                                    <div className="flex items-center gap-2.5 text-indigo-600 animate-pulse">
+                                                        <div className="p-1.5 bg-indigo-50 rounded-lg">
+                                                            <Icon name="RefreshCw" className="w-4 h-4 animate-spin" />
+                                                        </div>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">Reanalizando IA...</span>
+                                                    </div>
+                                                ) : isAIAnalyzing ? (
                                                     <div className="flex items-center gap-3 text-blue-600 animate-pulse">
                                                         <div className="p-1.5 bg-blue-100 rounded-lg">
                                                             <Icon name="Cpu" className="w-4 h-4 animate-spin" />
                                                         </div>
                                                         <span className="text-[10px] font-black uppercase tracking-widest">IA Analizando...</span>
+                                                    </div>
+                                                ) : hasAIError ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                                                            <Icon name="AlertCircle" size={12} className="text-amber-500" /> Error en IA
+                                                        </span>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleReanalyze(req);
+                                                            }}
+                                                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all"
+                                                            title="Reintentar análisis con IA"
+                                                        >
+                                                            <Icon name="RefreshCw" size={10} /> Reintentar
+                                                        </button>
                                                     </div>
                                                 ) : (
                                                     <div className="flex flex-wrap items-center gap-1.5">
@@ -1768,12 +1819,16 @@ const BillingRequestsPage = () => {
                                                 )}
                                             </td>
                                             <td className="px-8 py-6 text-right">
-                                                {req.status === 'pending' && !req.aiData && !req.isManualEntry ? (
+                                                {isAIAnalyzing ? (
                                                     <div className="h-5 bg-green-50 rounded-lg w-24 ml-auto animate-pulse"></div>
                                                 ) : req.status === 'duplicate' ? (
                                                     <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black bg-red-50 text-red-600 border border-red-100 uppercase tracking-widest">
                                                         <Icon name="AlertTriangle" className="w-3 h-3 mr-1"/> Duplicado
                                                     </span>
+                                                ) : hasAIError && !req.aiData?.monto_total ? (
+                                                    <div className="text-xs font-bold text-gray-400">
+                                                        {req.manualData?.monto ? formatCurrency(req.manualData.monto) : 'Sin calcular'}
+                                                    </div>
                                                 ) : (
                                                     <div className="text-lg font-black text-gray-900 tracking-tight">
                                                         {formatCurrency(req.aiData?.monto_total || req.manualData?.monto || 0)}
@@ -1795,13 +1850,50 @@ const BillingRequestsPage = () => {
                                                             <div>
                                                                 <div className="flex justify-between items-center mb-8">
                                                                     <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Detalle Técnico Extraído</h4>
-                                                                    <button 
-                                                                        onClick={() => openEditModal(req)} 
-                                                                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-50'}`}
-                                                                    >
-                                                                        <Icon name="Edit" size={14}/> {req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'Procesando...' : 'Corregir'}
-                                                                    </button>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleReanalyze(req);
+                                                                            }}
+                                                                            disabled={isReanalyzing}
+                                                                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-indigo-600 hover:bg-indigo-50 border border-indigo-100 transition-all disabled:opacity-50"
+                                                                            title="Volver a analizar con IA Gemini 3.5 Flash Lite"
+                                                                        >
+                                                                            <Icon name="RefreshCw" size={13} className={isReanalyzing ? 'animate-spin' : ''}/> 
+                                                                            {isReanalyzing ? 'Analizando...' : 'Reanalizar IA'}
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={() => openEditModal(req)} 
+                                                                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${isAIAnalyzing && !hasAIError ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-50'}`}
+                                                                        >
+                                                                            <Icon name="Edit" size={14}/> {isAIAnalyzing && !hasAIError ? 'Procesando...' : 'Corregir'}
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
+
+                                                                {(hasAIError || req.aiError) && (
+                                                                    <div className="mb-6 p-4 bg-amber-50/90 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 shadow-xs">
+                                                                        <div className="flex items-start gap-2.5 text-xs">
+                                                                            <Icon name="AlertTriangle" size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                                                                            <div>
+                                                                                <span className="font-black block text-amber-950">Inconveniente al procesar con IA:</span>
+                                                                                <span className="text-amber-800 text-[11px] font-mono">{req.aiError || 'El análisis inicial no pudo completarse.'}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleReanalyze(req);
+                                                                            }}
+                                                                            disabled={isReanalyzing}
+                                                                            className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 shadow-sm disabled:opacity-50"
+                                                                        >
+                                                                            <Icon name="RefreshCw" size={13} className={isReanalyzing ? 'animate-spin' : ''} />
+                                                                            {isReanalyzing ? 'Reanalizando...' : 'Reintentar Análisis'}
+                                                                        </button>
+                                                                    </div>
+                                                                )}
                                                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                                                                     <div>
                                                                         <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Pago</p>
@@ -2075,7 +2167,8 @@ const BillingRequestsPage = () => {
                                             </tr>
                                         )}
                                     </React.Fragment>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     )}
