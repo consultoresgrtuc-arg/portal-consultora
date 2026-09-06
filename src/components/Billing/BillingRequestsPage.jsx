@@ -320,6 +320,7 @@ const BillingRequestsPage = () => {
     const [requestToDelete, setRequestToDelete] = useState(null);
     const [editingRequest, setEditingRequest] = useState(null);
     const [editFormData, setEditFormData] = useState({});
+    const [autoRegisterInBook, setAutoRegisterInBook] = useState(true);
 
     // Mapeo dinámico del teléfono desde los perfiles de usuario
     const [systemUsers, setSystemUsers] = useState([]);
@@ -938,11 +939,43 @@ const BillingRequestsPage = () => {
             const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`); 
             await uploadBytes(fileRef, invoiceFile); 
             const url = await getDownloadURL(fileRef); 
+
+            // Determinar si también se registra en el Libro de Operaciones
+            const shouldExport = autoRegisterInBook && req.userId && req.userId !== 'unassigned' && !req.exportedToOperations;
+
             await updateDoc(doc(db, 'billing_requests', id), { 
                 status: 'completed', 
                 invoiceUrl: url, 
-                completedAt: Timestamp.now() 
+                completedAt: Timestamp.now(),
+                ...(shouldExport ? { exportedToOperations: true } : {})
             }); 
+
+            // Auto-registrar en el Libro de Operaciones si el toggle está activo
+            if (shouldExport) {
+                try {
+                    const monto = req.aiData?.monto_total || 0;
+                    const tipo = req.clasificacionContable === 'gasto' ? 'gasto' : (req.clasificacionContable === 'compra' ? 'compra' : 'venta');
+                    const desc = req.aiData?.concepto_detectado || `${tipo.toUpperCase()} - ${req.aiData?.nombre_emisor || 'Comprobante'}`;
+                    const fechaStr = req.aiData?.fecha_pago || new Date().toISOString().split('T')[0];
+                    const localDate = new Date(fechaStr + 'T00:00:00-03:00');
+
+                    await addDoc(collection(db, 'users', req.userId, 'operations'), {
+                        type: tipo,
+                        amount: parseFloat(monto),
+                        description: desc,
+                        fechaEmision: Timestamp.fromDate(localDate),
+                        year: localDate.getFullYear(),
+                        month: localDate.getMonth() + 1,
+                        day: localDate.getDate(),
+                        billingRequestId: req.id,
+                        source: req.source || 'web'
+                    });
+                } catch (opErr) {
+                    console.error("Error al auto-registrar en libro de operaciones:", opErr);
+                    // No bloquear el flujo principal si falla el registro en libro
+                }
+            }
+
             setCompletingId(null); 
             setInvoiceFile(null); 
         } catch (e) {
@@ -1567,6 +1600,25 @@ const BillingRequestsPage = () => {
                                                                                                         </button>
                                                                                                     </div>
                                                                                                 </div>
+                                                                                                {/* Toggle: Auto-registrar en Libro de Operaciones */}
+                                                                                                <div 
+                                                                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer select-none ${
+                                                                                                        autoRegisterInBook 
+                                                                                                            ? 'bg-indigo-50 border-indigo-200' 
+                                                                                                            : 'bg-gray-50 border-gray-200'
+                                                                                                    }`}
+                                                                                                    onClick={() => setAutoRegisterInBook(!autoRegisterInBook)}
+                                                                                                >
+                                                                                                    <div className="flex items-center gap-2">
+                                                                                                        <Icon name="BookOpen" size={14} className={autoRegisterInBook ? 'text-indigo-600' : 'text-gray-400'}/>
+                                                                                                        <span className={`text-[10px] font-black uppercase tracking-widest ${autoRegisterInBook ? 'text-indigo-700' : 'text-gray-500'}`}>
+                                                                                                            Registrar en Libro de Operaciones
+                                                                                                        </span>
+                                                                                                    </div>
+                                                                                                    <div className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${autoRegisterInBook ? 'bg-indigo-500' : 'bg-gray-300'}`}>
+                                                                                                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-200 ${autoRegisterInBook ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                                                                                                    </div>
+                                                                                                </div>
                                                                                                 <div className="relative">
                                                                                                     <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
                                                                                                     <div className="relative flex justify-center text-[10px] font-black uppercase text-gray-400"><span className="bg-gray-100 px-3">O también</span></div>
@@ -1609,6 +1661,14 @@ const BillingRequestsPage = () => {
                                                                                                     {!req.invoiceUrl && <span className="text-[10px] font-black uppercase tracking-widest">Notificar</span>}
                                                                                                 </button>
                                                                                             </div>
+                                                                                            {!req.exportedToOperations && (
+                                                                                                <button 
+                                                                                                    onClick={() => handleExportToOperations(req)} 
+                                                                                                    className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2 mt-2"
+                                                                                                >
+                                                                                                    <Icon name="BookOpen" size={14}/> Asentar en Libro de Operaciones
+                                                                                                </button>
+                                                                                            )}
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
@@ -2070,6 +2130,25 @@ const BillingRequestsPage = () => {
                                                                                     >
                                                                                         {uploading ? '...' : 'Subir'}
                                                                                     </button>
+                                                                                </div>
+                                                                                {/* Toggle: Auto-registrar en Libro de Operaciones */}
+                                                                                <div 
+                                                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer select-none ${
+                                                                                        autoRegisterInBook 
+                                                                                            ? 'bg-indigo-50 border-indigo-200' 
+                                                                                            : 'bg-gray-50 border-gray-200'
+                                                                                    }`}
+                                                                                    onClick={() => setAutoRegisterInBook(!autoRegisterInBook)}
+                                                                                >
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        <Icon name="BookOpen" size={14} className={autoRegisterInBook ? 'text-indigo-600' : 'text-gray-400'}/>
+                                                                                        <span className={`text-[10px] font-black uppercase tracking-widest ${autoRegisterInBook ? 'text-indigo-700' : 'text-gray-500'}`}>
+                                                                                            Registrar en Libro de Operaciones
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${autoRegisterInBook ? 'bg-indigo-500' : 'bg-gray-300'}`}>
+                                                                                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-200 ${autoRegisterInBook ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                                                                                    </div>
                                                                                 </div>
                                                                             </div>
                                                                             <div className="relative">
