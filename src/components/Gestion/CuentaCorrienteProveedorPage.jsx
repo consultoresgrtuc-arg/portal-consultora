@@ -8,6 +8,7 @@ import {
   onSnapshot, 
   doc, 
   deleteDoc,
+  getDocs,
   Timestamp 
 } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
@@ -24,6 +25,7 @@ const CuentaCorrienteProveedorPage = ({ navigate, terceroId }) => {
     const [error, setError] = useState('');
     const [isDeleting, setIsDeleting] = useState(false);
     const [movimientoAEditar, setMovimientoAEditar] = useState(null); 
+    const [copiedText, setCopiedText] = useState(false);
 
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
     const formatDate = (timestamp) => {
@@ -106,6 +108,30 @@ const CuentaCorrienteProveedorPage = ({ navigate, terceroId }) => {
         setIsDeleting(true);
         try {
             const collectionName = mov.tipoMovimiento === 'factura' ? 'facturasCompra' : 'pagosRealizados';
+
+            // 1. Eliminar operación vinculada si existía
+            if (mov.operationId) {
+                try {
+                    await deleteDoc(doc(db, 'users', user.uid, 'operations', mov.operationId));
+                } catch (opErr) {
+                    console.warn("No se pudo eliminar la operación asociada:", opErr);
+                }
+            }
+
+            // 2. Si era un pago con cheque emitido, eliminar cheque generado
+            if (mov.tipoMovimiento === 'pago') {
+                try {
+                    const qCheques = query(collection(db, 'users', user.uid, 'cheques'), where("pagoId", "==", mov.id));
+                    const chequesSnap = await getDocs(qCheques);
+                    for (const chqDoc of chequesSnap.docs) {
+                        await deleteDoc(doc(db, 'users', user.uid, 'cheques', chqDoc.id));
+                    }
+                } catch (chqErr) {
+                    console.warn("No se pudieron eliminar cheques asociados:", chqErr);
+                }
+            }
+
+            // 3. Eliminar el comprobante principal
             await deleteDoc(doc(db, 'users', user.uid, collectionName, mov.id));
         } catch (err) {
             console.error(err);
@@ -113,6 +139,34 @@ const CuentaCorrienteProveedorPage = ({ navigate, terceroId }) => {
         } finally {
             setIsDeleting(false);
         }
+    };
+
+    const handleCopyWhatsApp = () => {
+        if (!terceroData) return;
+        const saldoFinal = movimientos.length > 0 ? movimientos[movimientos.length - 1].saldoAcumulado : 0;
+        
+        let texto = `*ESTADO DE CUENTA PROVEEDOR*\n`;
+        texto += `*Proveedor:* ${terceroData.nombre}\n`;
+        if (terceroData.cuit) texto += `*CUIT:* ${terceroData.cuit}\n`;
+        texto += `*Fecha de emisión:* ${new Date().toLocaleDateString('es-AR')}\n\n`;
+        texto += `*Últimos movimientos:*\n`;
+
+        const ultimos = movimientos.slice(-5);
+        ultimos.forEach(m => {
+            const fechaStr = formatDate(m.fecha);
+            if (m.tipoMovimiento === 'factura') {
+                texto += `▫️ ${fechaStr} - Compra N° ${m.numeroComprobante || 'S/N'}: +${formatCurrency(m.montoTotal)}\n`;
+            } else {
+                texto += `▫️ ${fechaStr} - Pago Realizado (${m.medioDePago || 'Pago'}): -${formatCurrency(m.montoPagado)}\n`;
+            }
+        });
+
+        texto += `\n*SALDO A PAGAR ACTUAL:* ${formatCurrency(saldoFinal)}\n`;
+        texto += `_Detalle emitido desde el Centro de Gestión._`;
+
+        navigator.clipboard.writeText(texto);
+        setCopiedText(true);
+        setTimeout(() => setCopiedText(false), 3000);
     };
 
     const handleEditMovimiento = (mov) => {
@@ -161,7 +215,17 @@ const CuentaCorrienteProveedorPage = ({ navigate, terceroId }) => {
                         <p className="text-gray-500 font-medium italic">{terceroData?.nombre || 'Cargando...'}</p>
                     </div>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
+                    <button 
+                        onClick={handleCopyWhatsApp}
+                        className={`px-5 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all transform active:scale-95 flex items-center border ${
+                            copiedText ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50 shadow-sm'
+                        }`}
+                        title="Copiar resumen formateado para compartir"
+                    >
+                        <Icon name={copiedText ? "Check" : "Share2"} className="w-4 h-4 mr-2"/> 
+                        {copiedText ? "¡Copiado!" : "Copiar Resumen"}
+                    </button>
                     <button 
                         onClick={() => handleShowNuevoMovimiento('factura')}
                         className="bg-orange-600 text-white px-6 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-orange-700 shadow-xl shadow-orange-100 transition-all transform active:scale-95 flex items-center"

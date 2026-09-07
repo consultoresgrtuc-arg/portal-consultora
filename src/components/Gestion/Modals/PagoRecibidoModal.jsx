@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../../firebase';
-import { addDoc, collection, doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../../../context/AuthContext';
 import Icon from '../../Common/Icon';
 
@@ -18,6 +18,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
         chequeNumero: '',
         chequeBanco: '',
         chequeFechaVencimiento: '',
+        impactarOperaciones: true,
     });
 
     useEffect(() => {
@@ -30,6 +31,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 chequeNumero: '',
                 chequeBanco: '',
                 chequeFechaVencimiento: '',
+                impactarOperaciones: movimiento.operationId ? true : !isEditMode,
             });
             setIsSubmitting(false);
             setMessage('');
@@ -37,10 +39,10 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
     }, [isOpen, movimiento]);
 
     const handleChange = (e) => {
-        const { name, value, type } = e.target;
+        const { name, value, type, checked } = e.target;
         setFormData(prev => ({
             ...prev,
-            [name]: type === 'number' ? (value === '' ? '' : parseFloat(value) || 0) : value
+            [name]: type === 'checkbox' ? checked : (type === 'number' ? (value === '' ? '' : parseFloat(value) || 0) : value)
         }));
     };
 
@@ -61,15 +63,52 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
         setIsSubmitting(true);
         setMessage('');
 
+        const localDate = new Date(formData.fechaPago + 'T00:00:00-03:00');
+        const fechaTimestamp = Timestamp.fromDate(localDate);
+
         const dataToSave = {
             terceroId: clienteId,
-            fechaPago: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
+            fechaPago: fechaTimestamp,
             montoPagado: formData.montoPagado,
             medioDePago: formData.medioDePago,
             referencia: formData.referencia || '',
         };
 
         try {
+            let operationId = movimiento?.operationId || null;
+
+            // Sincronizar con colección operations (Caja / Dashboard)
+            if (formData.impactarOperaciones) {
+                const opData = {
+                    type: 'ingreso',
+                    amount: parseFloat(formData.montoPagado),
+                    description: `Cobro Cta. Cte. - ${clienteNombre}${formData.referencia ? ` (${formData.referencia})` : ''}`,
+                    fechaEmision: fechaTimestamp,
+                    year: localDate.getFullYear(),
+                    month: localDate.getMonth() + 1,
+                    day: localDate.getDate(),
+                    origen: 'gestion_cobro',
+                    terceroId: clienteId
+                };
+
+                if (operationId) {
+                    await updateDoc(doc(db, 'users', user.uid, 'operations', operationId), opData);
+                } else {
+                    const opRef = await addDoc(collection(db, 'users', user.uid, 'operations'), opData);
+                    operationId = opRef.id;
+                }
+            } else if (operationId) {
+                // Si desmarcó el switch en modo edición, eliminar la operación previa
+                try {
+                    await deleteDoc(doc(db, 'users', user.uid, 'operations', operationId));
+                } catch (delOpErr) {
+                    console.warn("No se pudo eliminar la operación desvinculada:", delOpErr);
+                }
+                operationId = null;
+            }
+
+            dataToSave.operationId = operationId;
+
             if (isEditMode) {
                 await updateDoc(doc(db, 'users', user.uid, 'pagosRecibidos', movimiento.id), dataToSave);
             } else {
@@ -84,7 +123,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                         numero: formData.chequeNumero,
                         banco: formData.chequeBanco,
                         fechaVencimiento: Timestamp.fromDate(new Date(formData.chequeFechaVencimiento + 'T00:00:00-03:00')),
-                        fechaRecepcion: Timestamp.fromDate(new Date(formData.fechaPago + 'T00:00:00-03:00')),
+                        fechaRecepcion: fechaTimestamp,
                         monto: formData.montoPagado,
                         pagoId: docRef.id 
                     };
@@ -194,6 +233,23 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                             className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-emerald-100 rounded-2xl transition-all outline-none font-bold text-gray-800"
                             placeholder="N° Transferencia, etc."
                         />
+                    </div>
+
+                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <span className="text-xs font-black text-gray-800 block">Registrar en Flujo de Caja (Operaciones)</span>
+                            <span className="text-[10px] text-gray-400 font-medium">Sincroniza este cobro como ingreso en Dashboard y Reportes</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                                type="checkbox" 
+                                name="impactarOperaciones" 
+                                checked={formData.impactarOperaciones} 
+                                onChange={handleChange} 
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
                     </div>
 
                     {message && <p className="text-red-500 text-xs font-bold text-center italic">{message}</p>}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebase';
 import { 
   collection, 
@@ -15,6 +15,8 @@ const ProveedoresPage = ({ navigate }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [saldosData, setSaldosData] = useState({ proveedores: [], totalPagar: 0 });
+    const [searchTerm, setSearchTerm] = useState('');
+    const [soloConSaldo, setSoloConSaldo] = useState(false);
 
     useEffect(() => {
         if (!user) return;
@@ -56,7 +58,7 @@ const ProveedoresPage = ({ navigate }) => {
                     }))
                     .sort((a, b) => b.saldo - a.saldo);
 
-                const totalPagar = proveedores.reduce((sum, p) => sum + p.saldo, 0);
+                const totalPagar = proveedores.reduce((sum, p) => sum + (p.saldo > 0 ? p.saldo : 0), 0);
                 setSaldosData({ proveedores, totalPagar });
 
             } catch (err) {
@@ -71,6 +73,19 @@ const ProveedoresPage = ({ navigate }) => {
     }, [user]);
 
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+
+    const proveedoresFiltrados = useMemo(() => {
+        return saldosData.proveedores.filter(p => {
+            if (soloConSaldo && p.saldo <= 0) return false;
+            if (!searchTerm.trim()) return true;
+            const term = searchTerm.toLowerCase();
+            return (
+                (p.nombre && p.nombre.toLowerCase().includes(term)) ||
+                (p.cuit && p.cuit.includes(term)) ||
+                (p.email && p.email.toLowerCase().includes(term))
+            );
+        });
+    }, [saldosData.proveedores, searchTerm, soloConSaldo]);
 
     return (
         <div className="p-6 space-y-8 animate-fade-in">
@@ -109,6 +124,30 @@ const ProveedoresPage = ({ navigate }) => {
                 </div>
             </div>
 
+            {/* Barra de Filtros y Búsqueda */}
+            <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+                <label className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border border-gray-100 shadow-sm cursor-pointer select-none">
+                    <input 
+                        type="checkbox" 
+                        checked={soloConSaldo} 
+                        onChange={(e) => setSoloConSaldo(e.target.checked)}
+                        className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500"
+                    />
+                    <span className="text-xs font-bold text-gray-700">Solo proveedores con saldo pendiente</span>
+                </label>
+
+                <div className="relative min-w-[300px]">
+                    <Icon name="Search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
+                    <input 
+                        type="text"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Buscar proveedor o CUIT..."
+                        className="w-full pl-11 pr-4 py-2.5 bg-white border border-gray-100 rounded-2xl text-xs font-bold text-gray-800 focus:ring-2 focus:ring-orange-100 outline-none shadow-sm"
+                    />
+                </div>
+            </div>
+
             <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-50">
@@ -123,7 +162,7 @@ const ProveedoresPage = ({ navigate }) => {
                         <tbody className="bg-white divide-y divide-gray-50">
                             {loading ? (
                                 <tr><td colSpan="4" className="text-center py-24 text-gray-400 font-bold animate-pulse">Analizando facturas de compra...</td></tr>
-                            ) : saldosData.proveedores.length > 0 ? saldosData.proveedores.map(proveedor => (
+                            ) : proveedoresFiltrados.length > 0 ? proveedoresFiltrados.map(proveedor => (
                                 <tr key={proveedor.id} className="hover:bg-gray-50/50 transition-colors group">
                                     <td className="px-8 py-6">
                                         <div className="text-sm font-black text-gray-900">{proveedor.nombre}</div>
@@ -149,7 +188,7 @@ const ProveedoresPage = ({ navigate }) => {
                             )) : (
                                 <tr>
                                     <td colSpan="4" className="text-center py-24 text-gray-400 font-bold italic">
-                                        No hay deudas con proveedores registradas.
+                                        No se encontraron proveedores con los filtros aplicados.
                                     </td>
                                 </tr>
                             )}

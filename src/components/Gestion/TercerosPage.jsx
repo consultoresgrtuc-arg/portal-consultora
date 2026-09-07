@@ -21,6 +21,8 @@ const TercerosPage = ({ navigate }) => {
     const [editingTercero, setEditingTercero] = useState(null);
     const [showConfirmDelete, setShowConfirmDelete] = useState(false);
     const [terceroToDelete, setTerceroToDelete] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [categoriaFilter, setCategoriaFilter] = useState('Todos');
 
     useEffect(() => {
         if (!user) return;
@@ -64,6 +66,19 @@ const TercerosPage = ({ navigate }) => {
         }
     };
 
+    const tercerosFiltrados = terceros.filter(t => {
+        if (categoriaFilter !== 'Todos' && t.tipo !== categoriaFilter && t.tipo !== 'Ambos') {
+            return false;
+        }
+        if (!searchTerm.trim()) return true;
+        const term = searchTerm.toLowerCase();
+        return (
+            (t.nombre && t.nombre.toLowerCase().includes(term)) ||
+            (t.cuit && t.cuit.includes(term)) ||
+            (t.email && t.email.toLowerCase().includes(term))
+        );
+    });
+
     return (
         <div className="p-6 space-y-8 animate-fade-in">
             {showModal && <TerceroModal tercero={editingTercero} onClose={() => setShowModal(false)} />}
@@ -96,6 +111,34 @@ const TercerosPage = ({ navigate }) => {
                 </button>
             </header>
 
+            {/* Barra de Filtros y Búsqueda */}
+            <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+                <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl w-fit">
+                    {['Todos', 'Cliente', 'Proveedor'].map(cat => (
+                        <button
+                            key={cat}
+                            onClick={() => setCategoriaFilter(cat)}
+                            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                                categoriaFilter === cat ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                            {cat === 'Todos' ? 'Todos' : `${cat}s`}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="relative min-w-[300px]">
+                    <Icon name="Search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
+                    <input 
+                        type="text"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Buscar por Nombre, CUIT o Email..."
+                        className="w-full pl-11 pr-4 py-2.5 bg-white border border-gray-100 rounded-2xl text-xs font-bold text-gray-800 focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
+                    />
+                </div>
+            </div>
+
             <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-50">
@@ -111,7 +154,7 @@ const TercerosPage = ({ navigate }) => {
                         <tbody className="bg-white divide-y divide-gray-50">
                             {loading ? (
                                 <tr><td colSpan="5" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando base de datos...</td></tr>
-                            ) : terceros.length > 0 ? terceros.map(t => (
+                            ) : tercerosFiltrados.length > 0 ? tercerosFiltrados.map(t => (
                                 <tr key={t.id} className="hover:bg-gray-50/50 transition-colors group">
                                     <td className="px-8 py-6">
                                         <div className="text-sm font-black text-gray-900">{t.nombre}</div>
@@ -154,7 +197,7 @@ const TercerosPage = ({ navigate }) => {
                             )) : (
                                 <tr>
                                     <td colSpan="5" className="text-center py-24 text-gray-400 font-bold italic">
-                                        No hay registros creados aún.
+                                        No se encontraron registros con los filtros aplicados.
                                     </td>
                                 </tr>
                             )}

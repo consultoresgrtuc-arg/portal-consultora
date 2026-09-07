@@ -6,7 +6,8 @@ import {
   orderBy, 
   onSnapshot, 
   doc, 
-  updateDoc 
+  updateDoc,
+  deleteDoc
 } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
@@ -17,6 +18,7 @@ const ChequesPage = ({ navigate }) => {
     const [cheques, setCheques] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('activos'); 
+    const [searchTerm, setSearchTerm] = useState('');
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [confirmParams, setConfirmParams] = useState({ 
         message: '', 
@@ -51,6 +53,14 @@ const ChequesPage = ({ navigate }) => {
         }
     };
 
+    const handleDeleteCheque = async (chequeId) => {
+        try {
+            await deleteDoc(doc(db, 'users', user.uid, 'cheques', chequeId));
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     const promptAction = (message, action, buttonText = 'Confirmar', isDestructive = false) => {
         setConfirmParams({ 
             message, 
@@ -64,7 +74,17 @@ const ChequesPage = ({ navigate }) => {
     const estadosActivos = ['En Cartera', 'Depositado', 'Emitido'];
     const chequesFiltrados = cheques.filter(c => {
         const esActivo = estadosActivos.includes(c.estado);
-        return activeTab === 'activos' ? esActivo : !esActivo;
+        const coincidePestaña = activeTab === 'activos' ? esActivo : !esActivo;
+        
+        if (!coincidePestaña) return false;
+        
+        if (!searchTerm.trim()) return true;
+        const term = searchTerm.toLowerCase();
+        return (
+            (c.terceroNombre && c.terceroNombre.toLowerCase().includes(term)) ||
+            (c.banco && c.banco.toLowerCase().includes(term)) ||
+            (c.numero && c.numero.toString().includes(term))
+        );
     });
 
     const metricas = useMemo(() => {
@@ -116,19 +136,32 @@ const ChequesPage = ({ navigate }) => {
                 </div>
             </div>
 
-            <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl w-fit">
-                <button 
-                    onClick={() => setActiveTab('activos')} 
-                    className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'activos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    Cartera Activa
-                </button>
-                <button 
-                    onClick={() => setActiveTab('historial')} 
-                    className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'historial' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    Historial
-                </button>
+            <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+                <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl w-fit">
+                    <button 
+                        onClick={() => setActiveTab('activos')} 
+                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'activos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        Cartera Activa
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('historial')} 
+                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'historial' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        Historial
+                    </button>
+                </div>
+
+                <div className="relative min-w-[280px]">
+                    <Icon name="Search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
+                    <input 
+                        type="text"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Buscar por Tercero, Banco o N°..."
+                        className="w-full pl-11 pr-4 py-2.5 bg-white border border-gray-100 rounded-2xl text-xs font-bold text-gray-800 focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
+                    />
+                </div>
             </div>
 
             <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
@@ -154,9 +187,20 @@ const ChequesPage = ({ navigate }) => {
                             ) : chequesFiltrados.length > 0 ? chequesFiltrados.map(c => (
                                 <tr key={c.id} className="hover:bg-gray-50/50 transition-colors group">
                                     <td className="px-8 py-6">
-                                        <div className="text-sm font-black text-gray-900">{c.terceroNombre}</div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-black text-gray-900">{c.terceroNombre}</span>
+                                            {c.terceroId && (
+                                                <button 
+                                                    onClick={() => navigate(c.tipo === 'recibido' ? `gestion/deudores/${c.terceroId}` : `gestion/proveedores/${c.terceroId}`)}
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-blue-500 hover:text-blue-700"
+                                                    title="Ver Cuenta Corriente"
+                                                >
+                                                    <Icon name="ExternalLink" size={14}/>
+                                                </button>
+                                            )}
+                                        </div>
                                         <div className={`text-[10px] font-bold uppercase tracking-widest ${c.tipo === 'recibido' ? 'text-emerald-500' : 'text-red-500'}`}>
-                                            {c.tipo === 'recibido' ? 'Entrante' : 'Saliente'}
+                                            {c.tipo === 'recibido' ? 'Entrante (Cliente)' : 'Saliente (Proveedor)'}
                                         </div>
                                     </td>
                                     <td className="px-8 py-6">
@@ -174,41 +218,53 @@ const ChequesPage = ({ navigate }) => {
                                             c.estado === 'En Cartera' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
                                             c.estado === 'Depositado' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' : 
                                             c.estado === 'Emitido' ? 'bg-red-50 text-red-600 border-red-100' : 
+                                            c.estado === 'Cobrado' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                                            c.estado === 'Pagado' ? 'bg-purple-50 text-purple-600 border-purple-100' : 
                                             'bg-gray-50 text-gray-600 border-gray-100'
                                         }`}>
                                             {c.estado}
                                         </span>
                                     </td>
                                     <td className="px-8 py-6 text-center">
-                                        {c.estado === 'En Cartera' && (
+                                        <div className="flex items-center justify-center gap-2">
+                                            {c.estado === 'En Cartera' && (
+                                                <button 
+                                                    onClick={() => promptAction(`¿Depositar cheque N° ${c.numero}?`, () => handleUpdateEstado(c.id, 'Depositado'), 'Depositar', false)}
+                                                    className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                                                >
+                                                    Depositar
+                                                </button>
+                                            )}
+                                            {c.estado === 'Depositado' && (
+                                                <button 
+                                                    onClick={() => promptAction(`¿Confirmar acreditación del cheque N° ${c.numero}?`, () => handleUpdateEstado(c.id, 'Cobrado'), 'Confirmar Cobro', false)}
+                                                    className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
+                                                >
+                                                    Cobrado
+                                                </button>
+                                            )}
+                                            {c.estado === 'Emitido' && (
+                                                <button 
+                                                    onClick={() => promptAction(`¿Confirmar débito del cheque N° ${c.numero}?`, () => handleUpdateEstado(c.id, 'Pagado'), 'Confirmar Pago', false)}
+                                                    className="px-4 py-2 bg-orange-50 text-orange-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-orange-600 hover:text-white transition-all shadow-sm"
+                                                >
+                                                    Pagado
+                                                </button>
+                                            )}
+                                            
+                                            {/* Botón para anular/eliminar */}
                                             <button 
-                                                onClick={() => promptAction(`¿Depositar cheque N° ${c.numero}?`, () => handleUpdateEstado(c.id, 'Depositado'), 'Depositar', false)}
-                                                className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                                                onClick={() => promptAction(`¿Eliminar o anular el registro de este cheque N° ${c.numero}?`, () => handleDeleteCheque(c.id), 'Eliminar', true)}
+                                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                                title="Eliminar / Anular Cheque"
                                             >
-                                                Depositar
+                                                <Icon name="Trash2" size={16}/>
                                             </button>
-                                        )}
-                                        {c.estado === 'Depositado' && (
-                                            <button 
-                                                onClick={() => promptAction(`¿Confirmar acreditación del cheque N° ${c.numero}?`, () => handleUpdateEstado(c.id, 'Cobrado'), 'Confirmar Cobro', false)}
-                                                className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
-                                            >
-                                                Cobrado
-                                            </button>
-                                        )}
-                                        {c.estado === 'Emitido' && (
-                                            <button 
-                                                onClick={() => promptAction(`¿Confirmar débito del cheque N° ${c.numero}?`, () => handleUpdateEstado(c.id, 'Pagado'), 'Confirmar Pago', false)}
-                                                className="px-4 py-2 bg-orange-50 text-orange-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-orange-600 hover:text-white transition-all shadow-sm"
-                                            >
-                                                Pagado
-                                            </button>
-                                        )}
-                                        {!estadosActivos.includes(c.estado) && <span className="text-[10px] font-black text-gray-300 uppercase italic">Archivado</span>}
+                                        </div>
                                     </td>
                                 </tr>
                             )) : (
-                                <tr><td colSpan="6" className="text-center py-24 text-gray-400 font-bold italic">No hay cheques en esta vista.</td></tr>
+                                <tr><td colSpan="6" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron cheques con los filtros aplicados.</td></tr>
                             )}
                         </tbody>
                     </table>
