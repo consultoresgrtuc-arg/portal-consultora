@@ -28,6 +28,8 @@
   },
   "overrides": {
     "websocket-driver": "^0.7.4",
-    "protobufjs": "^7.4.0"
+    "protobufjs": "^7.4.0",
+    "browserslist": "^4.28.9",
+    "nanoid": "^3.3.18"
   }
 }
