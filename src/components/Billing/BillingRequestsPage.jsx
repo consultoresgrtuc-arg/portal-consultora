@@ -533,10 +533,21 @@ const BillingRequestsPage = ({ navigate }) => {
             // Compra o Gasto: Inversión Contable de Roles
             // Si pagó por transferencia: nuestro cliente fue el EMISOR del pago
             // Si es factura de compra: el cliente fue el RECEPTOR (comprador de la factura)
-            const clienteEsEmisor = isTransfer;
+            const cuitEmisorNorm = cleanCuit(req.aiData?.cuit_emisor || '');
+            const cuitReceptorNorm = cleanCuit(req.aiData?.cuit_receptor || '');
+            const matchEmisor = cuitEmisorNorm && cuitEmisorNorm.length >= 10 ? tercerosByCuit[cuitEmisorNorm] : null;
+            const matchReceptor = cuitReceptorNorm && cuitReceptorNorm.length >= 10 ? tercerosByCuit[cuitReceptorNorm] : null;
+
+            let clienteEsEmisor = isTransfer;
+            if (matchEmisor && !matchReceptor) {
+                clienteEsEmisor = true;
+            } else if (matchReceptor && !matchEmisor) {
+                clienteEsEmisor = false;
+            }
+
             const rawCuit = (clienteEsEmisor ? req.aiData?.cuit_emisor : req.aiData?.cuit_receptor) || req.manualData?.cuitCliente || 'S/D';
             const normCuit = cleanCuit(rawCuit);
-            const terceroMatch = normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null;
+            const terceroMatch = (clienteEsEmisor ? matchEmisor : matchReceptor) || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
 
             let clienteNombre = terceroMatch?.nombre || (clienteEsEmisor ? req.aiData?.nombre_emisor : req.aiData?.nombre_receptor) || req.manualData?.nombreCliente;
             if (!clienteNombre || clienteNombre === 'Cliente') {
@@ -722,6 +733,7 @@ const BillingRequestsPage = ({ navigate }) => {
         }
 
         const isExpenseModule = activeModule === 'compras_gastos';
+        const isConsolidatedModule = activeModule === 'summary';
         const filteredByModule = reqs.filter(r => {
             const tipo = r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta';
             if (activeModule === 'ventas') return tipo === 'venta';
@@ -731,7 +743,9 @@ const BillingRequestsPage = ({ navigate }) => {
 
         return {
             isExpenseModule,
-            totalFacturado: filteredByModule.filter(r => r.status === 'completed').reduce((sum, r) => sum + (r.aiData?.monto_total || r.manualData?.monto || 0), 0),
+            isConsolidatedModule,
+            totalFacturado: filteredByModule.filter(r => r.status === 'completed' && (isConsolidatedModule ? (r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta') === 'venta' : true)).reduce((sum, r) => sum + (r.aiData?.monto_total || r.manualData?.monto || 0), 0),
+            totalComprasGastos: filteredByModule.filter(r => r.status === 'completed' && ((r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta') === 'compra' || (r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta') === 'gasto')).reduce((sum, r) => sum + (r.aiData?.monto_total || r.manualData?.monto || 0), 0),
             totalPendiente: filteredByModule.filter(r => r.status !== 'completed' && r.status !== 'duplicate').reduce((sum, r) => sum + (r.aiData?.monto_total || r.manualData?.monto || 0), 0)
         };
     }, [visibleRequests, selectedClient, selectedYear, selectedMonth, activeModule, clientDictionary]);
@@ -740,9 +754,25 @@ const BillingRequestsPage = ({ navigate }) => {
         const summaryMap = {};
         
         let targetRequests = requests;
+
+        // 1. Filtrado por Cliente Seleccionado en la cabecera
+        if (selectedClient !== 'todos') {
+            const normSelected = cleanCuit(selectedClient);
+            targetRequests = targetRequests.filter(req => {
+                const party = getPartyDetails(req);
+                const uName = getUnifiedName(req);
+                const normReqCuit = cleanCuit(party.clienteCuit || '');
+                if (normSelected && normReqCuit && normSelected === normReqCuit) {
+                    return true;
+                }
+                return uName === selectedClient;
+            });
+        }
+
+        // 2. Filtrado por Período (Año y Mes)
         if (selectedYear !== 'todos') {
             const y = parseInt(selectedYear, 10);
-            targetRequests = requests.filter(req => {
+            targetRequests = targetRequests.filter(req => {
                 const reqDate = req.timestamp?.toDate();
                 if (!reqDate || reqDate.getFullYear() !== y) return false;
                 if (selectedMonth !== 'todos') {
@@ -753,7 +783,7 @@ const BillingRequestsPage = ({ navigate }) => {
             });
         } else if (selectedMonth !== 'todos') {
             const m = parseInt(selectedMonth, 10);
-            targetRequests = requests.filter(req => {
+            targetRequests = targetRequests.filter(req => {
                 const reqDate = req.timestamp?.toDate();
                 return reqDate && (reqDate.getMonth() + 1) === m;
             });
@@ -772,6 +802,10 @@ const BillingRequestsPage = ({ navigate }) => {
             const isCompleted = req.status === 'completed';
             const isPending = req.status !== 'completed' && req.status !== 'duplicate';
 
+            const tipo = req.clasificacionContable || req.aiData?.clasificacion_contable || (party.isVenta ? 'venta' : 'compra');
+            const isVenta = tipo === 'venta';
+            const isCompraGasto = tipo === 'compra' || tipo === 'gasto';
+
             const normCuit = cuit !== 'Sin CUIT' ? cuit : '';
             const terceroMatch = party.terceroMatch || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
             
@@ -784,7 +818,12 @@ const BillingRequestsPage = ({ navigate }) => {
                     isInTerceros: Boolean(terceroMatch),
                     userId: req.userId && req.userId !== 'unassigned' && !userData?.isAdmin ? req.userId : null,
                     totalFacturado: 0,
+                    totalComprasGastos: 0,
                     totalPendiente: 0,
+                    pendienteVentas: 0,
+                    pendienteComprasGastos: 0,
+                    countVentas: 0,
+                    countComprasGastos: 0,
                     count: 0,
                     lastActivity: null
                 };
@@ -799,12 +838,34 @@ const BillingRequestsPage = ({ navigate }) => {
             }
             
             const clientData = summaryMap[key];
-            if (isCompleted) {
-                clientData.totalFacturado += monto;
+
+            if (isVenta) {
+                if (isCompleted) {
+                    clientData.totalFacturado += monto;
+                }
+                if (isPending) {
+                    clientData.totalPendiente += monto;
+                    clientData.pendienteVentas += monto;
+                }
+                clientData.countVentas += 1;
+            } else if (isCompraGasto) {
+                if (isCompleted) {
+                    clientData.totalComprasGastos += monto;
+                }
+                if (isPending) {
+                    clientData.totalPendiente += monto;
+                    clientData.pendienteComprasGastos += monto;
+                }
+                clientData.countComprasGastos += 1;
+            } else {
+                if (isCompleted) {
+                    clientData.totalFacturado += monto;
+                }
+                if (isPending) {
+                    clientData.totalPendiente += monto;
+                }
             }
-            if (isPending) {
-                clientData.totalPendiente += monto;
-            }
+
             clientData.count += 1;
             
             const reqDate = req.timestamp?.toDate();
@@ -815,12 +876,19 @@ const BillingRequestsPage = ({ navigate }) => {
             }
         });
         
-        return Object.values(summaryMap).sort((a, b) => b.totalFacturado - a.totalFacturado);
-    }, [requests, selectedYear, selectedMonth, clientDictionary, tercerosByCuit, userData?.isAdmin]);
+        return Object.values(summaryMap).sort((a, b) => (b.totalFacturado + b.totalComprasGastos) - (a.totalFacturado + a.totalComprasGastos));
+    }, [requests, selectedClient, selectedYear, selectedMonth, clientDictionary, tercerosByCuit, userData?.isAdmin]);
 
     const consolidatedClientRequests = useMemo(() => {
         if (!selectedConsolidatedClient) return [];
-        let data = requests.filter(req => getUnifiedName(req) === selectedConsolidatedClient.name);
+        let data = requests.filter(req => {
+            const party = getPartyDetails(req);
+            const uName = getUnifiedName(req);
+            const normReqCuit = cleanCuit(party.clienteCuit || '');
+            const clientCuit = cleanCuit(selectedConsolidatedClient.cuit);
+            if (clientCuit && normReqCuit && clientCuit === normReqCuit) return true;
+            return uName === selectedConsolidatedClient.name;
+        });
         if (selectedYear !== 'todos') {
             const y = parseInt(selectedYear, 10);
             data = data.filter(req => {
@@ -840,7 +908,7 @@ const BillingRequestsPage = ({ navigate }) => {
             });
         }
         return data;
-    }, [requests, selectedConsolidatedClient, selectedYear, selectedMonth]);
+    }, [requests, selectedConsolidatedClient, selectedYear, selectedMonth, clientDictionary, tercerosByCuit]);
 
     // 4. Backup ZIP Logic
     const downloadYearlyBackup = async (year) => {
@@ -1494,36 +1562,83 @@ const BillingRequestsPage = ({ navigate }) => {
             )}
 
             {/* Metrics Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex items-center gap-6 group overflow-hidden relative">
-                    <div className="absolute -right-4 -top-4 text-blue-50/40 group-hover:scale-110 transition-transform">
-                        <Icon name="CheckCircle" size={120} />
+            {metrics.isConsolidatedModule ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex items-center gap-6 group overflow-hidden relative">
+                        <div className="absolute -right-4 -top-4 text-blue-50/40 group-hover:scale-110 transition-transform">
+                            <Icon name="TrendingUp" size={120} />
+                        </div>
+                        <div className="p-4 rounded-2xl relative z-10 bg-blue-50 text-blue-600 border border-blue-100/60">
+                            <Icon name="TrendingUp" size={32} />
+                        </div>
+                        <div className="relative z-10">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                                Total Facturado (Ventas) {getPeriodLabel()}
+                            </p>
+                            <h3 className="text-3xl font-black text-blue-700 tracking-tight">{formatCurrency(metrics.totalFacturado)}</h3>
+                        </div>
                     </div>
-                    <div className="p-4 rounded-2xl relative z-10 bg-blue-50 text-blue-600 border border-blue-100/60">
-                        <Icon name={metrics.isExpenseModule ? "ShoppingBag" : "TrendingUp"} size={32} />
+                    <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex items-center gap-6 group overflow-hidden relative">
+                        <div className="absolute -right-4 -top-4 text-rose-50/40 group-hover:scale-110 transition-transform">
+                            <Icon name="ShoppingBag" size={120} />
+                        </div>
+                        <div className="p-4 rounded-2xl relative z-10 bg-rose-50 text-rose-600 border border-rose-100/60">
+                            <Icon name="ShoppingBag" size={32} />
+                        </div>
+                        <div className="relative z-10">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                                Total Compras y Gastos {getPeriodLabel()}
+                            </p>
+                            <h3 className="text-3xl font-black text-rose-600 tracking-tight">{formatCurrency(metrics.totalComprasGastos || 0)}</h3>
+                        </div>
                     </div>
-                    <div className="relative z-10">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                            {metrics.isExpenseModule ? 'Total Egresos Imputados' : 'Total Facturado'} {getPeriodLabel()}
-                        </p>
-                        <h3 className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(metrics.totalFacturado)}</h3>
+                    <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex items-center gap-6 group overflow-hidden relative">
+                        <div className="absolute -right-4 -top-4 text-amber-50/40 group-hover:scale-110 transition-transform">
+                            <Icon name="Clock" size={120} />
+                        </div>
+                        <div className="bg-amber-50 p-4 rounded-2xl text-amber-600 border border-amber-100/60 relative z-10">
+                            <Icon name="History" size={32} />
+                        </div>
+                        <div className="relative z-10">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                                Pendientes Globales {getPeriodLabel()}
+                            </p>
+                            <h3 className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(metrics.totalPendiente)}</h3>
+                        </div>
                     </div>
                 </div>
-                <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex items-center gap-6 group overflow-hidden relative">
-                    <div className="absolute -right-4 -top-4 text-sky-50/40 group-hover:scale-110 transition-transform">
-                        <Icon name="Clock" size={120} />
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex items-center gap-6 group overflow-hidden relative">
+                        <div className="absolute -right-4 -top-4 text-blue-50/40 group-hover:scale-110 transition-transform">
+                            <Icon name="CheckCircle" size={120} />
+                        </div>
+                        <div className="p-4 rounded-2xl relative z-10 bg-blue-50 text-blue-600 border border-blue-100/60">
+                            <Icon name={metrics.isExpenseModule ? "ShoppingBag" : "TrendingUp"} size={32} />
+                        </div>
+                        <div className="relative z-10">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                                {metrics.isExpenseModule ? 'Total Egresos Imputados' : 'Total Facturado'} {getPeriodLabel()}
+                            </p>
+                            <h3 className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(metrics.totalFacturado)}</h3>
+                        </div>
                     </div>
-                    <div className="bg-sky-50 p-4 rounded-2xl text-sky-600 border border-sky-100/60 relative z-10">
-                        <Icon name="History" size={32} />
-                    </div>
-                    <div className="relative z-10">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                            {metrics.isExpenseModule ? 'Egresos Pendientes de Imputar' : 'Pendiente de Facturación'} {getPeriodLabel()}
-                        </p>
-                        <h3 className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(metrics.totalPendiente)}</h3>
+                    <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex items-center gap-6 group overflow-hidden relative">
+                        <div className="absolute -right-4 -top-4 text-sky-50/40 group-hover:scale-110 transition-transform">
+                            <Icon name="Clock" size={120} />
+                        </div>
+                        <div className="bg-sky-50 p-4 rounded-2xl text-sky-600 border border-sky-100/60 relative z-10">
+                            <Icon name="History" size={32} />
+                        </div>
+                        <div className="relative z-10">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                                {metrics.isExpenseModule ? 'Egresos Pendientes de Imputar' : 'Pendiente de Facturación'} {getPeriodLabel()}
+                            </p>
+                            <h3 className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(metrics.totalPendiente)}</h3>
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* Backup Action Bar */}
             <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-blue-900 p-6 rounded-[32px] shadow-xl shadow-blue-950/15 flex flex-col md:flex-row justify-between items-center gap-6 overflow-hidden relative border border-blue-800/30">
@@ -1744,7 +1859,7 @@ const BillingRequestsPage = ({ navigate }) => {
                                 </div>
 
                                 {/* Summary KPI Cards */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-8 bg-blue-50/10 border-b border-blue-50">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 p-8 bg-blue-50/10 border-b border-blue-50">
                                     <div className="bg-white p-6 rounded-2xl border border-blue-50 shadow-xs flex items-center gap-4 group hover:shadow-md transition-all">
                                         <div className="bg-blue-50 p-3 rounded-xl text-blue-600 border border-blue-100">
                                             <Icon name="TrendingUp" size={24}/>
@@ -1755,12 +1870,21 @@ const BillingRequestsPage = ({ navigate }) => {
                                         </div>
                                     </div>
                                     <div className="bg-white p-6 rounded-2xl border border-blue-50 shadow-xs flex items-center gap-4 group hover:shadow-md transition-all">
-                                        <div className="bg-sky-50 p-3 rounded-xl text-sky-600 border border-sky-100">
+                                        <div className="bg-rose-50 p-3 rounded-xl text-rose-600 border border-rose-100">
+                                            <Icon name="ShoppingBag" size={24}/>
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Compras / Gastos</p>
+                                            <p className="text-xl font-black text-rose-600 mt-0.5">{formatCurrency(selectedConsolidatedClient.totalComprasGastos || 0)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-6 rounded-2xl border border-blue-50 shadow-xs flex items-center gap-4 group hover:shadow-md transition-all">
+                                        <div className="bg-amber-50 p-3 rounded-xl text-amber-600 border border-amber-100">
                                             <Icon name="Clock" size={24}/>
                                         </div>
                                         <div>
                                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Pendiente</p>
-                                            <p className="text-xl font-black text-sky-700 mt-0.5">{formatCurrency(selectedConsolidatedClient.totalPendiente)}</p>
+                                            <p className="text-xl font-black text-amber-700 mt-0.5">{formatCurrency(selectedConsolidatedClient.totalPendiente)}</p>
                                         </div>
                                     </div>
                                     <div className="bg-white p-6 rounded-2xl border border-blue-50 shadow-xs flex items-center gap-4 group hover:shadow-md transition-all">
@@ -2121,6 +2245,7 @@ const BillingRequestsPage = ({ navigate }) => {
                                         <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Cliente / Razón Social</th>
                                         <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">CUIT</th>
                                         <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Facturado</th>
+                                        <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Compras / Gastos</th>
                                         <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Pendiente</th>
                                         <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Comprobantes</th>
                                         <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Último Movimiento</th>
@@ -2129,9 +2254,9 @@ const BillingRequestsPage = ({ navigate }) => {
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-50">
                                     {loading ? (
-                                        <tr><td colSpan="7" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando consolidado...</td></tr>
+                                        <tr><td colSpan="8" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando consolidado...</td></tr>
                                     ) : clientBillingSummary.length === 0 ? (
-                                        <tr><td colSpan="7" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron clientes.</td></tr>
+                                        <tr><td colSpan="8" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron clientes.</td></tr>
                                     ) : (
                                         clientBillingSummary.map(client => (
                                             <tr key={client.key} className="hover:bg-blue-50/30 transition-all">
@@ -2161,12 +2286,17 @@ const BillingRequestsPage = ({ navigate }) => {
                                                     {client.cuit}
                                                 </td>
                                                 <td className="px-8 py-6 text-right whitespace-nowrap">
-                                                    <div className="text-sm font-black text-green-600 tracking-tight">
+                                                    <div className="text-sm font-black text-blue-600 tracking-tight">
                                                         {formatCurrency(client.totalFacturado)}
                                                     </div>
                                                 </td>
                                                 <td className="px-8 py-6 text-right whitespace-nowrap">
-                                                    <div className="text-sm font-black text-yellow-600 tracking-tight">
+                                                    <div className="text-sm font-black text-rose-600 tracking-tight">
+                                                        {formatCurrency(client.totalComprasGastos || 0)}
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-6 text-right whitespace-nowrap">
+                                                    <div className="text-sm font-black text-amber-600 tracking-tight">
                                                         {formatCurrency(client.totalPendiente)}
                                                     </div>
                                                 </td>
