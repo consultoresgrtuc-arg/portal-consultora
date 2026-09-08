@@ -11,6 +11,7 @@ import {
   updateDoc, 
   doc, 
   deleteDoc, 
+  getDocs,
   Timestamp 
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -1330,27 +1331,29 @@ const BillingRequestsPage = ({ navigate }) => {
             return alert("⏳ Por favor, espere a que la IA termine de analizar el comprobante.");
         }
 
+        const party = getPartyDetails(req);
+        const isVenta = (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === 'venta';
         const phoneToShow = getReceptorPhone(req);
         const initialApp = (req.aiData?.aplicacion_pago && req.aiData.aplicacion_pago.toLowerCase() !== 'otro')
             ? req.aiData.aplicacion_pago
             : (req.aiData?.banco_receptor || '');
 
         setEditFormData({
-            clasificacion_contable: req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta',
-            fecha_pago: req.aiData?.fecha_pago || '',
+            clasificacion_contable: req.clasificacionContable || req.aiData?.clasificacion_contable || (party.isVenta ? 'venta' : 'compra'),
+            fecha_pago: req.aiData?.fecha_pago || req.manualData?.fecha || '',
             hora_pago: req.aiData?.hora_pago || '', 
-            monto_total: req.aiData?.monto_total || 0,
+            monto_total: req.aiData?.monto_total ?? req.manualData?.monto ?? 0,
             tipo_comprobante: req.aiData?.tipo_comprobante || '',
             aplicacion_pago: initialApp,
             numero_operacion: req.aiData?.numero_operacion || '', 
             codigo_identificacion: req.aiData?.codigo_identificacion || '',
-            cuit_emisor: req.aiData?.cuit_emisor || '',
-            nombre_emisor: req.aiData?.nombre_emisor || '',
+            cuit_emisor: req.aiData?.cuit_emisor || req.manualData?.cuitEmisor || (!isVenta ? party.clienteCuit : '') || '',
+            nombre_emisor: req.aiData?.nombre_emisor || req.manualData?.nombreEmisor || (!isVenta ? party.clienteNombre : '') || '',
             banco_origen: req.aiData?.banco_origen || '',
-            cuit_receptor: req.aiData?.cuit_receptor || '',
-            nombre_receptor: req.aiData?.nombre_receptor || '',
+            cuit_receptor: req.aiData?.cuit_receptor || req.manualData?.cuitCliente || (isVenta ? party.clienteCuit : '') || '',
+            nombre_receptor: req.aiData?.nombre_receptor || req.manualData?.nombreCliente || (isVenta ? party.clienteNombre : '') || '',
             banco_receptor: req.aiData?.banco_receptor || '',
-            userPhone: phoneToShow, 
+            userPhone: phoneToShow || req.userPhone || '', 
             concepto_detectado: req.aiData?.concepto_detectado || '',
             note: req.note || ''
         });
@@ -1361,33 +1364,115 @@ const BillingRequestsPage = ({ navigate }) => {
         e.preventDefault(); 
         if (!editingRequest) return; 
         try { 
-            const { userPhone, note, clasificacion_contable, ...aiDataFields } = editFormData;
-            const finalClasif = clasificacion_contable || 'venta';
-            await updateDoc(doc(db, 'billing_requests', editingRequest.id), { 
+            const safeFloat = (val) => {
+                if (val === undefined || val === null || val === '') return 0;
+                const cleanStr = String(val).replace(/\s/g, '').replace(',', '.');
+                const parsed = parseFloat(cleanStr);
+                return isNaN(parsed) ? 0 : parsed;
+            };
+            const safeStr = (val) => (val === undefined || val === null) ? '' : String(val).trim();
+
+            const finalClasif = editFormData.clasificacion_contable || 'venta';
+            const isVenta = finalClasif === 'venta';
+
+            const cleanedAiData = {
+                ...(editingRequest.aiData || {}),
+                clasificacion_contable: finalClasif,
+                fecha_pago: safeStr(editFormData.fecha_pago),
+                hora_pago: safeStr(editFormData.hora_pago),
+                monto_total: safeFloat(editFormData.monto_total),
+                tipo_comprobante: safeStr(editFormData.tipo_comprobante),
+                aplicacion_pago: safeStr(editFormData.aplicacion_pago),
+                numero_operacion: safeStr(editFormData.numero_operacion),
+                codigo_identificacion: safeStr(editFormData.codigo_identificacion),
+                cuit_emisor: safeStr(editFormData.cuit_emisor),
+                nombre_emisor: safeStr(editFormData.nombre_emisor),
+                banco_origen: safeStr(editFormData.banco_origen),
+                cuit_receptor: safeStr(editFormData.cuit_receptor),
+                nombre_receptor: safeStr(editFormData.nombre_receptor),
+                banco_receptor: safeStr(editFormData.banco_receptor),
+                concepto_detectado: safeStr(editFormData.concepto_detectado)
+            };
+
+            // Asegurar que ninguna clave tenga valor undefined
+            Object.keys(cleanedAiData).forEach(k => {
+                if (cleanedAiData[k] === undefined) cleanedAiData[k] = '';
+            });
+
+            const updatePayload = { 
                 clasificacionContable: finalClasif,
-                aiData: { 
-                    ...(editingRequest.aiData || {}),
-                    ...aiDataFields, 
-                    clasificacion_contable: finalClasif,
-                    monto_total: parseFloat(editFormData.monto_total) || 0 
-                },
-                userPhone: userPhone,
-                note: note || ''
-            }); 
+                aiData: cleanedAiData,
+                userPhone: safeStr(editFormData.userPhone),
+                note: safeStr(editFormData.note)
+            };
+
+            // Si es un comprobante manual o posee manualData, sincronizarlo también
+            if (editingRequest.isManualEntry || editingRequest.manualData) {
+                updatePayload.manualData = {
+                    ...(editingRequest.manualData || {}),
+                    monto: safeFloat(editFormData.monto_total),
+                    fecha: safeStr(editFormData.fecha_pago) || editingRequest.manualData?.fecha || '',
+                    cuitCliente: isVenta ? safeStr(editFormData.cuit_receptor) : (safeStr(editFormData.cuit_emisor) || safeStr(editFormData.cuit_receptor)),
+                    nombreCliente: isVenta ? safeStr(editFormData.nombre_receptor) : (safeStr(editFormData.nombre_emisor) || safeStr(editFormData.nombre_receptor)),
+                    cuitEmisor: safeStr(editFormData.cuit_emisor),
+                    nombreEmisor: safeStr(editFormData.nombre_emisor)
+                };
+            }
+
+            await updateDoc(doc(db, 'billing_requests', editingRequest.id), updatePayload); 
             setEditingRequest(null); 
-        } catch (e) { alert("Error al guardar"); } 
+        } catch (err) { 
+            console.error("Error al guardar edición de comprobante:", err);
+            alert(`Error al guardar comprobante: ${err.message || 'Verifique los datos ingresados'}`); 
+        } 
     };
 
     const handleDeleteRequest = async () => { 
-        if(requestToDelete) { 
-            try {
-                await deleteDoc(doc(db, 'billing_requests', requestToDelete)); 
-            } catch (error) {
-                console.error("Error deleting request:", error);
-            } finally {
-                setRequestToDelete(null); 
+        if (!requestToDelete) return;
+        try { 
+            const req = requests.find(r => r.id === requestToDelete);
+            
+            // 1. Si estaba asentado en el Libro de Operaciones, buscar y eliminar el asiento correspondiente
+            if (req) {
+                const party = getPartyDetails(req);
+                const normCuit = cleanCuit(party.clienteCuit);
+                const targetClientId = party.terceroMatch?.id 
+                    || (normCuit && tercerosByCuit[normCuit]?.id) 
+                    || (req.userId && req.userId !== 'unassigned' && !userData?.isAdmin ? req.userId : null)
+                    || (normCuit && normCuit.length >= 10 ? `cuit_${normCuit}` : req.userId);
+
+                const candidateUids = new Set([
+                    targetClientId,
+                    req.userId,
+                    user?.uid,
+                    party.terceroMatch?.id,
+                    normCuit && tercerosByCuit[normCuit]?.id ? tercerosByCuit[normCuit].id : null
+                ].filter(Boolean));
+
+                for (const cUid of candidateUids) {
+                    try {
+                        const qOp = query(
+                            collection(db, 'users', cUid, 'operations'), 
+                            where('billingRequestId', '==', requestToDelete)
+                        );
+                        const qSnap = await getDocs(qOp);
+                        for (const opDoc of qSnap.docs) {
+                            await deleteDoc(opDoc.ref);
+                        }
+                    } catch (errOp) {
+                        console.error(`Error al eliminar operación vinculada en ${cUid}:`, errOp);
+                    }
+                }
             }
-        } 
+
+            // 2. Eliminar el comprobante de billing_requests
+            await deleteDoc(doc(db, 'billing_requests', requestToDelete)); 
+        } catch (error) {
+            console.error("Error deleting request:", error);
+            alert("No se pudo eliminar el comprobante: " + (error.message || ''));
+        } finally { 
+            setRequestToDelete(null); 
+        }
     };
 
     const markAsDone = async (reqId) => { 
@@ -3402,70 +3487,107 @@ const BillingRequestsPage = ({ navigate }) => {
                                     <div className="space-y-4">
                                         <div className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
                                             isVenta 
-                                                ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800' 
-                                                : 'bg-purple-50/70 border-purple-200 text-purple-800'
+                                                ? 'bg-blue-50/70 border-blue-200 text-blue-900' 
+                                                : 'bg-purple-50/70 border-purple-200 text-purple-900'
                                         }`}>
                                             <Icon name="Info" size={16} className="shrink-0"/>
                                             <span>
                                                 {isVenta 
                                                     ? 'En Ventas: el Emisor es el Comprador y el Receptor es el Cliente del Estudio (quien factura).' 
-                                                    : 'En Compras/Gastos: el Emisor de fondos es el Cliente del Estudio (quien incurre en el egreso) y el Receptor es el Proveedor.'}
+                                                    : 'En Compras/Gastos: el Emisor de fondos es el Cliente del Estudio (quien incurre en el egreso) y el Receptor es el Proveedor / Comercio.'}
                                             </span>
                                         </div>
 
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                            {/* Columna 1: Emisor */}
                                             <section>
-                                                <div className="flex items-center gap-3 mb-6">
-                                                    <div className={`w-1.5 h-6 rounded-full ${isVenta ? 'bg-gray-400' : 'bg-purple-600'}`}></div>
-                                                    <h4 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isVenta ? 'text-gray-400' : 'text-purple-700'}`}>
-                                                        {isVenta ? 'Emisor Original (Comprador)' : 'Emisor de Fondos (Cliente Titular)'}
-                                                    </h4>
-                                                </div>
-                                                <div className={`${isVenta ? 'bg-gray-50 border-gray-100' : 'bg-purple-50/40 border-purple-100'} p-8 rounded-[32px] border space-y-5`}>
-                                                    <div className="space-y-2">
-                                                        <label className="text-[10px] font-black text-gray-500 uppercase px-1">Nombre / Razón Social</label>
-                                                        <input value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`w-1.5 h-6 rounded-full ${isVenta ? 'bg-gray-400' : 'bg-purple-600'}`}></div>
+                                                        <h4 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isVenta ? 'text-gray-500' : 'text-purple-700'}`}>
+                                                            {isVenta ? 'Emisor Original (Comprador)' : 'Emisor de Fondos (Cliente Titular)'}
+                                                        </h4>
                                                     </div>
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <div className="space-y-2">
-                                                            <label className="text-[10px] font-black text-gray-500 uppercase px-1">CUIT</label>
-                                                            <input value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                                    {!isVenta && (
+                                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 border border-purple-200">
+                                                            Cliente del Estudio
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className={`${isVenta ? 'bg-gray-50/60 border-gray-200/80' : 'bg-purple-50/40 border-purple-200'} p-7 rounded-[32px] border space-y-4`}>
+                                                    <div className="space-y-1.5">
+                                                        <label className="text-[10px] font-black text-gray-500 uppercase px-1">Nombre / Razón Social</label>
+                                                        <input value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-xs focus:border-purple-300"/>
+                                                    </div>
+
+                                                    {/* Teléfono en Emisor SOLO si es Compra/Gasto (Cliente Titular) */}
+                                                    {!isVenta && (
+                                                        <div className="space-y-1.5">
+                                                            <label className="text-[10px] font-black text-purple-700 uppercase px-1 flex items-center gap-1">
+                                                                <Icon name="Phone" size={11}/> Teléfono / WhatsApp de Contacto
+                                                            </label>
+                                                            <div className="relative">
+                                                                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base">📱</span>
+                                                                <input type="tel" placeholder="549..." value={editFormData.userPhone} onChange={e => setEditFormData({...editFormData, userPhone: e.target.value})} className="w-full pl-11 pr-4 py-2.5 bg-white border-2 border-purple-200 focus:border-purple-400 rounded-xl transition-all outline-none font-bold text-purple-900 shadow-xs"/>
+                                                            </div>
                                                         </div>
-                                                        <div className="space-y-2">
+                                                    )}
+
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div className="space-y-1.5">
+                                                            <label className="text-[10px] font-black text-gray-500 uppercase px-1">CUIT</label>
+                                                            <input value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-xs focus:border-purple-300 font-mono" placeholder="20-xxxxxxxx-x"/>
+                                                        </div>
+                                                        <div className="space-y-1.5">
                                                             <label className="text-[10px] font-black text-gray-500 uppercase px-1">Banco / Billetera</label>
-                                                            <input value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                                            <input value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-xs focus:border-purple-300"/>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </section>
 
+                                            {/* Columna 2: Receptor */}
                                             <section>
-                                                <div className="flex items-center gap-3 mb-6">
-                                                    <div className={`w-1.5 h-6 rounded-full ${isVenta ? 'bg-blue-500' : 'bg-gray-400'}`}></div>
-                                                    <h4 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>
-                                                        {isVenta ? 'Receptor (Cliente del Estudio)' : 'Receptor / Proveedor (Destino)'}
-                                                    </h4>
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`w-1.5 h-6 rounded-full ${isVenta ? 'bg-blue-600' : 'bg-gray-400'}`}></div>
+                                                        <h4 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isVenta ? 'text-blue-700' : 'text-gray-500'}`}>
+                                                            {isVenta ? 'Receptor (Cliente del Estudio)' : 'Receptor / Proveedor (Destino)'}
+                                                        </h4>
+                                                    </div>
+                                                    {isVenta && (
+                                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-200">
+                                                            Cliente del Estudio
+                                                        </span>
+                                                    )}
                                                 </div>
-                                                <div className={`${isVenta ? 'bg-blue-50/50 border-blue-100' : 'bg-gray-50 border-gray-100'} p-8 rounded-[32px] border space-y-5`}>
-                                                    <div className="space-y-2">
-                                                        <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>Nombre / Razón Social</label>
-                                                        <input value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
+                                                <div className={`${isVenta ? 'bg-blue-50/50 border-blue-200' : 'bg-gray-50/60 border-gray-200/80'} p-7 rounded-[32px] border space-y-4`}>
+                                                    <div className="space-y-1.5">
+                                                        <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-700' : 'text-gray-500'}`}>Nombre / Razón Social</label>
+                                                        <input value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-900 shadow-xs focus:border-blue-300"/>
                                                     </div>
-                                                    <div className="space-y-2">
-                                                        <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>WhatsApp Notificación</label>
-                                                        <div className="relative">
-                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg">📱</span>
-                                                            <input type="tel" placeholder="549..." value={editFormData.userPhone} onChange={e => setEditFormData({...editFormData, userPhone: e.target.value})} className="w-full pl-12 pr-4 py-3 bg-white border-2 border-blue-100 focus:border-blue-300 rounded-xl transition-all outline-none font-black text-blue-800 shadow-sm"/>
+
+                                                    {/* Teléfono en Receptor SOLO si es Venta (Cliente del Estudio) */}
+                                                    {isVenta && (
+                                                        <div className="space-y-1.5">
+                                                            <label className="text-[10px] font-black text-blue-700 uppercase px-1 flex items-center gap-1">
+                                                                <Icon name="Phone" size={11}/> Teléfono / WhatsApp de Contacto
+                                                            </label>
+                                                            <div className="relative">
+                                                                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base">📱</span>
+                                                                <input type="tel" placeholder="549..." value={editFormData.userPhone} onChange={e => setEditFormData({...editFormData, userPhone: e.target.value})} className="w-full pl-11 pr-4 py-2.5 bg-white border-2 border-blue-200 focus:border-blue-400 rounded-xl transition-all outline-none font-bold text-blue-900 shadow-xs"/>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <div className="space-y-2">
-                                                            <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>CUIT</label>
-                                                            <input value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
+                                                    )}
+
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div className="space-y-1.5">
+                                                            <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-700' : 'text-gray-500'}`}>CUIT</label>
+                                                            <input value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-900 shadow-xs focus:border-blue-300 font-mono" placeholder="20-xxxxxxxx-x"/>
                                                         </div>
-                                                        <div className="space-y-2">
-                                                            <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>Banco / Billetera</label>
-                                                            <input value={editFormData.banco_receptor} onChange={e => setEditFormData({...editFormData, banco_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
+                                                        <div className="space-y-1.5">
+                                                            <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-700' : 'text-gray-500'}`}>Banco / Billetera</label>
+                                                            <input value={editFormData.banco_receptor} onChange={e => setEditFormData({...editFormData, banco_receptor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-900 shadow-xs focus:border-blue-300"/>
                                                         </div>
                                                     </div>
                                                 </div>
