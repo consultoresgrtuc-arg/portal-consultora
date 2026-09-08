@@ -7,6 +7,7 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import Icon from '../Common/Icon';
 import AIAnalyzer from './AIAnalyzer';
 import NotificationPanel from './NotificationPanel';
@@ -41,24 +42,29 @@ ChartJS.register(
 const DashboardPage = ({ navigate, setClientCenterFolder }) => {
     const [operations, setOperations] = useState([]);
     const { user } = useAuth();
+    const { targetUserId, activeEntity, isViewingClient } = useClientSelection();
     const [activeTab, setActiveTab] = useState('line'); // 'line' o 'doughnut'
     
     useEffect(() => {
-        if (!user) return;
+        const effectiveId = targetUserId || user?.uid;
+        if (!effectiveId) return;
         const now = new Date();
         const year = now.getFullYear();
         const month = now.getMonth() + 1;
 
         const q = query(
-            collection(db, 'users', user.uid, 'operations'),
+            collection(db, 'users', effectiveId, 'operations'),
             where("year", "==", year),
             where("month", "==", month)
         );
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setOperations(snapshot.docs.map(doc => doc.data()));
+        }, (error) => {
+            console.error("Error al obtener operaciones para dashboard:", error);
+            setOperations([]);
         });
         return () => unsubscribe();
-    }, [user]);
+    }, [targetUserId, user]);
 
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
 
@@ -211,11 +217,30 @@ const DashboardPage = ({ navigate, setClientCenterFolder }) => {
 
     return (
         <div className="space-y-8 bg-gray-50/50 min-h-screen pb-12">
-            <header className="flex flex-col gap-1.5">
-                <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
-                    Resumen Operativo
-                </h2>
-                <p className="text-slate-500 font-medium">Análisis financiero inteligente del período en curso.</p>
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+                            Resumen Operativo
+                        </h2>
+                        {isViewingClient ? (
+                            <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200/80 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                                {activeEntity.name}
+                            </span>
+                        ) : (
+                            <span className="px-3 py-1 bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-xs font-black uppercase tracking-wider">
+                                Mi Estudio Propio
+                            </span>
+                        )}
+                    </div>
+                    <p className="text-slate-500 font-medium mt-1">
+                        {isViewingClient 
+                            ? `Métricas financieras e impositivas del cliente ${activeEntity.name} (CUIT: ${activeEntity.cuit}).`
+                            : 'Control de honorarios, gastos operativos y métricas de rentabilidad de tu firma contable.'
+                        }
+                    </p>
+                </div>
             </header>
 
             {/* --- SECCIÓN 1: TOTALES POR CATEGORÍA --- */}

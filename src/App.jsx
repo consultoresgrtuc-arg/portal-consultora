@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ClientSelectionProvider } from './context/ClientSelectionContext';
 import AppLayout from './components/Layout/AppLayout';
 import MicrocreditsPanel from './components/Microcredits/MicrocreditsPanel';
 import DashboardPage from './components/Dashboard/DashboardPage';
@@ -368,7 +369,7 @@ const AppContent = () => {
             case 'dashboard':
                 return <DashboardPage navigate={setCurrentRoute} setClientCenterFolder={setClientCenterFolder} />;
             case 'billing':
-                return <BillingRequestsPage />;
+                return <BillingRequestsPage navigate={setCurrentRoute} />;
             case 'operations':
                 return <OperationsPage />;
             case 'finances':
@@ -428,7 +429,9 @@ const AppContent = () => {
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <ClientSelectionProvider>
+        <AppContent />
+      </ClientSelectionProvider>
     </AuthProvider>
   );
 }

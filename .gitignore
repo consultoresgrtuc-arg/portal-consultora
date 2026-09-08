@@ -24,6 +24,11 @@ dist-ssr
 *.sw?
 
 # Testing / Emulators scripts locales
+seed_*.js
 seed_emulator_admin.js
 create_admin_user.js
+
+# Environment files
+.env.local
+.env*.local
 

@@ -4,8 +4,9 @@ import { addDoc, collection, doc, updateDoc, Timestamp } from 'firebase/firestor
 import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
 
-const OperationModal = ({ op, onClose }) => {
+const OperationModal = ({ op, onClose, targetUserId, targetEntityName }) => {
     const { user } = useAuth();
+    const effectiveUserId = targetUserId || user?.uid;
     const [formData, setFormData] = useState({
         type: op?.type || 'venta',
         amount: op?.amount || '',
@@ -19,7 +20,7 @@ const OperationModal = ({ op, onClose }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!user || isSubmitting) return;
+        if (!effectiveUserId || isSubmitting) return;
 
         if (formData.amount <= 0) {
             setError('El monto debe ser mayor a cero.');
@@ -43,9 +44,9 @@ const OperationModal = ({ op, onClose }) => {
 
         try {
             if (op) { // Editing
-                await updateDoc(doc(db, 'users', user.uid, 'operations', op.id), dataToSave);
+                await updateDoc(doc(db, 'users', effectiveUserId, 'operations', op.id), dataToSave);
             } else { // Creating
-                await addDoc(collection(db, 'users', user.uid, 'operations'), dataToSave);
+                await addDoc(collection(db, 'users', effectiveUserId, 'operations'), dataToSave);
             }
             onClose();
         } catch (error) {
@@ -59,12 +60,18 @@ const OperationModal = ({ op, onClose }) => {
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
             <div className="bg-white rounded-[40px] shadow-2xl max-w-lg w-full p-10 animate-in fade-in zoom-in-95 duration-300">
-                <div className="flex justify-between items-start mb-8">
+                <div className="flex justify-between items-start mb-6">
                     <div>
                         <h3 className="text-2xl font-black text-gray-900 tracking-tight">
                             {op ? 'Editar Registro' : 'Nueva Operación'}
                         </h3>
                         <p className="text-gray-500 text-sm font-medium mt-1">Ingresa los detalles financieros.</p>
+                        {targetEntityName && (
+                            <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-800 text-xs font-bold border border-blue-100">
+                                <Icon name="UserCheck" size={13} className="text-blue-600"/>
+                                <span>Entidad: <strong>{targetEntityName}</strong></span>
+                            </div>
+                        )}
                     </div>
                     <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl transition-all">
                         <Icon name="X" size={24}/>

@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useRef, useEffect } from 'react';
 import { auth } from '../../firebase';
 import { signOut } from 'firebase/auth';
 import { 
@@ -17,15 +17,50 @@ import {
   Calculator,
   ChevronLeft,
   ChevronRight,
-  Bell
+  Bell,
+  Building2,
+  Users,
+  ChevronDown,
+  Check,
+  Search,
+  ArrowLeftRight
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import SessionWarningModal from './SessionWarningModal';
 
 const AppLayout = ({ children, currentRoute, navigate }) => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
     const { userData, notifications, logoutNow } = useAuth();
+    const { 
+        activeEntity, 
+        setActiveEntity, 
+        studioEntity, 
+        clientList, 
+        isViewingClient, 
+        resetToStudio 
+    } = useClientSelection();
+
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const dropdownRef = useRef(null);
+
+    // Cerrar dropdown al hacer clic afuera
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                setDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const filteredClients = clientList.filter(c => 
+        c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        c.cuit?.includes(searchTerm)
+    );
     
     const allLinks = [
         { name: 'Dashboard', icon: <LayoutDashboard size={20} />, path: 'dashboard', moduleId: 'dashboard' },
@@ -158,13 +193,148 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
             
             {/* Main Content */}
             <div className="flex-1 flex flex-col overflow-hidden">
-                <header className="flex justify-between items-center p-4 bg-white/70 backdrop-blur-xl border-b border-gray-200/80 sticky top-0 z-10 no-print">
-                    <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 hover:text-gray-700 focus:outline-none lg:hidden p-2 rounded-md hover:bg-gray-100">
-                        <Menu size={24}/>
-                    </button>
-                    <h1 className="text-xl md:text-2xl font-bold text-gray-800 truncate ml-2">
-                        Bienvenido, <span className="text-blue-600">{userData?.nombre || 'Administrador'}</span>!
-                    </h1>
+                <header className="flex flex-wrap justify-between items-center p-4 bg-white/80 backdrop-blur-xl border-b border-gray-200/80 sticky top-0 z-20 no-print gap-3">
+                    <div className="flex items-center gap-3">
+                        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 hover:text-gray-700 focus:outline-none lg:hidden p-2 rounded-md hover:bg-gray-100">
+                            <Menu size={24}/>
+                        </button>
+                        <h1 className="text-lg md:text-xl font-bold text-gray-800 truncate">
+                            Bienvenido, <span className="text-blue-600">{userData?.nombre || 'Administrador'}</span>!
+                        </h1>
+                    </div>
+
+                    {/* Selector de Entidad Activa (Mi Estudio vs Clientes) para Administradores */}
+                    {userData?.isAdmin && (
+                        <div className="relative" ref={dropdownRef}>
+                            <button
+                                onClick={() => setDropdownOpen(!dropdownOpen)}
+                                className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl border transition-all cursor-pointer shadow-xs ${
+                                    isViewingClient
+                                        ? 'bg-blue-50/90 border-blue-300 text-blue-900 hover:bg-blue-100/80 ring-2 ring-blue-500/20'
+                                        : 'bg-white border-blue-100 text-slate-800 hover:bg-blue-50/60'
+                                }`}
+                                title="Cambiar entidad contable para ver en Dashboard y Operaciones"
+                            >
+                                <div className={`p-1.5 rounded-xl ${isViewingClient ? 'bg-blue-600 text-white' : 'bg-slate-900 text-white'}`}>
+                                    {isViewingClient ? <User size={15}/> : <Building2 size={15}/>}
+                                </div>
+                                <div className="text-left max-w-[180px] sm:max-w-[240px] truncate">
+                                    <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                        {isViewingClient ? 'Cliente en Auditoría' : 'Entidad Contable'}
+                                    </p>
+                                    <p className="text-xs font-black truncate text-slate-900 leading-tight">
+                                        {activeEntity?.name}
+                                    </p>
+                                </div>
+                                <ChevronDown size={14} className={`text-slate-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {/* Menú Desplegable con Búsqueda */}
+                            {dropdownOpen && (
+                                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-blue-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
+                                    <div className="p-3 border-b border-gray-100 bg-blue-50/30">
+                                        <div className="relative">
+                                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                            <input 
+                                                type="text"
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                                placeholder="Buscar cliente por nombre o CUIT..."
+                                                className="w-full pl-9 pr-3 py-2 bg-white border border-blue-100 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                                                autoFocus
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="max-h-72 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                                        {/* Opción Fija: Mi Estudio Contable */}
+                                        <button
+                                            onClick={() => {
+                                                resetToStudio();
+                                                setDropdownOpen(false);
+                                            }}
+                                            className={`w-full flex items-center justify-between p-2.5 rounded-2xl text-left transition-all cursor-pointer ${
+                                                activeEntity.isStudio 
+                                                    ? 'bg-blue-600 text-white shadow-sm' 
+                                                    : 'hover:bg-blue-50 text-slate-800'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3 truncate">
+                                                <div className={`p-2 rounded-xl ${activeEntity.isStudio ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                                                    <Building2 size={16} />
+                                                </div>
+                                                <div className="truncate">
+                                                    <p className={`text-xs font-black truncate leading-tight ${activeEntity.isStudio ? 'text-white' : 'text-slate-900'}`}>
+                                                        {studioEntity.name}
+                                                    </p>
+                                                    <p className={`text-[10px] font-mono mt-0.5 ${activeEntity.isStudio ? 'text-blue-100' : 'text-slate-400'}`}>
+                                                        Mi Estudio Propio (Honorarios & Gastos)
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            {activeEntity.isStudio && <Check size={16} className="text-white shrink-0 ml-2" />}
+                                        </button>
+
+                                        {/* Separador de Clientes */}
+                                        <div className="px-3 pt-3 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-between">
+                                            <span>Clientes del Estudio ({clientList.length})</span>
+                                            {isViewingClient && (
+                                                <button
+                                                    onClick={() => {
+                                                        resetToStudio();
+                                                        setDropdownOpen(false);
+                                                    }}
+                                                    className="text-blue-600 hover:underline cursor-pointer"
+                                                >
+                                                    Restablecer a Mi Estudio
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {filteredClients.length === 0 ? (
+                                            <p className="text-center py-4 text-xs font-bold text-slate-400 italic">
+                                                No se encontraron clientes.
+                                            </p>
+                                        ) : (
+                                            filteredClients.map(client => {
+                                                const isSelected = activeEntity?.id === client.id;
+                                                return (
+                                                    <button
+                                                        key={client.id}
+                                                        onClick={() => {
+                                                            setActiveEntity(client);
+                                                            setDropdownOpen(false);
+                                                        }}
+                                                        className={`w-full flex items-center justify-between p-2.5 rounded-2xl text-left transition-all cursor-pointer ${
+                                                            isSelected 
+                                                                ? 'bg-blue-600 text-white shadow-sm' 
+                                                                : 'hover:bg-blue-50 text-slate-800'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-3 truncate">
+                                                            <div className={`p-2 rounded-xl ${isSelected ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-600'}`}>
+                                                                <User size={16} />
+                                                            </div>
+                                                            <div className="truncate">
+                                                                <p className={`text-xs font-black truncate leading-tight ${isSelected ? 'text-white' : 'text-slate-900'}`}>
+                                                                    {client.name}
+                                                                </p>
+                                                                <p className={`text-[10px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+                                                                    CUIT: {client.cuit}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        {isSelected && <Check size={16} className="text-white shrink-0 ml-2" />}
+                                                    </button>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="flex items-center gap-4">
                         <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-bold uppercase tracking-widest">
                             <Sparkles size={12}/> Premium
@@ -190,6 +360,35 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                         </button>
                     </div>
                 </header>
+
+                {/* Banner de Modo Auditoría / Vista Cliente Activa */}
+                {isViewingClient && (
+                    <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-blue-900 text-white px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-md text-xs border-b border-blue-800/40 animate-fade-in no-print">
+                        <div className="flex items-center gap-3">
+                            <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse"></span>
+                            <span className="font-black text-blue-200 uppercase tracking-widest text-[10px]">
+                                Vista Contable de Cliente:
+                            </span>
+                            <span className="font-extrabold text-white text-sm">
+                                {activeEntity.name}
+                            </span>
+                            <span className="text-sky-200 font-mono text-[11px] bg-white/10 px-2.5 py-0.5 rounded-lg border border-white/10">
+                                CUIT: {activeEntity.cuit}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-blue-200 font-medium hidden sm:inline">
+                                El Dashboard y Operaciones reflejan los datos de este cliente
+                            </span>
+                            <button
+                                onClick={resetToStudio}
+                                className="bg-white hover:bg-blue-50 text-blue-950 px-4 py-1.5 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all shadow-sm active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <Building2 size={13} /> Volver a Mi Estudio
+                            </button>
+                        </div>
+                    </div>
+                )}
                 
                 <main className="flex-1 overflow-y-auto bg-gray-50 p-4 md:p-6 relative custom-scrollbar">
                     <div className="fade-in max-w-7xl mx-auto">

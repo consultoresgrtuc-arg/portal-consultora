@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../../context/AuthContext';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import Icon from '../Common/Icon';
 import ConfirmModal from '../Common/ConfirmModal';
 import JSZip from 'jszip';
@@ -245,14 +246,18 @@ const MONTHS = [
     { value: '12', label: 'Diciembre' }
 ];
 
-const BillingRequestsPage = () => {
+const BillingRequestsPage = ({ navigate }) => {
     const { user, userData } = useAuth();
+    const { clients, selectClientById, setActiveEntity } = useClientSelection();
+
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [filterStatus, setFilterStatus] = useState('pending'); 
-    const [filterType, setFilterType] = useState('todos'); // 'todos' | 'venta' | 'compra' | 'gasto' | 'unassigned'
+    const [activeModule, setActiveModule] = useState('ventas'); // 'ventas' | 'compras_gastos' | 'summary' | 'unassigned'
+    const [subFilterExpense, setSubFilterExpense] = useState('todos'); // 'todos' | 'compra' | 'gasto'
+    const [filterType, setFilterType] = useState('todos'); // Para compatibilidad
     const [assigningRequest, setAssigningRequest] = useState(null); // Request unassigned para asignar cliente
     const [selectedAssignUserId, setSelectedAssignUserId] = useState('');
     const [showWhatsAppModal, setShowWhatsAppModal] = useState(false); // Modal de conexión / webhook WhatsApp
@@ -262,6 +267,34 @@ const BillingRequestsPage = () => {
     const [selectedYear, setSelectedYear] = useState('todos');
     const [selectedMonth, setSelectedMonth] = useState('todos');
     const [selectedConsolidatedClient, setSelectedConsolidatedClient] = useState(null);
+
+    const handleInspectClient = (clientObj, destination = 'dashboard') => {
+        if (!clientObj) return;
+        const rawCuit = (clientObj.cuit || '').replace(/\D/g, '');
+        const matchedClient = (clients || []).find(c => {
+            const cCuit = (c.cuit || '').replace(/\D/g, '');
+            if (clientObj.userId && c.id === clientObj.userId) return true;
+            if (rawCuit && cCuit && rawCuit === cCuit) return true;
+            if (c.displayName && clientObj.name && c.displayName.toLowerCase().trim() === clientObj.name.toLowerCase().trim()) return true;
+            return false;
+        });
+
+        if (matchedClient) {
+            selectClientById(matchedClient.id);
+        } else if (clientObj.userId && clientObj.userId !== 'unassigned') {
+            selectClientById(clientObj.userId);
+        } else {
+            setActiveEntity({
+                id: clientObj.userId || clientObj.key || 'client_temp',
+                displayName: clientObj.name,
+                cuit: clientObj.cuit || '',
+                isStudio: false
+            });
+        }
+        if (navigate) {
+            navigate(destination);
+        }
+    };
 
     useEffect(() => {
         setSelectedConsolidatedClient(null);
@@ -400,12 +433,65 @@ const BillingRequestsPage = () => {
         return data;
     }, [requests, userData]);
 
+    // Helper para determinar contraparte y cliente según la naturaleza contable de la operación
+    const getPartyDetails = (req) => {
+        const tipo = req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta';
+        const isVenta = tipo === 'venta';
+        const tipoComp = (req.aiData?.tipo_comprobante || '').toLowerCase();
+        const isTransfer = tipoComp.includes('transferencia') || tipoComp.includes('pago');
+
+        if (isVenta) {
+            return {
+                tipo,
+                isVenta: true,
+                clienteLabel: 'Cliente del Estudio (Vendedor / Destino de Fondos)',
+                clienteNombre: (req.userName && req.userId !== 'unassigned') ? req.userName : (req.aiData?.nombre_receptor || req.manualData?.nombreCliente || 'Cliente'),
+                clienteCuit: req.aiData?.cuit_receptor || req.manualData?.cuitCliente || 'S/D',
+                clienteBanco: req.aiData?.banco_receptor || req.aiData?.aplicacion_pago || '-',
+                contraparteLabel: 'Comprador (Pagador / Origen Fondos)',
+                contraparteNombre: req.aiData?.nombre_emisor || req.manualData?.nombreEmisor || 'Comprador',
+                contraparteCuit: req.aiData?.cuit_emisor || req.manualData?.cuitEmisor || 'S/D',
+                contraparteBanco: req.aiData?.banco_origen || '-'
+            };
+        } else {
+            // Compra o Gasto: Inversión Contable de Roles
+            // Si pagó por transferencia: nuestro cliente fue el EMISOR del pago
+            // Si es factura de compra: el cliente fue el RECEPTOR (comprador de la factura)
+            const clienteEsEmisor = isTransfer;
+            const clienteNombre = (req.userName && req.userId !== 'unassigned') 
+                ? req.userName 
+                : (clienteEsEmisor ? req.aiData?.nombre_emisor : req.aiData?.nombre_receptor) || 'Cliente';
+            const clienteCuit = (clienteEsEmisor ? req.aiData?.cuit_emisor : req.aiData?.cuit_receptor) || req.manualData?.cuitCliente || 'S/D';
+            const clienteBanco = (clienteEsEmisor ? req.aiData?.banco_origen : req.aiData?.banco_receptor) || '-';
+
+            const contraparteNombre = req.aiData?.nombre_proveedor || 
+                (clienteEsEmisor ? req.aiData?.nombre_receptor : req.aiData?.nombre_emisor) || req.manualData?.nombreEmisor || 'Proveedor / Comercio';
+            const contraparteCuit = req.aiData?.cuit_proveedor || 
+                (clienteEsEmisor ? req.aiData?.cuit_receptor : req.aiData?.cuit_emisor) || req.manualData?.cuitEmisor || 'S/D';
+            const contraparteBanco = (clienteEsEmisor ? req.aiData?.banco_receptor : req.aiData?.banco_origen) || '-';
+
+            return {
+                tipo,
+                isVenta: false,
+                clienteLabel: 'Cliente del Estudio (Titular Egreso / Pagador)',
+                clienteNombre,
+                clienteCuit,
+                clienteBanco,
+                contraparteLabel: 'Proveedor / Comercio / Servicio',
+                contraparteNombre,
+                contraparteCuit,
+                contraparteBanco
+            };
+        }
+    };
+
     const clientDictionary = useMemo(() => {
         const dict = {}; 
         visibleRequests.forEach(req => {
-            const rawCuit = req.aiData?.cuit_receptor || '';
+            const party = getPartyDetails(req);
+            const rawCuit = party.clienteCuit || '';
             const cuit = rawCuit.replace(/\D/g, ''); 
-            const name = req.aiData?.nombre_receptor || 'Desconocido';
+            const name = party.clienteNombre || 'Desconocido';
             if (cuit && cuit.length > 5) {
                 if (!dict[cuit] || name.length > dict[cuit].length) {
                     dict[cuit] = name;
@@ -418,7 +504,8 @@ const BillingRequestsPage = () => {
     const clientPhoneDictionary = useMemo(() => {
         const dict = {}; 
         visibleRequests.forEach(req => {
-            const rawCuit = req.aiData?.cuit_receptor || '';
+            const party = getPartyDetails(req);
+            const rawCuit = party.clienteCuit || '';
             const cuit = rawCuit.replace(/\D/g, ''); 
             if (cuit && cuit.length > 5 && req.userPhone) {
                 if (!dict[cuit]) {
@@ -430,15 +517,22 @@ const BillingRequestsPage = () => {
     }, [visibleRequests]);
 
     const getUnifiedName = (req) => {
-        const rawCuit = req.aiData?.cuit_receptor || '';
+        if (req.userName && req.userId && req.userId !== 'unassigned') {
+            return req.userName;
+        }
+        const party = getPartyDetails(req);
+        if (party.clienteNombre && party.clienteNombre !== 'Desconocido' && party.clienteNombre !== 'Cliente') {
+            return party.clienteNombre;
+        }
+        const rawCuit = party.clienteCuit || '';
         const cuit = rawCuit.replace(/\D/g, '');
-        const originalName = req.aiData?.nombre_receptor || req.manualData?.nombreCliente || 'Desconocido';
         if (cuit && clientDictionary[cuit]) return clientDictionary[cuit];
-        return originalName;
+        return party.clienteNombre || 'Desconocido';
     };
 
     const getReceptorPhone = (req) => {
-        const rawCuit = req.aiData?.cuit_receptor || '';
+        const party = getPartyDetails(req);
+        const rawCuit = party.clienteCuit || '';
         const cuit = rawCuit.replace(/\D/g, '');
         return req.userPhone || userProfilePhoneDictionary[cuit] || clientPhoneDictionary[cuit] || '';
     };
@@ -478,11 +572,24 @@ const BillingRequestsPage = () => {
             });
         }
 
-        // Filtrado por tipo contable
-        if (filterType === 'unassigned') {
+        // Filtrado por Módulo Operativo Principal
+        if (activeModule === 'unassigned') {
             data = data.filter(req => req.userId === 'unassigned' || req.status === 'unassigned');
-        } else if (filterType !== 'todos') {
-            data = data.filter(req => (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === filterType);
+        } else if (activeModule === 'ventas') {
+            data = data.filter(req => {
+                const tipo = req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta';
+                return tipo === 'venta' && req.userId !== 'unassigned' && req.status !== 'unassigned';
+            });
+        } else if (activeModule === 'compras_gastos') {
+            data = data.filter(req => {
+                const tipo = req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta';
+                const esEgreso = tipo === 'compra' || tipo === 'gasto';
+                if (!esEgreso || req.userId === 'unassigned' || req.status === 'unassigned') return false;
+                if (subFilterExpense !== 'todos') {
+                    return tipo === subFilterExpense;
+                }
+                return true;
+            });
         }
 
         if (filterStatus === 'completed') {
@@ -492,7 +599,7 @@ const BillingRequestsPage = () => {
         } else {
             return data.filter(r => r.status !== 'completed');
         }
-    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, filterStatus, filterType, clientDictionary]);
+    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, filterStatus, activeModule, subFilterExpense, clientDictionary]);
 
     const metrics = useMemo(() => {
         let baseData = visibleRequests;
@@ -525,11 +632,20 @@ const BillingRequestsPage = () => {
             reqs = baseData.filter(req => req.timestamp && req.timestamp.toDate().getMonth() === currentMonth && req.timestamp.toDate().getFullYear() === currentYear);
         }
 
+        const isExpenseModule = activeModule === 'compras_gastos';
+        const filteredByModule = reqs.filter(r => {
+            const tipo = r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta';
+            if (activeModule === 'ventas') return tipo === 'venta';
+            if (activeModule === 'compras_gastos') return tipo === 'compra' || tipo === 'gasto';
+            return true;
+        });
+
         return {
-            totalFacturado: reqs.filter(r => r.status === 'completed').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0),
-            totalPendiente: reqs.filter(r => r.status !== 'completed' && r.status !== 'duplicate').reduce((sum, r) => sum + (r.aiData?.monto_total || 0), 0)
+            isExpenseModule,
+            totalFacturado: filteredByModule.filter(r => r.status === 'completed').reduce((sum, r) => sum + (r.aiData?.monto_total || r.manualData?.monto || 0), 0),
+            totalPendiente: filteredByModule.filter(r => r.status !== 'completed' && r.status !== 'duplicate').reduce((sum, r) => sum + (r.aiData?.monto_total || r.manualData?.monto || 0), 0)
         };
-    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, clientDictionary]);
+    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, activeModule, clientDictionary]);
 
     const clientBillingSummary = useMemo(() => {
         const summaryMap = {};
@@ -555,8 +671,9 @@ const BillingRequestsPage = () => {
         }
 
         targetRequests.forEach(req => {
+            const party = getPartyDetails(req);
             const clientName = getUnifiedName(req);
-            const rawCuit = req.aiData?.cuit_receptor || req.manualData?.cuitCliente || '';
+            const rawCuit = party.clienteCuit || '';
             const cuit = rawCuit.replace(/\D/g, '') || 'Sin CUIT';
             const key = cuit !== 'Sin CUIT' && cuit ? cuit : clientName;
             
@@ -571,11 +688,15 @@ const BillingRequestsPage = () => {
                     key,
                     name: clientName,
                     cuit: cuit,
+                    userId: req.userId && req.userId !== 'unassigned' ? req.userId : null,
                     totalFacturado: 0,
                     totalPendiente: 0,
                     count: 0,
                     lastActivity: null
                 };
+            }
+            if (!summaryMap[key].userId && req.userId && req.userId !== 'unassigned') {
+                summaryMap[key].userId = req.userId;
             }
             
             const clientData = summaryMap[key];
@@ -931,31 +1052,47 @@ const BillingRequestsPage = () => {
         }
     };
 
-    const handleCompleteRequest = async (id) => { 
-        if (!invoiceFile || !id) return; 
+    const handleCompleteRequest = async (id, overrideFile = undefined) => { 
+        const fileToUpload = overrideFile !== undefined ? overrideFile : invoiceFile;
+        const req = requests.find(r => r.id === id); 
+        if (!req) return;
+        const isVenta = (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === 'venta';
+
+        if (isVenta && !fileToUpload && overrideFile === undefined) {
+            alert("Por favor selecciona el archivo de la factura de venta.");
+            return;
+        }
+
         setUploading(true); 
         try { 
-            const req = requests.find(r => r.id === id); 
-            const fileRef = ref(storage, `billing_invoices/${req.userId}/${Date.now()}_${invoiceFile.name}`); 
-            await uploadBytes(fileRef, invoiceFile); 
-            const url = await getDownloadURL(fileRef); 
+            let url = null;
+            if (fileToUpload) {
+                const folder = isVenta ? 'billing_invoices' : 'expense_invoices';
+                const fileRef = ref(storage, `${folder}/${req.userId}/${Date.now()}_${fileToUpload.name}`); 
+                await uploadBytes(fileRef, fileToUpload); 
+                url = await getDownloadURL(fileRef); 
+            }
 
             // Determinar si también se registra en el Libro de Operaciones
-            const shouldExport = autoRegisterInBook && req.userId && req.userId !== 'unassigned' && !req.exportedToOperations;
+            const shouldExport = (autoRegisterInBook || !isVenta) && req.userId && req.userId !== 'unassigned' && !req.exportedToOperations;
 
             await updateDoc(doc(db, 'billing_requests', id), { 
                 status: 'completed', 
-                invoiceUrl: url, 
+                ...(url ? { invoiceUrl: url } : {}), 
                 completedAt: Timestamp.now(),
                 ...(shouldExport ? { exportedToOperations: true } : {})
             }); 
 
-            // Auto-registrar en el Libro de Operaciones si el toggle está activo
+            // Auto-registrar en el Libro de Operaciones si corresponde
             if (shouldExport) {
                 try {
-                    const monto = req.aiData?.monto_total || 0;
+                    const monto = req.aiData?.monto_total || req.manualData?.monto || 0;
                     const tipo = req.clasificacionContable === 'gasto' ? 'gasto' : (req.clasificacionContable === 'compra' ? 'compra' : 'venta');
-                    const desc = req.aiData?.concepto_detectado || `${tipo.toUpperCase()} - ${req.aiData?.nombre_emisor || 'Comprobante'}`;
+                    const party = getPartyDetails(req);
+                    const partyDesc = isVenta ? (party.contraparteNombre || 'Comprador') : (party.contraparteNombre || 'Proveedor');
+                    const desc = req.aiData?.concepto_detectado 
+                        ? `[${tipo.toUpperCase()}] ${partyDesc} - ${req.aiData.concepto_detectado}`
+                        : `${tipo.toUpperCase()} - ${partyDesc}`;
                     const fechaStr = req.aiData?.fecha_pago || new Date().toISOString().split('T')[0];
                     const localDate = new Date(fechaStr + 'T00:00:00-03:00');
 
@@ -972,14 +1109,14 @@ const BillingRequestsPage = () => {
                     });
                 } catch (opErr) {
                     console.error("Error al auto-registrar en libro de operaciones:", opErr);
-                    // No bloquear el flujo principal si falla el registro en libro
                 }
             }
 
             setCompletingId(null); 
             setInvoiceFile(null); 
         } catch (e) {
-            alert("Error al subir la factura");
+            console.error("Error al completar solicitud:", e);
+            alert("Error al procesar la solicitud: " + (e.message || ''));
         } finally { 
             setUploading(false); 
         } 
@@ -1077,13 +1214,15 @@ const BillingRequestsPage = () => {
     };
 
     const markAsDone = async (reqId) => { 
-        if(!confirm("¿Confirmar facturación sin comprobante PDF?")) return; 
-        try { 
-            await updateDoc(doc(db, 'billing_requests', reqId), { 
-                status: 'completed', 
-                completedAt: Timestamp.now() 
-            }); 
-        } catch(e) {} 
+        const req = requests.find(r => r.id === reqId);
+        if (!req) return;
+        const isVenta = (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === 'venta';
+        const msg = isVenta 
+            ? "¿Confirmar facturación en AFIP sin comprobante PDF?" 
+            : "¿Confirmar imputación del egreso en la contabilidad sin comprobante adicional?";
+        if (!confirm(msg)) return; 
+        
+        await handleCompleteRequest(reqId, null);
     };
 
     const handleAssignClient = async () => {
@@ -1247,50 +1386,50 @@ const BillingRequestsPage = () => {
 
             {/* Metrics Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 flex items-center gap-6 group overflow-hidden relative">
-                    <div className="absolute -right-4 -top-4 text-green-50/50 group-hover:scale-110 transition-transform">
+                <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex items-center gap-6 group overflow-hidden relative">
+                    <div className="absolute -right-4 -top-4 text-blue-50/40 group-hover:scale-110 transition-transform">
                         <Icon name="CheckCircle" size={120} />
                     </div>
-                    <div className="bg-green-100 p-4 rounded-2xl text-green-600 relative z-10">
-                        <Icon name="TrendingUp" size={32} />
+                    <div className="p-4 rounded-2xl relative z-10 bg-blue-50 text-blue-600 border border-blue-100/60">
+                        <Icon name={metrics.isExpenseModule ? "ShoppingBag" : "TrendingUp"} size={32} />
                     </div>
                     <div className="relative z-10">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
-                            Total Facturado {getPeriodLabel()}
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                            {metrics.isExpenseModule ? 'Total Egresos Imputados' : 'Total Facturado'} {getPeriodLabel()}
                         </p>
-                        <h3 className="text-3xl font-black text-gray-900 tracking-tight">{formatCurrency(metrics.totalFacturado)}</h3>
+                        <h3 className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(metrics.totalFacturado)}</h3>
                     </div>
                 </div>
-                <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 flex items-center gap-6 group overflow-hidden relative">
-                    <div className="absolute -right-4 -top-4 text-yellow-50/50 group-hover:scale-110 transition-transform">
+                <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex items-center gap-6 group overflow-hidden relative">
+                    <div className="absolute -right-4 -top-4 text-sky-50/40 group-hover:scale-110 transition-transform">
                         <Icon name="Clock" size={120} />
                     </div>
-                    <div className="bg-yellow-100 p-4 rounded-2xl text-yellow-600 relative z-10">
+                    <div className="bg-sky-50 p-4 rounded-2xl text-sky-600 border border-sky-100/60 relative z-10">
                         <Icon name="History" size={32} />
                     </div>
                     <div className="relative z-10">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
-                            Pendiente {getPeriodLabel()}
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                            {metrics.isExpenseModule ? 'Egresos Pendientes de Imputar' : 'Pendiente de Facturación'} {getPeriodLabel()}
                         </p>
-                        <h3 className="text-3xl font-black text-gray-900 tracking-tight">{formatCurrency(metrics.totalPendiente)}</h3>
+                        <h3 className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(metrics.totalPendiente)}</h3>
                     </div>
                 </div>
             </div>
 
             {/* Backup Action Bar */}
-            <div className="bg-indigo-600 p-6 rounded-[32px] shadow-xl shadow-indigo-100 flex flex-col md:flex-row justify-between items-center gap-6 overflow-hidden relative">
-                <div className="absolute left-0 top-0 w-full h-full opacity-10 pointer-events-none">
+            <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-blue-900 p-6 rounded-[32px] shadow-xl shadow-blue-950/15 flex flex-col md:flex-row justify-between items-center gap-6 overflow-hidden relative border border-blue-800/30">
+                <div className="absolute left-0 top-0 w-full h-full opacity-10 pointer-events-none text-sky-200">
                     <div className="absolute top-0 right-0 p-4 transform translate-x-1/2 -translate-y-1/2">
                         <Icon name="Archive" size={200} />
                     </div>
                 </div>
                 <div className="flex items-center gap-4 relative z-10">
-                    <div className="bg-white/20 p-3 rounded-2xl text-white backdrop-blur-md">
+                    <div className="bg-white/10 p-3 rounded-2xl text-sky-200 border border-white/10 backdrop-blur-md">
                         <Icon name="FolderArchive" size={28}/>
                     </div>
                     <div>
                         <h4 className="font-black text-white text-lg leading-none">Respaldo Legal Anual</h4>
-                        <p className="text-indigo-100 text-xs font-bold mt-1 uppercase tracking-widest">Descarga todos los comprobantes y facturas en un solo ZIP.</p>
+                        <p className="text-blue-200/90 text-xs font-bold mt-1 uppercase tracking-widest">Descarga todos los comprobantes y facturas en un solo ZIP.</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-3 relative z-10 w-full md:w-auto">
@@ -1300,78 +1439,156 @@ const BillingRequestsPage = () => {
                     <button 
                         onClick={() => downloadYearlyBackup(document.getElementById('y_select').value)} 
                         disabled={isZipping} 
-                        className="bg-white text-indigo-600 px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-indigo-50 transition-all shadow-lg shadow-indigo-900/20 disabled:opacity-50"
+                        className="bg-white hover:bg-blue-50 text-blue-950 px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all shadow-lg shadow-black/20 disabled:opacity-50 cursor-pointer active:scale-95"
                     >
                         {isZipping ? 'Procesando...' : 'Generar ZIP'}
                     </button>
                 </div>
             </div>
-            
-            {/* Main Table Tabs */}
-            <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
-                <div className="flex border-b border-gray-50 bg-gray-50/30 p-2">
-                    <button 
+
+            {/* Selector de Módulo Operativo: Ventas vs Compras/Gastos vs Consolidado */}
+            <div className="flex flex-wrap items-center gap-3 bg-white p-2.5 rounded-[28px] border border-blue-100/70 shadow-xs">
+                <button
+                    onClick={() => {
+                        setActiveModule('ventas');
+                        setFilterStatus('pending');
+                        setSelectedConsolidatedClient(null);
+                    }}
+                    className={`flex items-center gap-2.5 px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer ${
+                        activeModule === 'ventas'
+                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20 scale-[1.01]'
+                            : 'text-slate-600 hover:text-blue-700 hover:bg-blue-50/60'
+                    }`}
+                >
+                    <span className={`w-2.5 h-2.5 rounded-full ${activeModule === 'ventas' ? 'bg-sky-200' : 'bg-blue-500'}`}></span>
+                    Ventas e Ingresos (A Facturar)
+                    {visibleRequests.filter(r => r.status !== 'completed' && (r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta') === 'venta' && r.userId !== 'unassigned').length > 0 && (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${activeModule === 'ventas' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800'}`}>
+                            {visibleRequests.filter(r => r.status !== 'completed' && (r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta') === 'venta' && r.userId !== 'unassigned').length}
+                        </span>
+                    )}
+                </button>
+
+                <button
+                    onClick={() => {
+                        setActiveModule('compras_gastos');
+                        setFilterStatus('pending');
+                        setSelectedConsolidatedClient(null);
+                    }}
+                    className={`flex items-center gap-2.5 px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer ${
+                        activeModule === 'compras_gastos'
+                            ? 'bg-gradient-to-r from-blue-800 to-sky-800 text-white shadow-lg shadow-blue-900/20 scale-[1.01]'
+                            : 'text-slate-600 hover:text-sky-800 hover:bg-sky-50/60'
+                    }`}
+                >
+                    <span className={`w-2.5 h-2.5 rounded-full ${activeModule === 'compras_gastos' ? 'bg-sky-300' : 'bg-sky-600'}`}></span>
+                    Compras y Gastos (A Imputar)
+                    {visibleRequests.filter(r => r.status !== 'completed' && ((r.clasificacionContable || r.aiData?.clasificacion_contable) === 'compra' || (r.clasificacionContable || r.aiData?.clasificacion_contable) === 'gasto') && r.userId !== 'unassigned').length > 0 && (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${activeModule === 'compras_gastos' ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-800'}`}>
+                            {visibleRequests.filter(r => r.status !== 'completed' && ((r.clasificacionContable || r.aiData?.clasificacion_contable) === 'compra' || (r.clasificacionContable || r.aiData?.clasificacion_contable) === 'gasto') && r.userId !== 'unassigned').length}
+                        </span>
+                    )}
+                </button>
+
+                <button
+                    onClick={() => {
+                        setActiveModule('summary');
+                        setFilterStatus('summary');
+                        setSelectedConsolidatedClient(null);
+                    }}
+                    className={`flex items-center gap-2.5 px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer ${
+                        activeModule === 'summary'
+                            ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/20 scale-[1.01]'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
+                    }`}
+                >
+                    <Icon name="Users" size={15}/>
+                    Consolidado Clientes ({clientBillingSummary.length})
+                </button>
+
+                {visibleRequests.filter(r => r.userId === 'unassigned' || r.status === 'unassigned').length > 0 && (
+                    <button
                         onClick={() => {
+                            setActiveModule('unassigned');
                             setFilterStatus('pending');
                             setSelectedConsolidatedClient(null);
-                        }} 
-                        className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all ${filterStatus === 'pending' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                        }}
+                        className={`flex items-center gap-2.5 px-5 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer ${
+                            activeModule === 'unassigned'
+                                ? 'bg-amber-600 text-white shadow-lg shadow-amber-100 scale-[1.01]'
+                                : 'text-amber-700 bg-amber-50 hover:bg-amber-100/80 border border-amber-200'
+                        }`}
                     >
-                        Pendientes ({visibleRequests.filter(r => r.status !== 'completed').length})
+                        <Icon name="AlertCircle" size={15}/>
+                        Sin Asignar ({visibleRequests.filter(r => r.userId === 'unassigned' || r.status === 'unassigned').length})
                     </button>
-                    <button 
-                        onClick={() => {
-                            setFilterStatus('completed');
-                            setSelectedConsolidatedClient(null);
-                        }} 
-                        className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all ${filterStatus === 'completed' ? 'bg-white shadow-sm text-green-600' : 'text-gray-400 hover:text-gray-600'}`}
-                    >
-                        Finalizados / Facturados ({visibleRequests.filter(r => r.status === 'completed').length})
-                    </button>
-                    <button 
-                        onClick={() => {
-                            setFilterStatus('summary');
-                            setSelectedConsolidatedClient(null);
-                        }} 
-                        className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all ${filterStatus === 'summary' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
-                    >
-                        Consolidado Clientes ({clientBillingSummary.length})
-                    </button>
-                </div>
+                )}
+            </div>
+            
+            {/* Main Table Container */}
+            <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
+                {activeModule !== 'summary' && (
+                    <div className="flex border-b border-blue-50/70 bg-slate-50/40 p-2">
+                        <button 
+                            onClick={() => {
+                                setFilterStatus('pending');
+                                setSelectedConsolidatedClient(null);
+                            }} 
+                            className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all cursor-pointer ${
+                                filterStatus === 'pending' 
+                                    ? 'bg-white shadow-xs text-blue-600 scale-[1.01]' 
+                                    : 'text-slate-400 hover:text-blue-600'
+                            }`}
+                        >
+                            {activeModule === 'ventas' 
+                                ? `Pendientes de Facturar (${visibleRequests.filter(r => r.status !== 'completed' && (r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta') === 'venta' && r.userId !== 'unassigned').length})`
+                                : activeModule === 'compras_gastos'
+                                ? `Pendientes de Imputar (${visibleRequests.filter(r => r.status !== 'completed' && ((r.clasificacionContable || r.aiData?.clasificacion_contable) === 'compra' || (r.clasificacionContable || r.aiData?.clasificacion_contable) === 'gasto') && r.userId !== 'unassigned').length})`
+                                : `Pendientes (${visibleRequests.filter(r => r.status !== 'completed' && (r.userId === 'unassigned' || r.status === 'unassigned')).length})`
+                            }
+                        </button>
+                        <button 
+                            onClick={() => {
+                                setFilterStatus('completed');
+                                setSelectedConsolidatedClient(null);
+                            }} 
+                            className={`flex-1 py-4 px-6 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all cursor-pointer ${
+                                filterStatus === 'completed' 
+                                    ? 'bg-white shadow-xs text-blue-900 scale-[1.01]' 
+                                    : 'text-slate-400 hover:text-blue-900'
+                            }`}
+                        >
+                            {activeModule === 'ventas'
+                                ? `Facturados / Finalizados (${visibleRequests.filter(r => r.status === 'completed' && (r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta') === 'venta' && r.userId !== 'unassigned').length})`
+                                : activeModule === 'compras_gastos'
+                                ? `Imputados / Registrados (${visibleRequests.filter(r => r.status === 'completed' && ((r.clasificacionContable || r.aiData?.clasificacion_contable) === 'compra' || (r.clasificacionContable || r.aiData?.clasificacion_contable) === 'gasto') && r.userId !== 'unassigned').length})`
+                                : `Completados (${visibleRequests.filter(r => r.status === 'completed' && (r.userId === 'unassigned' || r.status === 'unassigned')).length})`
+                            }
+                        </button>
+                    </div>
+                )}
 
-                {/* Sub-filtros por Clasificación Contable */}
-                {filterStatus !== 'summary' && (
-                    <div className="flex flex-wrap items-center gap-2 p-4 bg-gray-50/50 border-b border-gray-100">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 mr-2">Tipo Contable:</span>
+                {/* Sub-filtros para Compras y Gastos */}
+                {activeModule === 'compras_gastos' && (
+                    <div className="flex flex-wrap items-center gap-2 p-4 bg-blue-50/40 border-b border-blue-100/60">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-blue-900 mr-2">Filtrar Egresos:</span>
                         <button 
-                            onClick={() => setFilterType('todos')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${filterType === 'todos' ? 'bg-gray-800 text-white shadow-sm' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'}`}
+                            onClick={() => setSubFilterExpense('todos')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${subFilterExpense === 'todos' ? 'bg-blue-800 text-white shadow-xs' : 'bg-white text-blue-800 hover:bg-blue-50 border border-blue-200'}`}
                         >
-                            Todos
+                            Todos los Egresos
                         </button>
                         <button 
-                            onClick={() => setFilterType('venta')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${filterType === 'venta' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white text-emerald-700 hover:bg-emerald-50 border border-emerald-200'}`}
+                            onClick={() => setSubFilterExpense('compra')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${subFilterExpense === 'compra' ? 'bg-blue-600 text-white shadow-xs' : 'bg-white text-blue-700 hover:bg-blue-50 border border-blue-200'}`}
                         >
-                            <span className="w-2 h-2 rounded-full bg-emerald-400"></span> Ventas / Cobros
+                            <span className="w-2 h-2 rounded-full bg-blue-400"></span> Solo Compras
                         </button>
                         <button 
-                            onClick={() => setFilterType('compra')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${filterType === 'compra' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-blue-700 hover:bg-blue-50 border border-blue-200'}`}
+                            onClick={() => setSubFilterExpense('gasto')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${subFilterExpense === 'gasto' ? 'bg-sky-700 text-white shadow-xs' : 'bg-white text-sky-800 hover:bg-sky-50 border border-sky-200'}`}
                         >
-                            <span className="w-2 h-2 rounded-full bg-blue-400"></span> Compras
-                        </button>
-                        <button 
-                            onClick={() => setFilterType('gasto')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${filterType === 'gasto' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white text-purple-700 hover:bg-purple-50 border border-purple-200'}`}
-                        >
-                            <span className="w-2 h-2 rounded-full bg-purple-400"></span> Gastos
-                        </button>
-                        <button 
-                            onClick={() => setFilterType('unassigned')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${filterType === 'unassigned' ? 'bg-amber-600 text-white shadow-sm' : 'bg-white text-amber-700 hover:bg-amber-50 border border-amber-200'}`}
-                        >
-                            <span className="w-2 h-2 rounded-full bg-amber-400"></span> Sin Asignar ({visibleRequests.filter(r => r.userId === 'unassigned' || r.status === 'unassigned').length})
+                            <span className="w-2 h-2 rounded-full bg-sky-400"></span> Solo Gastos
                         </button>
                     </div>
                 )}
@@ -1381,10 +1598,10 @@ const BillingRequestsPage = () => {
                         selectedConsolidatedClient ? (
                             <div className="animate-fade-in bg-white">
                                 {/* Header */}
-                                <div className="p-8 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50/20">
+                                <div className="p-8 border-b border-blue-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-blue-50/20">
                                     <div>
                                         <div className="flex items-center gap-3">
-                                            <div className="bg-indigo-100 p-2.5 rounded-xl text-indigo-600">
+                                            <div className="bg-blue-100/80 p-2.5 rounded-xl text-blue-700 border border-blue-200/60">
                                                 <Icon name="Users" size={20}/>
                                             </div>
                                             <div>
@@ -1393,41 +1610,57 @@ const BillingRequestsPage = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    <button
-                                        onClick={() => setSelectedConsolidatedClient(null)}
-                                        className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
-                                    >
-                                        <Icon name="ArrowLeft" size={14}/> Volver al Listado
-                                    </button>
+                                    <div className="flex flex-wrap items-center gap-2.5">
+                                        <button
+                                            onClick={() => handleInspectClient(selectedConsolidatedClient, 'dashboard')}
+                                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 active:scale-95 cursor-pointer"
+                                            title="Ver el Dashboard financiero completo de este cliente"
+                                        >
+                                            <Icon name="LayoutDashboard" size={14}/> Ver Dashboard
+                                        </button>
+                                        <button
+                                            onClick={() => handleInspectClient(selectedConsolidatedClient, 'operations')}
+                                            className="flex items-center gap-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+                                            title="Ver y gestionar el Libro de Operaciones de este cliente"
+                                        >
+                                            <Icon name="BookOpen" size={14}/> Libro Operaciones
+                                        </button>
+                                        <button
+                                            onClick={() => setSelectedConsolidatedClient(null)}
+                                            className="flex items-center gap-2 bg-white border border-blue-200/80 text-blue-900 hover:bg-blue-50/60 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+                                        >
+                                            <Icon name="ArrowLeft" size={14}/> Volver al Listado
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Summary KPI Cards */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-8 bg-gray-50/10 border-b border-gray-100">
-                                    <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 group hover:shadow-md transition-all">
-                                        <div className="bg-green-50 p-3 rounded-xl text-green-600 border border-green-100">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-8 bg-blue-50/10 border-b border-blue-50">
+                                    <div className="bg-white p-6 rounded-2xl border border-blue-50 shadow-xs flex items-center gap-4 group hover:shadow-md transition-all">
+                                        <div className="bg-blue-50 p-3 rounded-xl text-blue-600 border border-blue-100">
                                             <Icon name="TrendingUp" size={24}/>
                                         </div>
                                         <div>
-                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Facturado</p>
-                                            <p className="text-xl font-black text-green-600 mt-0.5">{formatCurrency(selectedConsolidatedClient.totalFacturado)}</p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Facturado</p>
+                                            <p className="text-xl font-black text-blue-700 mt-0.5">{formatCurrency(selectedConsolidatedClient.totalFacturado)}</p>
                                         </div>
                                     </div>
-                                    <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 group hover:shadow-md transition-all">
-                                        <div className="bg-yellow-50 p-3 rounded-xl text-yellow-600 border border-yellow-100">
+                                    <div className="bg-white p-6 rounded-2xl border border-blue-50 shadow-xs flex items-center gap-4 group hover:shadow-md transition-all">
+                                        <div className="bg-sky-50 p-3 rounded-xl text-sky-600 border border-sky-100">
                                             <Icon name="Clock" size={24}/>
                                         </div>
                                         <div>
-                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Pendiente</p>
-                                            <p className="text-xl font-black text-yellow-600 mt-0.5">{formatCurrency(selectedConsolidatedClient.totalPendiente)}</p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Pendiente</p>
+                                            <p className="text-xl font-black text-sky-700 mt-0.5">{formatCurrency(selectedConsolidatedClient.totalPendiente)}</p>
                                         </div>
                                     </div>
-                                    <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 group hover:shadow-md transition-all">
-                                        <div className="bg-indigo-50 p-3 rounded-xl text-indigo-600 border border-indigo-100">
+                                    <div className="bg-white p-6 rounded-2xl border border-blue-50 shadow-xs flex items-center gap-4 group hover:shadow-md transition-all">
+                                        <div className="bg-slate-100 p-3 rounded-xl text-slate-700 border border-slate-200">
                                             <Icon name="FileText" size={24}/>
                                         </div>
                                         <div>
-                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Solicitudes</p>
-                                            <p className="text-xl font-black text-indigo-600 mt-0.5">{selectedConsolidatedClient.count} Comprobantes</p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Solicitudes</p>
+                                            <p className="text-xl font-black text-slate-800 mt-0.5">{selectedConsolidatedClient.count} Comprobantes</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1453,7 +1686,9 @@ const BillingRequestsPage = () => {
                                                 {consolidatedClientRequests.length === 0 ? (
                                                     <tr><td colSpan="5" className="text-center py-16 text-gray-400 font-bold italic">No se encontraron comprobantes para este cliente en el período seleccionado.</td></tr>
                                                 ) : (
-                                                    consolidatedClientRequests.map(req => (
+                                                    consolidatedClientRequests.map(req => {
+                                                        const party = getPartyDetails(req);
+                                                        return (
                                                         <React.Fragment key={req.id}>
                                                             <tr 
                                                                 className={`hover:bg-blue-50/30 cursor-pointer transition-all ${expandedRowId === req.id ? 'bg-blue-50/30' : ''}`} 
@@ -1463,12 +1698,21 @@ const BillingRequestsPage = () => {
                                                                     {req.timestamp?.toDate().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                                                                 </td>
                                                                 <td className="px-8 py-6">
-                                                                    <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-black uppercase tracking-widest">
-                                                                        {req.isManualEntry ? 'Manual' : (req.aiData?.banco_receptor || 'Extraído')}
-                                                                    </span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                                                            {req.isManualEntry ? 'Manual' : (req.aiData?.banco_receptor || 'Extraído')}
+                                                                        </span>
+                                                                        {party.isVenta ? (
+                                                                            <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200/80 rounded-full text-[9px] font-black uppercase tracking-wider">Venta</span>
+                                                                        ) : party.tipoClasificacion === 'compra' ? (
+                                                                            <span className="px-2.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200/80 rounded-full text-[9px] font-black uppercase tracking-wider">Compra</span>
+                                                                        ) : (
+                                                                            <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-wider">Gasto</span>
+                                                                        )}
+                                                                    </div>
                                                                 </td>
                                                                 <td className="px-8 py-6">
-                                                                    <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${req.status === 'completed' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-yellow-50 text-yellow-600 border-yellow-100'}`}>
+                                                                    <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${req.status === 'completed' ? 'bg-blue-50 text-blue-700 border-blue-200/70' : 'bg-sky-50 text-sky-700 border-sky-200/70'}`}>
                                                                         {req.status === 'completed' ? 'Finalizado' : 'Pendiente'}
                                                                     </span>
                                                                 </td>
@@ -1482,14 +1726,19 @@ const BillingRequestsPage = () => {
 
                                                             {/* Expanded Detail View */}
                                                             {expandedRowId === req.id && (
-                                                                <tr className="bg-gray-50/50">
+                                                                <tr className="bg-blue-50/20">
                                                                     <td colSpan="5" className="p-0 border-b border-gray-100">
                                                                         <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-top-4 duration-300">
                                                                             {/* Data Card */}
-                                                                            <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 flex flex-col justify-between">
+                                                                            <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex flex-col justify-between">
                                                                                 <div>
                                                                                     <div className="flex justify-between items-center mb-8">
-                                                                                        <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Detalle Técnico Extraído</h4>
+                                                                                        <div>
+                                                                                            <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Detalle Técnico Extraído</h4>
+                                                                                            <span className={`inline-block mt-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-md border ${party.isVenta ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-sky-50 text-sky-700 border-sky-100'}`}>
+                                                                                                {party.isVenta ? 'Ingreso Comercial / Venta' : `Egreso / ${party.tipoClasificacion === 'compra' ? 'Compra' : 'Gasto'}`}
+                                                                                            </span>
+                                                                                        </div>
                                                                                         <button 
                                                                                             onClick={() => openEditModal(req)} 
                                                                                             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-50'}`}
@@ -1508,33 +1757,41 @@ const BillingRequestsPage = () => {
                                                                                         </div>
                                                                                     </div>
                                                                                     
+                                                                                    {/* Bloques de Contraparte y Cliente con Roles Invertidos */}
                                                                                     <div className="space-y-4 mb-8">
-                                                                                        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                                                                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowUpRight" size={12}/> Emisor Original</p>
+                                                                                        {/* Contraparte (Comprador o Proveedor) */}
+                                                                                        <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
+                                                                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                                                                                <Icon name={party.isVenta ? "ArrowUpRight" : "Store"} size={12}/> {party.contraparteLabel}
+                                                                                            </p>
                                                                                             <div className="flex justify-between items-end">
                                                                                                 <div>
-                                                                                                    <p className="font-black text-gray-800 text-sm leading-tight">{req.aiData?.nombre_emisor || 'Desconocido'}</p>
-                                                                                                    <p className="text-[10px] font-bold text-gray-400 font-mono mt-1">{req.aiData?.cuit_emisor || 'S/D'}</p>
+                                                                                                    <p className="font-black text-gray-800 text-sm leading-tight">{party.contraparteNombre}</p>
+                                                                                                    <p className="text-[10px] font-bold text-gray-400 font-mono mt-1">CUIT: {party.contraparteCuit}</p>
                                                                                                 </div>
                                                                                                 <div className="text-right">
-                                                                                                    <p className="text-[9px] font-black text-gray-400 uppercase">Origen</p>
-                                                                                                    <p className="text-xs font-bold text-gray-700">{req.aiData?.banco_origen || '-'}</p>
+                                                                                                    <p className="text-[9px] font-black text-gray-400 uppercase">{party.isVenta ? 'Origen' : 'Entidad'}</p>
+                                                                                                    <p className="text-xs font-bold text-gray-700">{party.isVenta ? (req.aiData?.banco_origen || '-') : (req.aiData?.banco_receptor || req.aiData?.banco_origen || '-')}</p>
                                                                                                 </div>
                                                                                             </div>
                                                                                         </div>
-                                                                                        <div className="bg-blue-600 p-4 rounded-2xl shadow-lg shadow-blue-100">
-                                                                                            <p className="text-[10px] font-black text-blue-100 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowDownLeft" size={12}/> Receptor (Cliente)</p>
+
+                                                                                        {/* Cliente del Estudio */}
+                                                                                        <div className={`${party.isVenta ? 'bg-gradient-to-r from-blue-700 to-blue-800 shadow-blue-500/10' : 'bg-gradient-to-r from-slate-800 via-blue-900 to-slate-900 shadow-blue-950/20'} p-4 rounded-2xl shadow-lg`}>
+                                                                                            <p className="text-[10px] font-black text-blue-100 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                                                                                <Icon name={party.isVenta ? "ArrowDownLeft" : "UserCheck"} size={12}/> {party.clienteLabel}
+                                                                                            </p>
                                                                                             <div className="flex justify-between items-end">
                                                                                                 <div>
-                                                                                                    <p className="font-black text-white text-sm leading-tight">{req.aiData?.nombre_receptor || 'Desconocido'}</p>
+                                                                                                    <p className="font-black text-white text-sm leading-tight">{party.clienteNombre}</p>
                                                                                                     <p className="text-[10px] font-bold text-blue-200 font-mono mt-1">
-                                                                                                        {req.aiData?.cuit_receptor || 'S/D'}
+                                                                                                        CUIT: {party.clienteCuit}
                                                                                                         {getReceptorPhone(req) && ` | 📱 ${getReceptorPhone(req)}`}
                                                                                                     </p>
                                                                                                 </div>
                                                                                                 <div className="text-right">
-                                                                                                    <p className="text-[9px] font-black text-blue-200 uppercase">Destino</p>
-                                                                                                    <p className="text-xs font-bold text-white">{req.aiData?.banco_receptor || '-'}</p>
+                                                                                                    <p className="text-[9px] font-black text-blue-200 uppercase">{party.isVenta ? 'Destino' : 'Cuenta'}</p>
+                                                                                                    <p className="text-xs font-bold text-white">{party.isVenta ? (req.aiData?.banco_receptor || '-') : (req.aiData?.banco_origen || '-')}</p>
                                                                                                 </div>
                                                                                             </div>
                                                                                         </div>
@@ -1567,7 +1824,9 @@ const BillingRequestsPage = () => {
                                                                             <div className="bg-gray-100 p-8 rounded-[32px] border border-gray-200 flex flex-col justify-between">
                                                                                 <div className="space-y-8">
                                                                                     <div className="flex justify-between items-center">
-                                                                                        <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Acciones de Gestión</h4>
+                                                                                        <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">
+                                                                                            {party.isVenta ? 'Gestión de Venta (A Facturar)' : 'Gestión de Egreso (Compra/Gasto)'}
+                                                                                        </h4>
                                                                                         <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${req.status === 'completed' ? 'bg-green-600 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
                                                                                             {req.status === 'completed' ? 'Finalizado' : 'Pendiente'}
                                                                                         </span>
@@ -1579,10 +1838,11 @@ const BillingRequestsPage = () => {
                                                                                                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
                                                                                                 <p className="text-gray-500 font-bold">Nuestro estudio está procesando tu solicitud...</p>
                                                                                             </div>
-                                                                                        ) : (
+                                                                                        ) : party.isVenta ? (
+                                                                                            /* Flujo de VENTAS: Emisión / Subida de Factura */
                                                                                             <div className="space-y-6">
                                                                                                 <div className="space-y-3">
-                                                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Subir Factura Final (PDF)</label>
+                                                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Subir Factura Final de Venta (PDF)</label>
                                                                                                     <div className="flex gap-3">
                                                                                                         <label className="flex-1 cursor-pointer">
                                                                                                             <div className="w-full bg-white px-4 py-3 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 flex items-center justify-between truncate hover:border-blue-200 transition-all">
@@ -1630,6 +1890,50 @@ const BillingRequestsPage = () => {
                                                                                                     <Icon name="Check" size={14}/> Completar sin Comprobante PDF
                                                                                                 </button>
                                                                                             </div>
+                                                                                        ) : (
+                                                                                            /* Flujo de COMPRAS Y GASTOS: Imputación contable directa */
+                                                                                            <div className="space-y-5">
+                                                                                                <div className="p-4 bg-blue-50/70 rounded-2xl border border-blue-200/60 text-blue-950">
+                                                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                                                        <Icon name="Info" size={16} className="text-blue-600 shrink-0"/>
+                                                                                                        <p className="text-xs font-black uppercase tracking-wider">Egreso del Cliente</p>
+                                                                                                    </div>
+                                                                                                    <p className="text-xs text-blue-900/90 leading-relaxed font-medium">
+                                                                                                        Este comprobante corresponde a un gasto o compra del cliente. Al confirmarlo, se asentará directamente en su Libro de Operaciones contable.
+                                                                                                    </p>
+                                                                                                </div>
+
+                                                                                                <button 
+                                                                                                    onClick={() => markAsDone(req.id)}
+                                                                                                    className="w-full bg-gradient-to-r from-blue-700 to-sky-700 hover:from-blue-800 hover:to-sky-800 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                                                                                                >
+                                                                                                    <Icon name="CheckCircle" size={16}/> Confirmar e Imputar en Libro de Compras
+                                                                                                </button>
+
+                                                                                                <div className="pt-2 border-t border-gray-200">
+                                                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1 mb-2">
+                                                                                                        Adjuntar Factura de Proveedor (Opcional)
+                                                                                                    </label>
+                                                                                                    <div className="flex gap-2">
+                                                                                                        <label className="flex-1 cursor-pointer">
+                                                                                                            <div className="w-full bg-white px-3 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 flex items-center justify-between truncate hover:border-blue-200 transition-all">
+                                                                                                                <span className="truncate">{invoiceFile ? invoiceFile.name : 'Factura oficial (PDF)'}</span>
+                                                                                                                <Icon name="FileText" size={14}/>
+                                                                                                            </div>
+                                                                                                            <input type="file" className="hidden" onChange={(e) => setInvoiceFile(e.target.files[0])} accept=".pdf"/>
+                                                                                                        </label>
+                                                                                                        {invoiceFile && (
+                                                                                                            <button 
+                                                                                                                onClick={() => handleCompleteRequest(req.id)} 
+                                                                                                                disabled={uploading}
+                                                                                                                className="bg-blue-700 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider hover:bg-blue-800 transition-all cursor-pointer"
+                                                                                                            >
+                                                                                                                {uploading ? '...' : 'Guardar PDF'}
+                                                                                                            </button>
+                                                                                                        )}
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            </div>
                                                                                         )
                                                                                     ) : (
                                                                                         <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
@@ -1637,7 +1941,9 @@ const BillingRequestsPage = () => {
                                                                                                 <div className="p-1.5 bg-green-100 rounded-lg">
                                                                                                     <Icon name="CheckCircle" size={16} />
                                                                                                 </div>
-                                                                                                <span className="text-xs font-black uppercase tracking-wider">Facturado Exitosamente</span>
+                                                                                                <span className="text-xs font-black uppercase tracking-wider">
+                                                                                                    {party.isVenta ? 'Facturado Exitosamente' : 'Imputado en Libro de Compras'}
+                                                                                                </span>
                                                                                             </div>
                                                                                             <div className="flex gap-2.5 pt-2 items-center">
                                                                                                 {req.invoiceUrl ? (
@@ -1647,10 +1953,12 @@ const BillingRequestsPage = () => {
                                                                                                         rel="noreferrer"
                                                                                                         className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3 rounded-xl transition-all shadow-md shadow-blue-100 flex items-center justify-center gap-2"
                                                                                                     >
-                                                                                                        <Icon name="Download" size={14}/> Descargar Factura
+                                                                                                        <Icon name="Download" size={14}/> {party.isVenta ? 'Descargar Factura' : 'Descargar Factura Proveedor'}
                                                                                                     </a>
                                                                                                 ) : (
-                                                                                                    <p className="flex-1 text-xs text-gray-500 font-bold italic">Completado sin comprobante PDF.</p>
+                                                                                                    <p className="flex-1 text-xs text-gray-500 font-bold italic">
+                                                                                                        {party.isVenta ? 'Completado sin comprobante PDF.' : 'Asentado contablemente sin PDF adjunto.'}
+                                                                                                    </p>
                                                                                                 )}
                                                                                                 <button 
                                                                                                     onClick={() => sendWhatsAppNotification(req)}
@@ -1689,7 +1997,8 @@ const BillingRequestsPage = () => {
                                                                 </tr>
                                                             )}
                                                         </React.Fragment>
-                                                    ))
+                                                        );
+                                                    })
                                                 )}
                                             </tbody>
                                         </table>
@@ -1740,14 +2049,23 @@ const BillingRequestsPage = () => {
                                                     {client.lastActivity ? client.lastActivity.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}
                                                 </td>
                                                 <td className="px-8 py-6 text-right whitespace-nowrap">
-                                                    <button 
-                                                        onClick={() => {
-                                                            setSelectedConsolidatedClient(client);
-                                                        }}
-                                                        className="bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold text-[10px] uppercase tracking-widest px-4 py-2 rounded-xl transition-all"
-                                                    >
-                                                        Ver Detalle
-                                                    </button>
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <button 
+                                                            onClick={() => handleInspectClient(client, 'dashboard')}
+                                                            className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-widest px-3 py-2 rounded-xl transition-all shadow-xs active:scale-95 flex items-center gap-1 cursor-pointer"
+                                                            title="Ir directamente al Dashboard de este cliente"
+                                                        >
+                                                            <Icon name="LayoutDashboard" size={12}/> Dashboard
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => {
+                                                                setSelectedConsolidatedClient(client);
+                                                            }}
+                                                            className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[10px] uppercase tracking-widest px-3.5 py-2 rounded-xl transition-all cursor-pointer"
+                                                        >
+                                                            Ver Detalle
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))
@@ -1760,7 +2078,9 @@ const BillingRequestsPage = () => {
                             <thead className="bg-white">
                                 <tr>
                                     <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha</th>
-                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Cliente / Receptor</th>
+                                    <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                        {activeModule === 'ventas' ? 'Cliente (Vendedor)' : activeModule === 'compras_gastos' ? 'Cliente (Titular Egreso)' : 'Cliente / Sujeto'}
+                                    </th>
                                     <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Detección IA</th>
                                     <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Monto Total</th>
                                     <th className="px-8 py-5"></th>
@@ -1772,6 +2092,7 @@ const BillingRequestsPage = () => {
                                 ) : filteredRequests.length === 0 ? (
                                     <tr><td colSpan="5" className="text-center py-24 text-gray-400 font-bold italic">No se encontraron registros con este filtro.</td></tr>
                                 ) : filteredRequests.map(req => {
+                                    const party = getPartyDetails(req);
                                     const hasAIError = req.status === 'error' || (Boolean(req.aiError) && !req.aiData);
                                     const isReanalyzing = reanalyzingId === req.id;
                                     const isAIAnalyzing = (req.status === 'pending' && !req.aiData && !req.isManualEntry && !hasAIError) || isReanalyzing;
@@ -1797,15 +2118,22 @@ const BillingRequestsPage = () => {
                                                     </div>
                                                 ) : hasAIError ? (
                                                     <div>
-                                                        <div className="text-sm font-black text-gray-900 leading-tight">{getUnifiedName(req)}</div>
+                                                        <div className="text-sm font-black text-gray-900 leading-tight">{party.clienteNombre}</div>
                                                         <div className="text-[10px] text-amber-600 font-bold flex items-center gap-1 mt-0.5">
                                                             <Icon name="AlertTriangle" size={11} /> Pendiente de reanálisis IA
                                                         </div>
                                                     </div>
                                                 ) : (
                                                     <>
-                                                        <div className="text-sm font-black text-gray-900 leading-tight">{getUnifiedName(req)}</div>
-                                                        <div className="text-[10px] text-gray-400 font-black uppercase tracking-tighter mt-0.5">{req.aiData?.cuit_receptor || req.manualData?.cuitCliente || 'Sin CUIT'}</div>
+                                                        <div className="text-sm font-black text-gray-900 leading-tight">{party.clienteNombre}</div>
+                                                        <div className="text-[10px] text-gray-400 font-black uppercase tracking-tighter mt-0.5">
+                                                            CUIT: {party.clienteCuit}
+                                                        </div>
+                                                        {party.contraparteNombre && party.contraparteNombre !== 'Desconocido' && (
+                                                            <div className="text-[10px] text-gray-500 font-medium truncate max-w-[200px] mt-0.5">
+                                                                <span className="font-bold text-gray-400">{party.isVenta ? 'Comprador:' : 'Proveedor:'}</span> {party.contraparteNombre}
+                                                            </div>
+                                                        )}
                                                         {req.note && (
                                                             <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-blue-600 bg-blue-50/50 px-2 py-0.5 rounded-lg w-fit border border-blue-100/50">
                                                                 <Icon name="MessageSquare" size={10}/>
@@ -1858,11 +2186,11 @@ const BillingRequestsPage = () => {
                                                         {(() => {
                                                             const tipo = req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta';
                                                             if (tipo === 'gasto') {
-                                                                return <span className="px-2.5 py-0.5 bg-purple-100 text-purple-700 rounded-full text-[9px] font-black uppercase tracking-wider">Gasto</span>;
+                                                                return <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-wider">Gasto</span>;
                                                             } else if (tipo === 'compra') {
-                                                                return <span className="px-2.5 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[9px] font-black uppercase tracking-wider">Compra</span>;
+                                                                return <span className="px-2.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200/80 rounded-full text-[9px] font-black uppercase tracking-wider">Compra</span>;
                                                             } else {
-                                                                return <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[9px] font-black uppercase tracking-wider">Venta/Cobro</span>;
+                                                                return <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200/80 rounded-full text-[9px] font-black uppercase tracking-wider">Venta/Cobro</span>;
                                                             }
                                                         })()}
                                                         {/* Badge de Banco / Manual */}
@@ -1880,7 +2208,7 @@ const BillingRequestsPage = () => {
                                             </td>
                                             <td className="px-8 py-6 text-right">
                                                 {isAIAnalyzing ? (
-                                                    <div className="h-5 bg-green-50 rounded-lg w-24 ml-auto animate-pulse"></div>
+                                                    <div className="h-5 bg-blue-50 rounded-lg w-24 ml-auto animate-pulse"></div>
                                                 ) : req.status === 'duplicate' ? (
                                                     <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black bg-red-50 text-red-600 border border-red-100 uppercase tracking-widest">
                                                         <Icon name="AlertTriangle" className="w-3 h-3 mr-1"/> Duplicado
@@ -1902,14 +2230,19 @@ const BillingRequestsPage = () => {
                                         
                                         {/* Expanded Detail View */}
                                         {expandedRowId === req.id && (
-                                            <tr className="bg-gray-50/50">
+                                            <tr className="bg-blue-50/20">
                                                 <td colSpan="5" className="p-0 border-b border-gray-100">
                                                     <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in slide-in-from-top-4 duration-300">
                                                         {/* Data Card */}
-                                                        <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 flex flex-col justify-between">
+                                                        <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex flex-col justify-between">
                                                             <div>
                                                                 <div className="flex justify-between items-center mb-8">
-                                                                    <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Detalle Técnico Extraído</h4>
+                                                                    <div>
+                                                                        <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Detalle Técnico Extraído</h4>
+                                                                        <span className={`inline-block mt-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-md border ${party.isVenta ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-sky-50 text-sky-700 border-sky-100'}`}>
+                                                                            {party.isVenta ? 'Ingreso Comercial / Venta' : `Egreso / ${party.tipoClasificacion === 'compra' ? 'Compra' : 'Gasto'}`}
+                                                                        </span>
+                                                                    </div>
                                                                     <div className="flex items-center gap-2">
                                                                         <button
                                                                             onClick={(e) => {
@@ -1917,7 +2250,7 @@ const BillingRequestsPage = () => {
                                                                                 handleReanalyze(req);
                                                                             }}
                                                                             disabled={isReanalyzing}
-                                                                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-indigo-600 hover:bg-indigo-50 border border-indigo-100 transition-all disabled:opacity-50"
+                                                                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-blue-700 hover:bg-blue-50 border border-blue-100 transition-all disabled:opacity-50"
                                                                             title="Volver a analizar con IA Gemini 3.5 Flash Lite"
                                                                         >
                                                                             <Icon name="RefreshCw" size={13} className={isReanalyzing ? 'animate-spin' : ''}/> 
@@ -1947,7 +2280,7 @@ const BillingRequestsPage = () => {
                                                                                 handleReanalyze(req);
                                                                             }}
                                                                             disabled={isReanalyzing}
-                                                                            className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 shadow-sm disabled:opacity-50"
+                                                                            className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 shadow-sm disabled:opacity-50"
                                                                         >
                                                                             <Icon name="RefreshCw" size={13} className={isReanalyzing ? 'animate-spin' : ''} />
                                                                             {isReanalyzing ? 'Reanalizando...' : 'Reintentar Análisis'}
@@ -1980,43 +2313,51 @@ const BillingRequestsPage = () => {
                                                                 </div>
 
                                                                 {req.aiData?.codigo_identificacion && (
-                                                                    <div className="mb-6 bg-amber-50/80 px-4 py-3 rounded-2xl border border-amber-200/60 flex items-center justify-between gap-3 shadow-xs">
-                                                                        <span className="text-[10px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
-                                                                            <Icon name="Key" size={13} className="text-amber-600"/> Código Identificación Único:
+                                                                    <div className="mb-6 bg-blue-50/50 px-4 py-3 rounded-2xl border border-blue-100 flex items-center justify-between gap-3 shadow-xs">
+                                                                        <span className="text-[10px] font-black text-blue-900 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+                                                                            <Icon name="Key" size={13} className="text-blue-600"/> Código Identificación Único:
                                                                         </span>
-                                                                        <span className="font-mono text-xs font-black text-amber-950 bg-white px-2.5 py-1 rounded-lg border border-amber-200/70 select-all truncate">
+                                                                        <span className="font-mono text-xs font-black text-blue-950 bg-white px-2.5 py-1 rounded-lg border border-blue-200 select-all truncate">
                                                                             {req.aiData.codigo_identificacion}
                                                                         </span>
                                                                     </div>
                                                                 )}
                                                                 
+                                                                {/* Bloques de Contraparte y Cliente con Roles Invertidos */}
                                                                 <div className="space-y-4 mb-8">
-                                                                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                                                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowUpRight" size={12}/> Emisor Original</p>
+                                                                    {/* Contraparte (Comprador o Proveedor) */}
+                                                                    <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
+                                                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                                                            <Icon name={party.isVenta ? "ArrowUpRight" : "Store"} size={12}/> {party.contraparteLabel}
+                                                                        </p>
                                                                         <div className="flex justify-between items-end">
                                                                             <div>
-                                                                                <p className="font-black text-gray-800 text-sm leading-tight">{req.aiData?.nombre_emisor || 'Desconocido'}</p>
-                                                                                <p className="text-[10px] font-bold text-gray-400 font-mono mt-1">{req.aiData?.cuit_emisor || 'S/D'}</p>
+                                                                                <p className="font-black text-gray-800 text-sm leading-tight">{party.contraparteNombre}</p>
+                                                                                <p className="text-[10px] font-bold text-gray-400 font-mono mt-1">CUIT: {party.contraparteCuit}</p>
                                                                             </div>
                                                                             <div className="text-right">
-                                                                                <p className="text-[9px] font-black text-gray-400 uppercase">Origen</p>
-                                                                                <p className="text-xs font-bold text-gray-700">{req.aiData?.banco_origen || '-'}</p>
+                                                                                <p className="text-[9px] font-black text-gray-400 uppercase">{party.isVenta ? 'Origen' : 'Entidad'}</p>
+                                                                                <p className="text-xs font-bold text-gray-700">{party.isVenta ? (req.aiData?.banco_origen || '-') : (req.aiData?.banco_receptor || req.aiData?.banco_origen || '-')}</p>
                                                                             </div>
                                                                         </div>
                                                                     </div>
-                                                                    <div className="bg-blue-600 p-4 rounded-2xl shadow-lg shadow-blue-100">
-                                                                        <p className="text-[10px] font-black text-blue-100 uppercase tracking-widest mb-2 flex items-center gap-2"><Icon name="ArrowDownLeft" size={12}/> Receptor (Cliente)</p>
+
+                                                                    {/* Cliente del Estudio */}
+                                                                    <div className={`${party.isVenta ? 'bg-gradient-to-r from-blue-700 to-blue-800 shadow-blue-500/10' : 'bg-gradient-to-r from-slate-800 via-blue-900 to-slate-900 shadow-blue-950/20'} p-4 rounded-2xl shadow-lg`}>
+                                                                        <p className="text-[10px] font-black text-blue-100 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                                                            <Icon name={party.isVenta ? "ArrowDownLeft" : "UserCheck"} size={12}/> {party.clienteLabel}
+                                                                        </p>
                                                                         <div className="flex justify-between items-end">
                                                                             <div>
-                                                                                <p className="font-black text-white text-sm leading-tight">{req.aiData?.nombre_receptor || 'Desconocido'}</p>
+                                                                                <p className="font-black text-white text-sm leading-tight">{party.clienteNombre}</p>
                                                                                 <p className="text-[10px] font-bold text-blue-200 font-mono mt-1">
-                                                                                    {req.aiData?.cuit_receptor || 'S/D'}
+                                                                                    CUIT: {party.clienteCuit}
                                                                                     {getReceptorPhone(req) && ` | 📱 ${getReceptorPhone(req)}`}
                                                                                 </p>
                                                                             </div>
                                                                             <div className="text-right">
-                                                                                <p className="text-[9px] font-black text-blue-200 uppercase">Destino</p>
-                                                                                <p className="text-xs font-bold text-white">{req.aiData?.banco_receptor || '-'}</p>
+                                                                                <p className="text-[9px] font-black text-blue-200 uppercase">{party.isVenta ? 'Destino' : 'Cuenta'}</p>
+                                                                                <p className="text-xs font-bold text-white">{party.isVenta ? (req.aiData?.banco_receptor || '-') : (req.aiData?.banco_origen || '-')}</p>
                                                                             </div>
                                                                         </div>
                                                                     </div>
@@ -2028,22 +2369,22 @@ const BillingRequestsPage = () => {
                                                                 </div>
 
                                                                 {/* Justificación de Clasificación IA y Selector Rápido */}
-                                                                <div className="mt-4 p-4 bg-purple-50/70 rounded-2xl border border-purple-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                                <div className="mt-4 p-4 bg-blue-50/40 rounded-2xl border border-blue-100/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                                                     <div className="space-y-1">
-                                                                        <p className="text-[10px] font-black text-purple-700 uppercase flex items-center gap-1.5">
+                                                                        <p className="text-[10px] font-black text-blue-900 uppercase flex items-center gap-1.5">
                                                                             <Icon name="Cpu" size={13}/> Clasificación IA: <span className="font-extrabold underline tracking-wide">{(req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta').toUpperCase()}</span>
                                                                         </p>
-                                                                        <p className="text-xs text-purple-900 leading-relaxed">{req.aiData?.justificacion_clasificacion || 'Comprobante procesado por IA.'}</p>
+                                                                        <p className="text-xs text-blue-950/90 leading-relaxed font-medium">{req.aiData?.justificacion_clasificacion || 'Comprobante procesado por IA.'}</p>
                                                                     </div>
-                                                                    <div className="flex items-center gap-1.5 shrink-0 bg-white p-1.5 rounded-xl border border-purple-200/60 shadow-xs">
+                                                                    <div className="flex items-center gap-1.5 shrink-0 bg-white p-1.5 rounded-xl border border-blue-200/60 shadow-xs">
                                                                         <span className="text-[9px] font-black text-gray-400 uppercase px-1">Cambiar a:</span>
                                                                         <button
                                                                             type="button"
                                                                             onClick={(e) => { e.stopPropagation(); handleQuickChangeClasificacion(req.id, 'venta'); }}
                                                                             className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${
                                                                                 (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === 'venta'
-                                                                                    ? 'bg-emerald-600 text-white shadow-xs'
-                                                                                    : 'text-gray-600 hover:text-emerald-700 hover:bg-emerald-50'
+                                                                                    ? 'bg-blue-600 text-white shadow-xs'
+                                                                                    : 'text-slate-600 hover:text-blue-700 hover:bg-blue-50'
                                                                             }`}
                                                                             title="Marcar como Venta / Cobro"
                                                                         >
@@ -2054,8 +2395,8 @@ const BillingRequestsPage = () => {
                                                                             onClick={(e) => { e.stopPropagation(); handleQuickChangeClasificacion(req.id, 'compra'); }}
                                                                             className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${
                                                                                 (req.clasificacionContable || req.aiData?.clasificacion_contable) === 'compra'
-                                                                                    ? 'bg-blue-600 text-white shadow-xs'
-                                                                                    : 'text-gray-600 hover:text-blue-700 hover:bg-blue-50'
+                                                                                    ? 'bg-sky-600 text-white shadow-xs'
+                                                                                    : 'text-slate-600 hover:text-sky-700 hover:bg-sky-50'
                                                                             }`}
                                                                             title="Marcar como Compra"
                                                                         >
@@ -2066,8 +2407,8 @@ const BillingRequestsPage = () => {
                                                                             onClick={(e) => { e.stopPropagation(); handleQuickChangeClasificacion(req.id, 'gasto'); }}
                                                                             className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${
                                                                                 (req.clasificacionContable || req.aiData?.clasificacion_contable) === 'gasto'
-                                                                                    ? 'bg-purple-600 text-white shadow-xs'
-                                                                                    : 'text-gray-600 hover:text-purple-700 hover:bg-purple-50'
+                                                                                    ? 'bg-slate-700 text-white shadow-xs'
+                                                                                    : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100'
                                                                             }`}
                                                                             title="Marcar como Gasto"
                                                                         >
@@ -2099,7 +2440,9 @@ const BillingRequestsPage = () => {
                                                         <div className="bg-gray-100 p-8 rounded-[32px] border border-gray-200 flex flex-col justify-between">
                                                             <div className="space-y-8">
                                                                 <div className="flex justify-between items-center">
-                                                                    <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Acciones de Gestión</h4>
+                                                                    <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">
+                                                                        {party.isVenta ? 'Gestión de Venta (A Facturar)' : 'Gestión de Egreso (Compra/Gasto)'}
+                                                                    </h4>
                                                                     <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${req.status === 'completed' ? 'bg-green-600 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
                                                                         {req.status === 'completed' ? 'Finalizado' : 'Pendiente'}
                                                                     </span>
@@ -2111,10 +2454,11 @@ const BillingRequestsPage = () => {
                                                                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
                                                                             <p className="text-gray-500 font-bold">Nuestro estudio está procesando tu solicitud...</p>
                                                                         </div>
-                                                                    ) : (
+                                                                    ) : party.isVenta ? (
+                                                                        /* Flujo de VENTAS: Subida de Factura o Marcar como Facturado */
                                                                         <div className="space-y-6">
                                                                             <div className="space-y-3">
-                                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Subir Factura Final (PDF)</label>
+                                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Subir Factura Final de Venta (PDF)</label>
                                                                                 <div className="flex gap-3">
                                                                                     <label className="flex-1 cursor-pointer">
                                                                                         <div className="w-full bg-white px-4 py-3 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 flex items-center justify-between truncate hover:border-blue-200 transition-all">
@@ -2162,13 +2506,62 @@ const BillingRequestsPage = () => {
                                                                                 <Icon name="Check" size={14}/> Marcar como Facturado
                                                                             </button>
 
-                                                                            {/* Botón para Compras o Gastos: Asentar en Libro Diario */}
+                                                                            {/* Si está sin asignar, botón prioritario para asignar cliente */}
+                                                                            {(req.userId === 'unassigned' || req.status === 'unassigned') && userData?.isAdmin && (
+                                                                                <button 
+                                                                                    onClick={() => {
+                                                                                        setAssigningRequest(req);
+                                                                                        setSelectedAssignUserId('');
+                                                                                    }}
+                                                                                    className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-md shadow-amber-100 flex items-center justify-center gap-2 animate-bounce"
+                                                                                >
+                                                                                    <Icon name="UserPlus" size={14}/> Asignar Cliente a este Comprobante
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
+                                                                        /* Flujo de COMPRAS Y GASTOS: Imputación contable directa */
+                                                                        <div className="space-y-5">
+                                                                            <div className="p-4 bg-blue-50/70 rounded-2xl border border-blue-200/60 text-blue-950">
+                                                                                <div className="flex items-center gap-2 mb-1">
+                                                                                    <Icon name="Info" size={16} className="text-blue-600 shrink-0"/>
+                                                                                    <p className="text-xs font-black uppercase tracking-wider">Egreso del Cliente</p>
+                                                                                </div>
+                                                                                <p className="text-xs text-blue-900/90 leading-relaxed font-medium">
+                                                                                    Este comprobante corresponde a un gasto o compra del cliente. Al confirmarlo, se asentará directamente en su Libro de Operaciones contable.
+                                                                                </p>
+                                                                            </div>
+
                                                                             <button 
-                                                                                onClick={() => handleExportToOperations(req)} 
-                                                                                className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2"
+                                                                                onClick={() => markAsDone(req.id)}
+                                                                                className="w-full bg-gradient-to-r from-blue-700 to-sky-700 hover:from-blue-800 hover:to-sky-800 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
                                                                             >
-                                                                                <Icon name="BookOpen" size={14}/> Asentar en Libro de Operaciones
+                                                                                <Icon name="CheckCircle" size={16}/> Confirmar e Imputar en Libro de Compras
                                                                             </button>
+
+                                                                            <div className="pt-2 border-t border-gray-200">
+                                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1 mb-2">
+                                                                                    Adjuntar Factura de Proveedor (Opcional)
+                                                                                </label>
+                                                                                <div className="flex gap-2">
+                                                                                    <label className="flex-1 cursor-pointer">
+                                                                                        <div className="w-full bg-white px-3 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 flex items-center justify-between truncate hover:border-blue-200 transition-all">
+                                                                                            <span className="truncate">{invoiceFile ? invoiceFile.name : 'Factura oficial (PDF)'}</span>
+                                                                                            <Icon name="FileText" size={14}/>
+                                                                                        </div>
+                                                                                        <input type="file" className="hidden" onChange={(e) => setInvoiceFile(e.target.files[0])} accept=".pdf"/>
+                                                                                    </label>
+                                                                                    {invoiceFile && (
+                                                                                        <button 
+                                                                                            onClick={() => handleCompleteRequest(req.id)} 
+                                                                                            disabled={uploading}
+                                                                                            className="bg-blue-700 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider hover:bg-blue-800 transition-all cursor-pointer"
+                                                                                        >
+                                                                                            {uploading ? '...' : 'Guardar PDF'}
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
 
                                                                             {/* Si está sin asignar, botón prioritario para asignar cliente */}
                                                                             {(req.userId === 'unassigned' || req.status === 'unassigned') && userData?.isAdmin && (
@@ -2187,18 +2580,22 @@ const BillingRequestsPage = () => {
                                                                 ) : (
                                                                     <div className="bg-white p-8 rounded-[24px] shadow-sm border border-gray-200/50 space-y-4">
                                                                         <div>
-                                                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Comprobante de Factura</p>
+                                                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">
+                                                                                {party.isVenta ? 'Comprobante de Factura' : 'Factura de Proveedor'}
+                                                                            </p>
                                                                             {req.invoiceUrl ? (
                                                                                 <a href={req.invoiceUrl} target="_blank" className="font-bold text-blue-600 hover:underline flex items-center gap-2">
-                                                                                    <Icon name="FileText" size={16}/> Factura Subida
+                                                                                    <Icon name="FileText" size={16}/> {party.isVenta ? 'Factura Subida' : 'Factura Proveedor Subida'}
                                                                                 </a>
                                                                             ) : (
-                                                                                <p className="text-gray-500 font-bold italic">Facturado sin comprobante físico</p>
+                                                                                <p className="text-gray-500 font-bold italic">
+                                                                                    {party.isVenta ? 'Facturado sin comprobante físico' : 'Imputado contablemente sin PDF adjunto'}
+                                                                                </p>
                                                                             )}
                                                                         </div>
                                                                         {req.completedAt && (
                                                                             <div>
-                                                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Facturación</p>
+                                                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Registro</p>
                                                                                 <p className="font-bold text-gray-800 text-xs">{req.completedAt.toDate().toLocaleString('es-AR')}</p>
                                                                             </div>
                                                                         )}
@@ -2225,7 +2622,7 @@ const BillingRequestsPage = () => {
                                                                     </div>
                                                                 )}
                                                             </div>
- 
+
                                                             <div className="space-y-3 mt-8">
                                                                     <button 
                                                                         onClick={() => sendWhatsAppNotification(req)} 
@@ -2715,60 +3112,84 @@ const BillingRequestsPage = () => {
                             </section>
 
                             {/* Parties Section */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                                <section>
-                                    <div className="flex items-center gap-3 mb-6">
-                                        <div className="w-1.5 h-6 bg-gray-400 rounded-full"></div>
-                                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Emisor (Origen)</h4>
-                                    </div>
-                                    <div className="bg-gray-50 p-8 rounded-[32px] border border-gray-100 space-y-5">
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase px-1">Nombre / Razón Social</label>
-                                            <input value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                            {(() => {
+                                const isVenta = (editFormData.clasificacion_contable || 'venta') === 'venta';
+                                return (
+                                    <div className="space-y-4">
+                                        <div className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
+                                            isVenta 
+                                                ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800' 
+                                                : 'bg-purple-50/70 border-purple-200 text-purple-800'
+                                        }`}>
+                                            <Icon name="Info" size={16} className="shrink-0"/>
+                                            <span>
+                                                {isVenta 
+                                                    ? 'En Ventas: el Emisor es el Comprador y el Receptor es el Cliente del Estudio (quien factura).' 
+                                                    : 'En Compras/Gastos: el Emisor de fondos es el Cliente del Estudio (quien incurre en el egreso) y el Receptor es el Proveedor.'}
+                                            </span>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase px-1">CUIT</label>
-                                                <input value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase px-1">Banco / Billetera</label>
-                                                <input value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </section>
 
-                                <section>
-                                    <div className="flex items-center gap-3 mb-6">
-                                        <div className="w-1.5 h-6 bg-blue-500 rounded-full"></div>
-                                        <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Receptor (Cliente)</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                                            <section>
+                                                <div className="flex items-center gap-3 mb-6">
+                                                    <div className={`w-1.5 h-6 rounded-full ${isVenta ? 'bg-gray-400' : 'bg-purple-600'}`}></div>
+                                                    <h4 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isVenta ? 'text-gray-400' : 'text-purple-700'}`}>
+                                                        {isVenta ? 'Emisor Original (Comprador)' : 'Emisor de Fondos (Cliente Titular)'}
+                                                    </h4>
+                                                </div>
+                                                <div className={`${isVenta ? 'bg-gray-50 border-gray-100' : 'bg-purple-50/40 border-purple-100'} p-8 rounded-[32px] border space-y-5`}>
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black text-gray-500 uppercase px-1">Nombre / Razón Social</label>
+                                                        <input value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div className="space-y-2">
+                                                            <label className="text-[10px] font-black text-gray-500 uppercase px-1">CUIT</label>
+                                                            <input value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <label className="text-[10px] font-black text-gray-500 uppercase px-1">Banco / Billetera</label>
+                                                            <input value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </section>
+
+                                            <section>
+                                                <div className="flex items-center gap-3 mb-6">
+                                                    <div className={`w-1.5 h-6 rounded-full ${isVenta ? 'bg-blue-500' : 'bg-gray-400'}`}></div>
+                                                    <h4 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>
+                                                        {isVenta ? 'Receptor (Cliente del Estudio)' : 'Receptor / Proveedor (Destino)'}
+                                                    </h4>
+                                                </div>
+                                                <div className={`${isVenta ? 'bg-blue-50/50 border-blue-100' : 'bg-gray-50 border-gray-100'} p-8 rounded-[32px] border space-y-5`}>
+                                                    <div className="space-y-2">
+                                                        <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>Nombre / Razón Social</label>
+                                                        <input value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>WhatsApp Notificación</label>
+                                                        <div className="relative">
+                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg">📱</span>
+                                                            <input type="tel" placeholder="549..." value={editFormData.userPhone} onChange={e => setEditFormData({...editFormData, userPhone: e.target.value})} className="w-full pl-12 pr-4 py-3 bg-white border-2 border-blue-100 focus:border-blue-300 rounded-xl transition-all outline-none font-black text-blue-800 shadow-sm"/>
+                                                        </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div className="space-y-2">
+                                                            <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>CUIT</label>
+                                                            <input value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-600' : 'text-gray-500'}`}>Banco / Billetera</label>
+                                                            <input value={editFormData.banco_receptor} onChange={e => setEditFormData({...editFormData, banco_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </section>
+                                        </div>
                                     </div>
-                                    <div className="bg-blue-50/50 p-8 rounded-[32px] border border-blue-100 space-y-5">
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-blue-600 uppercase px-1">Nombre / Razón Social</label>
-                                            <input value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-blue-600 uppercase px-1">WhatsApp Notificación</label>
-                                            <div className="relative">
-                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg">📱</span>
-                                                <input type="tel" placeholder="549..." value={editFormData.userPhone} onChange={e => setEditFormData({...editFormData, userPhone: e.target.value})} className="w-full pl-12 pr-4 py-3 bg-white border-2 border-blue-100 focus:border-blue-300 rounded-xl transition-all outline-none font-black text-blue-800 shadow-sm"/>
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-blue-600 uppercase px-1">CUIT</label>
-                                                <input value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-blue-600 uppercase px-1">Banco / Billetera</label>
-                                                <input value={editFormData.banco_receptor} onChange={e => setEditFormData({...editFormData, banco_receptor: e.target.value})} className="w-full p-3 bg-white border-transparent rounded-xl transition-all outline-none font-bold text-gray-900 shadow-sm"/>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </section>
-                            </div>
+                                );
+                            })()}
 
                             <section>
                                 <div className="space-y-2">

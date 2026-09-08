@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
 import { useCollection } from '../../hooks/useCollections';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import Icon from '../Common/Icon';
 import ConfirmModal from '../Common/ConfirmModal';
 import DateFilter from '../Common/DateFilter';
@@ -18,6 +19,9 @@ import OperationModal from './OperationModal';
 
 const OperationsPage = () => {
     const { user } = useAuth();
+    const { targetUserId, activeEntity, isViewingClient, resetToStudio } = useClientSelection();
+    const currentUid = targetUserId || user?.uid;
+
     const [filterDate, setFilterDate] = useState(new Date());
     const { data: operations, loading } = useCollection('operations', {
         year: filterDate.getFullYear(),
@@ -30,18 +34,18 @@ const OperationsPage = () => {
     const [operationToDelete, setOperationToDelete] = useState(null);
 
     useEffect(() => {
-        if (!user) return;
-        const q = query(collection(db, 'users', user.uid, 'operations'), orderBy("fechaEmision", "desc"), limit(5));
+        if (!currentUid) return;
+        const q = query(collection(db, 'users', currentUid, 'operations'), orderBy("fechaEmision", "desc"), limit(5));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setRecentOperations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         }, (error) => console.error("Error en recentOperations:", error));
         return () => unsubscribe();
-    }, [user]);
+    }, [currentUid]);
 
     const handleDelete = async () => {
-        if (!operationToDelete || !user) return;
+        if (!operationToDelete || !currentUid) return;
         try {
-            await deleteDoc(doc(db, 'users', user.uid, 'operations', operationToDelete));
+            await deleteDoc(doc(db, 'users', currentUid, 'operations', operationToDelete));
             setShowConfirmDelete(false);
             setOperationToDelete(null);
         } catch (error) {
@@ -68,7 +72,14 @@ const OperationsPage = () => {
 
     return (
         <div className="p-6 space-y-8 animate-fade-in">
-            {showModal && <OperationModal op={editingOp} onClose={() => setShowModal(false)} />}
+            {showModal && (
+                <OperationModal 
+                    op={editingOp} 
+                    onClose={() => setShowModal(false)} 
+                    targetUserId={currentUid}
+                    targetEntityName={activeEntity?.displayName}
+                />
+            )}
             {showConfirmDelete && (
                 <ConfirmModal
                     message="¿Estás seguro de que quieres eliminar esta operación? Esta acción no se puede deshacer."
@@ -79,15 +90,45 @@ const OperationsPage = () => {
 
             <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">Libro de Operaciones</h2>
-                    <p className="text-gray-500 font-medium italic">Registro detallado de ingresos y egresos.</p>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">Libro de Operaciones</h2>
+                        {isViewingClient ? (
+                            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs">
+                                <Icon name="UserCheck" size={13} />
+                                {activeEntity?.displayName}
+                                {activeEntity?.cuit && <span className="font-mono text-[10px] text-blue-500 font-bold ml-1">({activeEntity.cuit})</span>}
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-slate-100 text-slate-700 border border-slate-200">
+                                <Icon name="Building2" size={13} />
+                                Estudio Propio (GyR)
+                            </span>
+                        )}
+                    </div>
+                    <p className="text-gray-500 font-medium italic mt-1">
+                        {isViewingClient 
+                            ? `Gestionando ingresos y egresos asentados para el cliente seleccionado.` 
+                            : `Registro detallado de ingresos por honorarios y egresos operativos del estudio.`
+                        }
+                    </p>
                 </div>
-                <button 
-                    onClick={handleNewOperation} 
-                    className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all transform active:scale-95 flex items-center"
-                >
-                    <Icon name="PlusCircle" className="w-5 h-5 mr-2"/> Nueva Operación
-                </button>
+                <div className="flex items-center gap-3">
+                    {isViewingClient && (
+                        <button
+                            onClick={resetToStudio}
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-5 py-3 rounded-2xl font-bold text-xs transition-all shadow-xs active:scale-95 flex items-center gap-2 cursor-pointer"
+                            title="Volver a ver las operaciones del estudio"
+                        >
+                            <Icon name="ArrowLeft" size={14}/> Mi Estudio
+                        </button>
+                    )}
+                    <button 
+                        onClick={handleNewOperation} 
+                        className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all transform active:scale-95 flex items-center cursor-pointer"
+                    >
+                        <Icon name="PlusCircle" className="w-5 h-5 mr-2"/> Nueva Operación
+                    </button>
+                </div>
             </header>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">

@@ -8,20 +8,23 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import Icon from '../Common/Icon';
 
 const AIAnalyzer = () => {
     const [operations, setOperations] = useState([]);
     const { user } = useAuth();
+    const { targetUserId, activeEntity, isViewingClient } = useClientSelection();
+    const currentUid = targetUserId || user?.uid;
     
     useEffect(() => {
-        if (!user) return;
-        const q = query(collection(db, 'users', user.uid, 'operations'), orderBy("fechaEmision", "desc"), limit(50));
+        if (!currentUid) return;
+        const q = query(collection(db, 'users', currentUid, 'operations'), orderBy("fechaEmision", "desc"), limit(50));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setOperations(snapshot.docs.map(doc => doc.data()));
         });
         return () => unsubscribe();
-    }, [user]);
+    }, [currentUid]);
 
     const [prompt, setPrompt] = useState('');
     const [result, setResult] = useState('');
@@ -34,7 +37,7 @@ const AIAnalyzer = () => {
             return;
         }
          if (operations.length === 0) {
-            setError('No tienes operaciones registradas para analizar.');
+            setError(`No hay operaciones registradas para analizar en ${activeEntity?.displayName || 'esta cuenta'}.`);
             return;
         }
 
@@ -45,11 +48,12 @@ const AIAnalyzer = () => {
         const apiUrl = 'https://us-central1-gyrconsultores-82422.cloudfunctions.net/secureGeminiCall';
 
         const operationsContext = operations.map(op => 
-            `- ${op.fechaEmision.toDate ? op.fechaEmision.toDate().toLocaleDateString('es-AR') : 'N/A'}: ${op.type} de ${op.amount.toFixed(2)} ARS (${op.description})`
+            `- ${op.fechaEmision?.toDate ? op.fechaEmision.toDate().toLocaleDateString('es-AR') : 'N/A'}: ${op.type} de ${op.amount.toFixed(2)} ARS (${op.description})`
         ).join('\n');
 
-        const systemPrompt = "Actúa como un asistente financiero experto y conciso. Analiza los datos de operaciones proporcionados y responde la pregunta del usuario en español. Basa tu respuesta únicamente en los datos. Si la pregunta no se puede responder con los datos, indícalo. Formatea tu respuesta de forma clara y amigable.";
-        const fullPrompt = `Basado en las siguientes operaciones financieras:\n\n${operationsContext}\n\nPor favor, responde a la siguiente pregunta: "${prompt}"`;
+        const entityLabel = isViewingClient ? `el cliente "${activeEntity?.displayName}" (CUIT: ${activeEntity?.cuit || 'S/D'})` : 'el Estudio Contable "GyR Consultores"';
+        const systemPrompt = `Actúa como un asistente financiero experto y conciso. Estás analizando los datos contables de ${entityLabel}. Analiza los datos de operaciones proporcionados y responde la pregunta del usuario en español. Basa tu respuesta únicamente en los datos. Si la pregunta no se puede responder con los datos, indícalo. Formatea tu respuesta de forma clara y amigable.`;
+        const fullPrompt = `Basado en las siguientes operaciones financieras registradas para ${entityLabel}:\n\n${operationsContext}\n\nPor favor, responde a la siguiente pregunta: "${prompt}"`;
 
         const payload = {
             contents: [{ parts: [{ text: fullPrompt }] }],
@@ -89,25 +93,39 @@ const AIAnalyzer = () => {
     };
 
     return (
-        <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
-            <h3 className="text-xl font-bold mb-4 flex items-center">
-                <Icon name="Sparkles" className="w-6 h-6 mr-2 text-yellow-500" />
-                Análisis con IA
-            </h3>
+        <div className="mt-8 bg-white p-8 rounded-[32px] shadow-sm border border-blue-100/70">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-black text-gray-900 tracking-tight flex items-center">
+                    <Icon name="Sparkles" className="w-6 h-6 mr-2.5 text-blue-600" />
+                    Análisis Financiero con IA
+                </h3>
+                {isViewingClient ? (
+                    <span className="text-xs font-bold px-3 py-1 bg-blue-50 text-blue-700 rounded-full border border-blue-100">
+                        Auditando a: {activeEntity?.displayName}
+                    </span>
+                ) : (
+                    <span className="text-xs font-bold px-3 py-1 bg-slate-100 text-slate-700 rounded-full">
+                        Estudio Propio (GyR)
+                    </span>
+                )}
+            </div>
             <div className="space-y-4">
                 <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Ej: ¿Cuál fue mi mayor gasto este mes? o Dame consejos para reducir mis compras."
-                    className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder={isViewingClient 
+                        ? `Ej: ¿Cuáles son las mayores compras de ${activeEntity?.displayName}? o ¿Qué resumen de ventas tiene este mes?`
+                        : "Ej: ¿Cuál fue el mayor egreso operativo del estudio este mes? o Resume la rentabilidad actual."
+                    }
+                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none text-sm font-medium text-gray-800 transition-all resize-none"
                     rows="3"
                 />
                 <button
                     onClick={handleAnalysis}
                     disabled={loading}
-                    className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 transition-colors shadow-sm font-bold"
+                    className="w-full py-3.5 px-6 bg-gradient-to-r from-blue-700 to-sky-700 text-white rounded-2xl hover:from-blue-800 hover:to-sky-800 disabled:opacity-50 transition-all shadow-md shadow-blue-500/20 font-black text-xs uppercase tracking-widest cursor-pointer"
                 >
-                    {loading ? 'Analizando...' : 'Analizar mis Finanzas'}
+                    {loading ? 'Analizando operaciones...' : `Analizar Finanzas de ${isViewingClient ? activeEntity?.displayName : 'Mi Estudio'}`}
                 </button>
                 {error && <p className="text-sm text-red-600 text-center font-medium">{error}</p>}
                 {loading && (
