@@ -29,37 +29,44 @@ export const ClientSelectionProvider = ({ children }) => {
     }, [studioEntity]);
 
     // Cargar la lista de clientes si el usuario es Administrador
+    // EXCLUSIVAMENTE desde Gestión de Terceros (clientes del estudio que hacen match en Facturación)
+    // dejando afuera a los usuarios del panel admin que se usan para fines de gestión de plataforma/accesos.
     useEffect(() => {
-        if (!userData?.isAdmin) {
+        if (!userData?.isAdmin || !user?.uid) {
             setClientList([]);
             setLoadingClients(false);
             return;
         }
 
         setLoadingClients(true);
-        const q = query(collection(db, 'users'));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const clients = snapshot.docs
-                .map(docSnap => ({
-                    id: docSnap.id,
-                    ...docSnap.data()
-                }))
-                // Excluimos la propia cuenta del administrador de la lista de clientes regulares
-                .filter(u => u.id !== user?.uid && !u.email?.toLowerCase().includes('admin') && !u.isAdmin)
-                .map(c => ({
-                    id: c.id,
-                    name: c.nombre || c.razonSocial || c.email || 'Cliente sin nombre',
-                    cuit: c.cuit || 'S/D',
-                    email: c.email || '',
-                    isStudio: false,
-                    categoriaTributaria: c.categoriaTributaria || 'Monotributo',
-                    modoFacturacion: c.modoFacturacion || 'estudio'
-                }));
 
-            setClientList(clients);
+        const qTerceros = query(collection(db, 'users', user.uid, 'terceros'));
+        const unsubscribe = onSnapshot(qTerceros, (snapshot) => {
+            const list = [];
+            snapshot.docs.forEach(docSnap => {
+                const t = docSnap.data();
+                const tipo = (t.tipo || 'Cliente').toLowerCase();
+                if (tipo === 'proveedor') return; // Omitir proveedores puros en el selector de clientes
+                
+                list.push({
+                    id: docSnap.id,
+                    terceroId: docSnap.id,
+                    name: t.nombre || 'Cliente sin nombre',
+                    cuit: t.cuit || 'S/D',
+                    email: t.email || '',
+                    telefono: t.telefono || '',
+                    isStudio: false,
+                    source: 'tercero',
+                    categoriaTributaria: t.categoriaTributaria || 'Monotributo',
+                    modoFacturacion: 'estudio'
+                });
+            });
+
+            list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            setClientList(list);
             setLoadingClients(false);
         }, (error) => {
-            console.error("Error al cargar lista de clientes para selector:", error);
+            console.error("Error al cargar lista de clientes de terceros para selector:", error);
             setLoadingClients(false);
         });
 
@@ -82,8 +89,14 @@ export const ClientSelectionProvider = ({ children }) => {
         setActiveEntity(studioEntity);
     };
 
-    const selectClientById = (clientId) => {
-        const found = clientList.find(c => c.id === clientId);
+    const selectClientById = (clientIdOrCuit) => {
+        if (!clientIdOrCuit) return false;
+        const normSearch = String(clientIdOrCuit).replace(/\D/g, '');
+        const found = clientList.find(c => {
+            if (c.id === clientIdOrCuit || c.terceroId === clientIdOrCuit || c.userId === clientIdOrCuit) return true;
+            if (normSearch && normSearch.length >= 10 && (c.cuit || '').replace(/\D/g, '') === normSearch) return true;
+            return false;
+        });
         if (found) {
             setActiveEntity(found);
             return true;
@@ -96,6 +109,7 @@ export const ClientSelectionProvider = ({ children }) => {
         setActiveEntity,
         studioEntity,
         clientList,
+        clients: clientList, // Alias para compatibilidad completa
         loadingClients,
         targetUserId,
         isViewingClient,

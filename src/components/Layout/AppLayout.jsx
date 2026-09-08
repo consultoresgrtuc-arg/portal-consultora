@@ -316,9 +316,16 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                                                                 <User size={16} />
                                                             </div>
                                                             <div className="truncate">
-                                                                <p className={`text-xs font-black truncate leading-tight ${isSelected ? 'text-white' : 'text-slate-900'}`}>
-                                                                    {client.name}
-                                                                </p>
+                                                                <div className="flex items-center gap-1.5 truncate">
+                                                                    <p className={`text-xs font-black truncate leading-tight ${isSelected ? 'text-white' : 'text-slate-900'}`}>
+                                                                        {client.name}
+                                                                    </p>
+                                                                    {client.source === 'tercero' && (
+                                                                        <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded shrink-0 ${isSelected ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                                                                            Gestión
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                                 <p className={`text-[10px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
                                                                     CUIT: {client.cuit}
                                                                 </p>

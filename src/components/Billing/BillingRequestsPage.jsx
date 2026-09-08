@@ -248,7 +248,7 @@ const MONTHS = [
 
 const BillingRequestsPage = ({ navigate }) => {
     const { user, userData } = useAuth();
-    const { clients, selectClientById, setActiveEntity } = useClientSelection();
+    const { clients, clientList, selectClientById, setActiveEntity } = useClientSelection();
 
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -268,27 +268,88 @@ const BillingRequestsPage = ({ navigate }) => {
     const [selectedMonth, setSelectedMonth] = useState('todos');
     const [selectedConsolidatedClient, setSelectedConsolidatedClient] = useState(null);
 
+    // Gestión de Terceros del estudio contable para matching y alta rápida
+    const [tercerosList, setTercerosList] = useState([]);
+    const [creatingTerceroCuit, setCreatingTerceroCuit] = useState(null);
+
+    const cleanCuit = (c) => (c ? String(c).replace(/\D/g, '') : '');
+
+    useEffect(() => {
+        if (!user?.uid) return;
+        const qTerceros = query(collection(db, 'users', user.uid, 'terceros'));
+        const unsubscribe = onSnapshot(qTerceros, (snapshot) => {
+            const items = snapshot.docs.map(docSnap => ({
+                id: docSnap.id,
+                ...docSnap.data()
+            }));
+            setTercerosList(items);
+        }, (err) => {
+            console.error("Error al cargar terceros en facturación:", err);
+        });
+        return () => unsubscribe();
+    }, [user?.uid]);
+
+    const tercerosByCuit = useMemo(() => {
+        const map = {};
+        tercerosList.forEach(t => {
+            const c = cleanCuit(t.cuit);
+            if (c && c.length >= 10) {
+                map[c] = t;
+            }
+        });
+        return map;
+    }, [tercerosList]);
+
+    // Alta rápida de un cliente en Gestión de Terceros
+    const handleCreateTerceroQuick = async (clientData) => {
+        if (!user?.uid) return;
+        const cNorm = cleanCuit(clientData.cuit);
+        if (!cNorm || cNorm.length < 10) {
+            alert("No se puede registrar sin un CUIT válido.");
+            return;
+        }
+        setCreatingTerceroCuit(cNorm);
+        try {
+            const dataToSave = {
+                nombre: (clientData.name || clientData.nombre || 'Nuevo Cliente').trim(),
+                cuit: clientData.cuit || '',
+                email: clientData.email || '',
+                telefono: clientData.phone || clientData.telefono || '',
+                tipo: 'Cliente',
+                createdAt: Timestamp.now()
+            };
+            await addDoc(collection(db, 'users', user.uid, 'terceros'), dataToSave);
+            alert(`✅ Cliente "${dataToSave.nombre}" dado de alta con éxito en Gestión de Terceros.`);
+        } catch (err) {
+            console.error("Error al crear cliente en Gestión de Terceros:", err);
+            alert("Error al dar de alta el cliente en Gestión: " + (err.message || ''));
+        } finally {
+            setCreatingTerceroCuit(null);
+        }
+    };
+
     const handleInspectClient = (clientObj, destination = 'dashboard') => {
         if (!clientObj) return;
-        const rawCuit = (clientObj.cuit || '').replace(/\D/g, '');
-        const matchedClient = (clients || []).find(c => {
-            const cCuit = (c.cuit || '').replace(/\D/g, '');
+        const rawCuit = cleanCuit(clientObj.cuit);
+        const clientPool = clients || clientList || [];
+        const matchedClient = clientPool.find(c => {
+            const cCuit = cleanCuit(c.cuit);
+            if (clientObj.terceroId && (c.id === clientObj.terceroId || c.terceroId === clientObj.terceroId)) return true;
             if (clientObj.userId && c.id === clientObj.userId) return true;
-            if (rawCuit && cCuit && rawCuit === cCuit) return true;
-            if (c.displayName && clientObj.name && c.displayName.toLowerCase().trim() === clientObj.name.toLowerCase().trim()) return true;
+            if (rawCuit && rawCuit.length >= 10 && cCuit && rawCuit === cCuit) return true;
+            if (c.name && clientObj.name && c.name.toLowerCase().trim() === clientObj.name.toLowerCase().trim()) return true;
             return false;
         });
 
         if (matchedClient) {
-            selectClientById(matchedClient.id);
-        } else if (clientObj.userId && clientObj.userId !== 'unassigned') {
-            selectClientById(clientObj.userId);
+            setActiveEntity(matchedClient);
         } else {
             setActiveEntity({
-                id: clientObj.userId || clientObj.key || 'client_temp',
-                displayName: clientObj.name,
+                id: clientObj.terceroId || clientObj.userId || clientObj.key || 'client_temp',
+                name: clientObj.name,
                 cuit: clientObj.cuit || '',
-                isStudio: false
+                isStudio: false,
+                source: clientObj.terceroId ? 'tercero' : 'billing'
             });
         }
         if (navigate) {
@@ -441,13 +502,28 @@ const BillingRequestsPage = ({ navigate }) => {
         const isTransfer = tipoComp.includes('transferencia') || tipoComp.includes('pago');
 
         if (isVenta) {
+            const rawCuit = req.aiData?.cuit_receptor || req.manualData?.cuitCliente || 'S/D';
+            const normCuit = cleanCuit(rawCuit);
+            const terceroMatch = normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null;
+
+            // En ventas: el cliente es el que recibe los fondos (vendedor/destinatario)
+            let clienteNombre = terceroMatch?.nombre || req.aiData?.nombre_receptor || req.manualData?.nombreCliente;
+            if (!clienteNombre || clienteNombre === 'Cliente') {
+                if (req.userName && req.userId !== 'unassigned' && !userData?.isAdmin) {
+                    clienteNombre = req.userName;
+                } else {
+                    clienteNombre = 'Cliente';
+                }
+            }
+
             return {
                 tipo,
                 isVenta: true,
                 clienteLabel: 'Cliente del Estudio (Vendedor / Destino de Fondos)',
-                clienteNombre: (req.userName && req.userId !== 'unassigned') ? req.userName : (req.aiData?.nombre_receptor || req.manualData?.nombreCliente || 'Cliente'),
-                clienteCuit: req.aiData?.cuit_receptor || req.manualData?.cuitCliente || 'S/D',
+                clienteNombre,
+                clienteCuit: rawCuit,
                 clienteBanco: req.aiData?.banco_receptor || req.aiData?.aplicacion_pago || '-',
+                terceroMatch,
                 contraparteLabel: 'Comprador (Pagador / Origen Fondos)',
                 contraparteNombre: req.aiData?.nombre_emisor || req.manualData?.nombreEmisor || 'Comprador',
                 contraparteCuit: req.aiData?.cuit_emisor || req.manualData?.cuitEmisor || 'S/D',
@@ -458,10 +534,19 @@ const BillingRequestsPage = ({ navigate }) => {
             // Si pagó por transferencia: nuestro cliente fue el EMISOR del pago
             // Si es factura de compra: el cliente fue el RECEPTOR (comprador de la factura)
             const clienteEsEmisor = isTransfer;
-            const clienteNombre = (req.userName && req.userId !== 'unassigned') 
-                ? req.userName 
-                : (clienteEsEmisor ? req.aiData?.nombre_emisor : req.aiData?.nombre_receptor) || 'Cliente';
-            const clienteCuit = (clienteEsEmisor ? req.aiData?.cuit_emisor : req.aiData?.cuit_receptor) || req.manualData?.cuitCliente || 'S/D';
+            const rawCuit = (clienteEsEmisor ? req.aiData?.cuit_emisor : req.aiData?.cuit_receptor) || req.manualData?.cuitCliente || 'S/D';
+            const normCuit = cleanCuit(rawCuit);
+            const terceroMatch = normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null;
+
+            let clienteNombre = terceroMatch?.nombre || (clienteEsEmisor ? req.aiData?.nombre_emisor : req.aiData?.nombre_receptor) || req.manualData?.nombreCliente;
+            if (!clienteNombre || clienteNombre === 'Cliente') {
+                if (req.userName && req.userId !== 'unassigned' && !userData?.isAdmin) {
+                    clienteNombre = req.userName;
+                } else {
+                    clienteNombre = 'Cliente';
+                }
+            }
+
             const clienteBanco = (clienteEsEmisor ? req.aiData?.banco_origen : req.aiData?.banco_receptor) || '-';
 
             const contraparteNombre = req.aiData?.nombre_proveedor || 
@@ -475,8 +560,9 @@ const BillingRequestsPage = ({ navigate }) => {
                 isVenta: false,
                 clienteLabel: 'Cliente del Estudio (Titular Egreso / Pagador)',
                 clienteNombre,
-                clienteCuit,
+                clienteCuit: rawCuit,
                 clienteBanco,
+                terceroMatch,
                 contraparteLabel: 'Proveedor / Comercio / Servicio',
                 contraparteNombre,
                 contraparteCuit,
@@ -499,7 +585,7 @@ const BillingRequestsPage = ({ navigate }) => {
             }
         });
         return dict;
-    }, [visibleRequests]);
+    }, [visibleRequests, tercerosByCuit]);
 
     const clientPhoneDictionary = useMemo(() => {
         const dict = {}; 
@@ -517,16 +603,19 @@ const BillingRequestsPage = ({ navigate }) => {
     }, [visibleRequests]);
 
     const getUnifiedName = (req) => {
-        if (req.userName && req.userId && req.userId !== 'unassigned') {
-            return req.userName;
-        }
         const party = getPartyDetails(req);
+        if (party.terceroMatch?.nombre) {
+            return party.terceroMatch.nombre;
+        }
         if (party.clienteNombre && party.clienteNombre !== 'Desconocido' && party.clienteNombre !== 'Cliente') {
             return party.clienteNombre;
         }
         const rawCuit = party.clienteCuit || '';
         const cuit = rawCuit.replace(/\D/g, '');
         if (cuit && clientDictionary[cuit]) return clientDictionary[cuit];
+        if (req.userName && req.userId && req.userId !== 'unassigned' && !userData?.isAdmin) {
+            return req.userName;
+        }
         return party.clienteNombre || 'Desconocido';
     };
 
@@ -682,20 +771,30 @@ const BillingRequestsPage = ({ navigate }) => {
             const monto = req.aiData?.monto_total || req.manualData?.monto || 0;
             const isCompleted = req.status === 'completed';
             const isPending = req.status !== 'completed' && req.status !== 'duplicate';
+
+            const normCuit = cuit !== 'Sin CUIT' ? cuit : '';
+            const terceroMatch = party.terceroMatch || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
             
             if (!summaryMap[key]) {
                 summaryMap[key] = {
                     key,
-                    name: clientName,
+                    name: terceroMatch?.nombre || clientName,
                     cuit: cuit,
-                    userId: req.userId && req.userId !== 'unassigned' ? req.userId : null,
+                    terceroId: terceroMatch?.id || null,
+                    isInTerceros: Boolean(terceroMatch),
+                    userId: req.userId && req.userId !== 'unassigned' && !userData?.isAdmin ? req.userId : null,
                     totalFacturado: 0,
                     totalPendiente: 0,
                     count: 0,
                     lastActivity: null
                 };
             }
-            if (!summaryMap[key].userId && req.userId && req.userId !== 'unassigned') {
+            if (terceroMatch && !summaryMap[key].terceroId) {
+                summaryMap[key].terceroId = terceroMatch.id;
+                summaryMap[key].isInTerceros = true;
+                summaryMap[key].name = terceroMatch.nombre;
+            }
+            if (!summaryMap[key].userId && req.userId && req.userId !== 'unassigned' && !userData?.isAdmin) {
                 summaryMap[key].userId = req.userId;
             }
             
@@ -717,7 +816,7 @@ const BillingRequestsPage = ({ navigate }) => {
         });
         
         return Object.values(summaryMap).sort((a, b) => b.totalFacturado - a.totalFacturado);
-    }, [requests, selectedYear, selectedMonth, clientDictionary]);
+    }, [requests, selectedYear, selectedMonth, clientDictionary, tercerosByCuit, userData?.isAdmin]);
 
     const consolidatedClientRequests = useMemo(() => {
         if (!selectedConsolidatedClient) return [];
@@ -1073,8 +1172,16 @@ const BillingRequestsPage = ({ navigate }) => {
                 url = await getDownloadURL(fileRef); 
             }
 
+            // Determinar a qué entidad contable corresponde la operación
+            const party = getPartyDetails(req);
+            const normCuit = cleanCuit(party.clienteCuit);
+            const targetClientId = party.terceroMatch?.id 
+                || (normCuit && tercerosByCuit[normCuit]?.id) 
+                || (req.userId && req.userId !== 'unassigned' && !userData?.isAdmin ? req.userId : null)
+                || (normCuit && normCuit.length >= 10 ? `cuit_${normCuit}` : req.userId);
+
             // Determinar si también se registra en el Libro de Operaciones
-            const shouldExport = (autoRegisterInBook || !isVenta) && req.userId && req.userId !== 'unassigned' && !req.exportedToOperations;
+            const shouldExport = (autoRegisterInBook || !isVenta) && targetClientId && targetClientId !== 'unassigned' && !req.exportedToOperations;
 
             await updateDoc(doc(db, 'billing_requests', id), { 
                 status: 'completed', 
@@ -1088,7 +1195,6 @@ const BillingRequestsPage = ({ navigate }) => {
                 try {
                     const monto = req.aiData?.monto_total || req.manualData?.monto || 0;
                     const tipo = req.clasificacionContable === 'gasto' ? 'gasto' : (req.clasificacionContable === 'compra' ? 'compra' : 'venta');
-                    const party = getPartyDetails(req);
                     const partyDesc = isVenta ? (party.contraparteNombre || 'Comprador') : (party.contraparteNombre || 'Proveedor');
                     const desc = req.aiData?.concepto_detectado 
                         ? `[${tipo.toUpperCase()}] ${partyDesc} - ${req.aiData.concepto_detectado}`
@@ -1096,7 +1202,7 @@ const BillingRequestsPage = ({ navigate }) => {
                     const fechaStr = req.aiData?.fecha_pago || new Date().toISOString().split('T')[0];
                     const localDate = new Date(fechaStr + 'T00:00:00-03:00');
 
-                    await addDoc(collection(db, 'users', req.userId, 'operations'), {
+                    await addDoc(collection(db, 'users', targetClientId, 'operations'), {
                         type: tipo,
                         amount: parseFloat(monto),
                         description: desc,
@@ -1105,6 +1211,9 @@ const BillingRequestsPage = ({ navigate }) => {
                         month: localDate.getMonth() + 1,
                         day: localDate.getDate(),
                         billingRequestId: req.id,
+                        terceroId: party.terceroMatch?.id || (normCuit ? tercerosByCuit[normCuit]?.id : null) || null,
+                        clienteCuit: party.clienteCuit || null,
+                        clienteNombre: party.clienteNombre || null,
                         source: req.source || 'web'
                     });
                 } catch (opErr) {
@@ -2027,7 +2136,26 @@ const BillingRequestsPage = ({ navigate }) => {
                                         clientBillingSummary.map(client => (
                                             <tr key={client.key} className="hover:bg-blue-50/30 transition-all">
                                                 <td className="px-8 py-6 whitespace-nowrap">
-                                                    <div className="text-sm font-black text-gray-900 leading-tight">{client.name}</div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-black text-gray-900 leading-tight">{client.name}</span>
+                                                        {client.isInTerceros ? (
+                                                            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200" title="Registrado en Gestión de Terceros">
+                                                                <Icon name="CheckCircle" size={10} /> En Gestión
+                                                            </span>
+                                                        ) : (
+                                                            userData?.isAdmin && client.cuit && client.cuit !== 'Sin CUIT' && (
+                                                                <button
+                                                                    onClick={() => handleCreateTerceroQuick(client)}
+                                                                    disabled={creatingTerceroCuit === cleanCuit(client.cuit)}
+                                                                    className="inline-flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all cursor-pointer shadow-2xs active:scale-95"
+                                                                    title="Dar de alta como Cliente en Gestión de Terceros"
+                                                                >
+                                                                    <Icon name="UserPlus" size={10} />
+                                                                    {creatingTerceroCuit === cleanCuit(client.cuit) ? 'Creando...' : '+ Crear en Gestión'}
+                                                                </button>
+                                                            )
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="px-8 py-6 whitespace-nowrap text-sm font-bold text-gray-500 font-mono">
                                                     {client.cuit}
@@ -2125,7 +2253,33 @@ const BillingRequestsPage = ({ navigate }) => {
                                                     </div>
                                                 ) : (
                                                     <>
-                                                        <div className="text-sm font-black text-gray-900 leading-tight">{party.clienteNombre}</div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-sm font-black text-gray-900 leading-tight">{party.clienteNombre}</span>
+                                                            {party.terceroMatch ? (
+                                                                <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0" title="Registrado en Gestión de Terceros">
+                                                                    Gestión
+                                                                </span>
+                                                            ) : (
+                                                                userData?.isAdmin && party.clienteCuit && party.clienteCuit !== 'S/D' && (
+                                                                    <button 
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleCreateTerceroQuick({
+                                                                                name: party.clienteNombre,
+                                                                                cuit: party.clienteCuit,
+                                                                                phone: req.userPhone
+                                                                            });
+                                                                        }}
+                                                                        disabled={creatingTerceroCuit === cleanCuit(party.clienteCuit)}
+                                                                        className="inline-flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all cursor-pointer shrink-0"
+                                                                        title="Dar de alta como Cliente en Gestión de Terceros"
+                                                                    >
+                                                                        <Icon name="UserPlus" size={9} />
+                                                                        {creatingTerceroCuit === cleanCuit(party.clienteCuit) ? '...' : '+ En Gestión'}
+                                                                    </button>
+                                                                )
+                                                            )}
+                                                        </div>
                                                         <div className="text-[10px] text-gray-400 font-black uppercase tracking-tighter mt-0.5">
                                                             CUIT: {party.clienteCuit}
                                                         </div>
