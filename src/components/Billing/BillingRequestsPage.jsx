@@ -2620,7 +2620,7 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                             }}
                                                                             disabled={isReanalyzing}
                                                                             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-blue-700 hover:bg-blue-50 border border-blue-100 transition-all disabled:opacity-50"
-                                                                            title="Volver a analizar con IA Gemini 3.5 Flash Lite"
+                                                                            title="Volver a analizar con IA Gemini 3.8 Flash"
                                                                         >
                                                                             <Icon name="RefreshCw" size={13} className={isReanalyzing ? 'animate-spin' : ''}/> 
                                                                             {isReanalyzing ? 'Analizando...' : 'Reanalizar IA'}
