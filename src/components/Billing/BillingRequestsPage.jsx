@@ -507,14 +507,23 @@ const BillingRequestsPage = ({ navigate }) => {
             const normCuit = cleanCuit(rawCuit);
             const terceroMatch = normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null;
 
-            // En ventas: el cliente es el que recibe los fondos (vendedor/destinatario)
-            let clienteNombre = terceroMatch?.nombre || req.aiData?.nombre_receptor || req.manualData?.nombreCliente;
-            if (!clienteNombre || clienteNombre === 'Cliente') {
-                if (req.userName && req.userId !== 'unassigned' && !userData?.isAdmin) {
-                    clienteNombre = req.userName;
-                } else {
-                    clienteNombre = 'Cliente';
-                }
+            // Buscar el usuario del estudio en systemUsers por userId o por CUIT
+            const assignedUser = (req.userId && req.userId !== 'unassigned') 
+                ? systemUsers.find(u => u.id === req.userId) 
+                : (normCuit && normCuit.length >= 10 ? systemUsers.find(u => cleanCuit(u.cuit) === normCuit) : null);
+
+            // El nombre legal / real registrado en el estudio TIENE MÁXIMA PRIORIDAD sobre la fantasía del ticket:
+            let clienteNombre = assignedUser?.nombre 
+                || (req.userName && req.userId !== 'unassigned' && !req.userName.includes('Sin Asignar') ? req.userName : null)
+                || terceroMatch?.nombre 
+                || req.aiData?.nombre_receptor 
+                || req.manualData?.nombreCliente 
+                || 'Cliente';
+
+            // Nombre de fantasía del local comercial:
+            let nombreFantasia = req.aiData?.nombre_fantasia || null;
+            if (!nombreFantasia && req.aiData?.nombre_receptor && req.aiData.nombre_receptor !== clienteNombre) {
+                nombreFantasia = req.aiData.nombre_receptor;
             }
 
             return {
@@ -522,6 +531,7 @@ const BillingRequestsPage = ({ navigate }) => {
                 isVenta: true,
                 clienteLabel: 'Cliente del Estudio (Vendedor / Destino de Fondos)',
                 clienteNombre,
+                nombreFantasia,
                 clienteCuit: rawCuit,
                 clienteBanco: req.aiData?.banco_receptor || req.aiData?.aplicacion_pago || '-',
                 terceroMatch,
@@ -532,27 +542,40 @@ const BillingRequestsPage = ({ navigate }) => {
             };
         } else {
             // Compra o Gasto: Inversión Contable de Roles
+            // Si el comprobante está asignado a un cliente del estudio en el sistema,
+            // pero el papel es un ticket sin CUIT de pagador, usamos el CUIT/Nombre del cliente asignado:
+            const assignedUser = (req.userId && req.userId !== 'unassigned') 
+                ? systemUsers.find(u => u.id === req.userId) 
+                : null;
+            const fallbackCuit = assignedUser?.cuit || '';
+            const fallbackNombre = assignedUser?.nombre || assignedUser?.email || '';
+
             // Si pagó por transferencia: nuestro cliente fue el EMISOR del pago
-            // Si es factura de compra: el cliente fue el RECEPTOR (comprador de la factura)
+            // Si es factura de compra o ticket de cliente: el cliente fue el COMPRADOR / PAGADOR
             const cuitEmisorNorm = cleanCuit(req.aiData?.cuit_emisor || '');
             const cuitReceptorNorm = cleanCuit(req.aiData?.cuit_receptor || '');
             const matchEmisor = cuitEmisorNorm && cuitEmisorNorm.length >= 10 ? tercerosByCuit[cuitEmisorNorm] : null;
             const matchReceptor = cuitReceptorNorm && cuitReceptorNorm.length >= 10 ? tercerosByCuit[cuitReceptorNorm] : null;
 
-            let clienteEsEmisor = isTransfer;
+            let clienteEsEmisor = isTransfer || req.aiData?.tipo_ticket_pos === 'ticket_cliente';
             if (matchEmisor && !matchReceptor) {
                 clienteEsEmisor = true;
             } else if (matchReceptor && !matchEmisor) {
                 clienteEsEmisor = false;
             }
 
-            const rawCuit = (clienteEsEmisor ? req.aiData?.cuit_emisor : req.aiData?.cuit_receptor) || req.manualData?.cuitCliente || 'S/D';
+            let rawCuit = (clienteEsEmisor ? req.aiData?.cuit_emisor : req.aiData?.cuit_receptor) || req.manualData?.cuitCliente;
+            if (!rawCuit || rawCuit === 'S/D' || rawCuit === 'null') {
+                rawCuit = fallbackCuit || 'S/D';
+            }
             const normCuit = cleanCuit(rawCuit);
             const terceroMatch = (clienteEsEmisor ? matchEmisor : matchReceptor) || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
 
             let clienteNombre = terceroMatch?.nombre || (clienteEsEmisor ? req.aiData?.nombre_emisor : req.aiData?.nombre_receptor) || req.manualData?.nombreCliente;
-            if (!clienteNombre || clienteNombre === 'Cliente') {
-                if (req.userName && req.userId !== 'unassigned' && !userData?.isAdmin) {
+            if (!clienteNombre || clienteNombre === 'Cliente' || clienteNombre.includes('Consumidor') || clienteNombre.includes('Tarjeta')) {
+                if (fallbackNombre) {
+                    clienteNombre = fallbackNombre;
+                } else if (req.userName && req.userId !== 'unassigned' && !userData?.isAdmin) {
                     clienteNombre = req.userName;
                 } else {
                     clienteNombre = 'Cliente';
@@ -1338,6 +1361,8 @@ const BillingRequestsPage = ({ navigate }) => {
             ? req.aiData.aplicacion_pago
             : (req.aiData?.banco_receptor || '');
 
+        const cleanSD = (val) => (!val || val === 'S/D' || val === 'null' || val === 'undefined') ? '' : String(val);
+
         setEditFormData({
             clasificacion_contable: req.clasificacionContable || req.aiData?.clasificacion_contable || (party.isVenta ? 'venta' : 'compra'),
             fecha_pago: req.aiData?.fecha_pago || req.manualData?.fecha || '',
@@ -1347,14 +1372,17 @@ const BillingRequestsPage = ({ navigate }) => {
             aplicacion_pago: initialApp,
             numero_operacion: req.aiData?.numero_operacion || '', 
             codigo_identificacion: req.aiData?.codigo_identificacion || '',
-            cuit_emisor: req.aiData?.cuit_emisor || req.manualData?.cuitEmisor || (!isVenta ? party.clienteCuit : '') || '',
-            nombre_emisor: req.aiData?.nombre_emisor || req.manualData?.nombreEmisor || (!isVenta ? party.clienteNombre : '') || '',
+            cuit_emisor: cleanSD(req.aiData?.cuit_emisor || req.manualData?.cuitEmisor || (!isVenta ? party.clienteCuit : '')),
+            nombre_emisor: cleanSD(req.aiData?.nombre_emisor || req.manualData?.nombreEmisor || (!isVenta ? party.clienteNombre : '')),
             banco_origen: req.aiData?.banco_origen || '',
-            cuit_receptor: req.aiData?.cuit_receptor || req.manualData?.cuitCliente || (isVenta ? party.clienteCuit : '') || '',
-            nombre_receptor: req.aiData?.nombre_receptor || req.manualData?.nombreCliente || (isVenta ? party.clienteNombre : '') || '',
+            cuit_receptor: cleanSD(!isVenta ? (req.aiData?.cuit_proveedor || req.aiData?.cuit_receptor || party.contraparteCuit) : (req.aiData?.cuit_receptor || party.clienteCuit)) || req.manualData?.cuitCliente || '',
+            nombre_receptor: cleanSD(!isVenta ? (req.aiData?.nombre_proveedor || req.aiData?.nombre_receptor || party.contraparteNombre) : (req.aiData?.nombre_receptor || party.clienteNombre)) || req.manualData?.nombreCliente || '',
             banco_receptor: req.aiData?.banco_receptor || '',
             userPhone: phoneToShow || req.userPhone || '', 
             concepto_detectado: req.aiData?.concepto_detectado || '',
+            cuotas: req.aiData?.cuotas || '',
+            medio_pago_detalle: req.aiData?.medio_pago_detalle || '',
+            nombre_fantasia: req.aiData?.nombre_fantasia || '',
             note: req.note || ''
         });
         setEditingRequest(req);
@@ -1391,8 +1419,17 @@ const BillingRequestsPage = ({ navigate }) => {
                 cuit_receptor: safeStr(editFormData.cuit_receptor),
                 nombre_receptor: safeStr(editFormData.nombre_receptor),
                 banco_receptor: safeStr(editFormData.banco_receptor),
-                concepto_detectado: safeStr(editFormData.concepto_detectado)
+                concepto_detectado: safeStr(editFormData.concepto_detectado),
+                cuotas: safeStr(editFormData.cuotas),
+                medio_pago_detalle: safeStr(editFormData.medio_pago_detalle),
+                nombre_fantasia: safeStr(editFormData.nombre_fantasia)
             };
+
+            // En gastos y compras, sincronizar proveedor explícitamente
+            if (!isVenta) {
+                cleanedAiData.nombre_proveedor = safeStr(editFormData.nombre_receptor);
+                cleanedAiData.cuit_proveedor = safeStr(editFormData.cuit_receptor);
+            }
 
             // Asegurar que ninguna clave tenga valor undefined
             Object.keys(cleanedAiData).forEach(k => {
@@ -1493,12 +1530,36 @@ const BillingRequestsPage = ({ navigate }) => {
         if (!targetUser) return;
 
         try {
+            const isGasto = (assigningRequest.clasificacionContable || assigningRequest.aiData?.clasificacion_contable) === 'gasto' || 
+                            (assigningRequest.clasificacionContable || assigningRequest.aiData?.clasificacion_contable) === 'compra';
+            
+            const updatedAiData = assigningRequest.aiData ? { ...assigningRequest.aiData } : null;
+            if (updatedAiData) {
+                if (isGasto) {
+                    if (!updatedAiData.cuit_emisor || updatedAiData.cuit_emisor === 'S/D') {
+                        updatedAiData.cuit_emisor = targetUser.cuit || '';
+                    }
+                    if (!updatedAiData.nombre_emisor || updatedAiData.nombre_emisor.includes('Consumidor') || updatedAiData.nombre_emisor.includes('Cliente')) {
+                        updatedAiData.nombre_emisor = targetUser.nombre || targetUser.email || 'Cliente Asignado';
+                    }
+                } else {
+                    if (!updatedAiData.cuit_receptor || updatedAiData.cuit_receptor === 'S/D') {
+                        updatedAiData.cuit_receptor = targetUser.cuit || '';
+                    }
+                    if (!updatedAiData.nombre_receptor || updatedAiData.nombre_receptor === 'Cliente') {
+                        updatedAiData.nombre_receptor = targetUser.nombre || targetUser.email || 'Cliente Asignado';
+                    }
+                }
+            }
+
             await updateDoc(doc(db, 'billing_requests', assigningRequest.id), {
                 userId: targetUser.id,
                 userName: targetUser.nombre || targetUser.email || 'Cliente Asignado',
+                userCuit: targetUser.cuit || '',
                 userPhone: targetUser.telefono || assigningRequest.userPhone || '',
                 userModoFacturacion: targetUser.modoFacturacion || 'estudio',
-                status: 'pending'
+                status: assigningRequest.aiData ? 'analyzed' : 'pending',
+                ...(updatedAiData ? { aiData: updatedAiData } : {})
             });
             setAssigningRequest(null);
             setSelectedAssignUserId('');
@@ -2498,6 +2559,11 @@ const BillingRequestsPage = ({ navigate }) => {
                                                         <div className="text-[10px] text-gray-400 font-black uppercase tracking-tighter mt-0.5">
                                                             CUIT: {party.clienteCuit}
                                                         </div>
+                                                        {party.nombreFantasia && (
+                                                            <div className="text-[10px] text-blue-600 font-bold tracking-tight">
+                                                                Local / Fantasía: {party.nombreFantasia}
+                                                            </div>
+                                                        )}
                                                         {party.contraparteNombre && party.contraparteNombre !== 'Desconocido' && (
                                                             <div className="text-[10px] text-gray-500 font-medium truncate max-w-[200px] mt-0.5">
                                                                 <span className="font-bold text-gray-400">{party.isVenta ? 'Comprador:' : 'Proveedor:'}</span> {party.contraparteNombre}
@@ -2562,10 +2628,21 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                 return <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200/80 rounded-full text-[9px] font-black uppercase tracking-wider">Venta/Cobro</span>;
                                                             }
                                                         })()}
-                                                        {/* Badge de Banco / Manual */}
+                                                        {/* Badge de Banco / Terminal */}
                                                         <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[9px] font-bold uppercase tracking-wider">
-                                                            {req.isManualEntry ? 'Manual' : (req.aiData?.banco_receptor || 'Extraído')}
+                                                            {req.isManualEntry ? 'Manual' : (req.aiData?.aplicacion_pago || req.aiData?.banco_receptor || 'Extraído')}
                                                         </span>
+                                                        {/* Badge de Terminal POS (si aplica) */}
+                                                        {req.aiData?.tipo_ticket_pos && req.aiData.tipo_ticket_pos !== 'no_aplica' && (
+                                                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-[9px] font-black uppercase tracking-wider">
+                                                                {req.aiData.tipo_ticket_pos === 'copia_comercio' ? 'Copia Comercio' : 'Ticket Cliente'}
+                                                            </span>
+                                                        )}
+                                                        {req.aiData?.cuotas && (
+                                                            <span className="px-2 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-full text-[9px] font-black uppercase tracking-wider">
+                                                                {req.aiData.cuotas}
+                                                            </span>
+                                                        )}
                                                         {/* Badge Sin Asignar */}
                                                         {(req.userId === 'unassigned' || req.status === 'unassigned') && (
                                                             <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-[9px] font-black uppercase tracking-wider animate-pulse">
@@ -2689,6 +2766,25 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                         <span className="font-mono text-xs font-black text-blue-950 bg-white px-2.5 py-1 rounded-lg border border-blue-200 select-all truncate">
                                                                             {req.aiData.codigo_identificacion}
                                                                         </span>
+                                                                    </div>
+                                                                )}
+
+                                                                {(req.aiData?.medio_pago_detalle || req.aiData?.cuotas || (req.aiData?.tipo_ticket_pos && req.aiData.tipo_ticket_pos !== 'no_aplica')) && (
+                                                                    <div className="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-base">💳</span>
+                                                                            <span className="font-bold text-gray-800">{req.aiData.medio_pago_detalle || 'Cobro con tarjeta / POS'}</span>
+                                                                            {req.aiData.cuotas && (
+                                                                                <span className="px-2 py-0.5 bg-violet-100 text-violet-800 rounded-lg text-[10px] font-black uppercase">
+                                                                                    {req.aiData.cuotas}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        {req.aiData.tipo_ticket_pos && req.aiData.tipo_ticket_pos !== 'no_aplica' && (
+                                                                            <span className="text-[10px] font-mono font-bold text-gray-600 uppercase bg-white px-2.5 py-1 rounded-lg border border-gray-200">
+                                                                                {req.aiData.tipo_ticket_pos === 'copia_comercio' ? 'Copia Comercio (Venta)' : 'Ticket Cliente (Gasto)'}
+                                                                            </span>
+                                                                        )}
                                                                     </div>
                                                                 )}
                                                                 
@@ -3469,6 +3565,18 @@ const BillingRequestsPage = ({ navigate }) => {
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Número de Operación</label>
                                             <input type="text" value={editFormData.numero_operacion} onChange={e => setEditFormData({...editFormData, numero_operacion: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="ID de transacción / Referencia"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Nombre Fantasía / Local</label>
+                                            <input type="text" value={editFormData.nombre_fantasia} onChange={e => setEditFormData({...editFormData, nombre_fantasia: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: MINI MODA"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Medio de Pago / Tarjeta</label>
+                                            <input type="text" value={editFormData.medio_pago_detalle} onChange={e => setEditFormData({...editFormData, medio_pago_detalle: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: Naranja *6164, Mastercard *9020"/>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Cuotas (si aplica)</label>
+                                            <input type="text" value={editFormData.cuotas} onChange={e => setEditFormData({...editFormData, cuotas: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: 3 cuotas sin interés"/>
                                         </div>
                                         <div className="md:col-span-3 space-y-2">
                                             <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest px-1 flex items-center gap-1.5">
