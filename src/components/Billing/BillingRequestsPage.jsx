@@ -265,6 +265,9 @@ const BillingRequestsPage = ({ navigate }) => {
     const [expandedRowId, setExpandedRowId] = useState(null); 
     const [reanalyzingId, setReanalyzingId] = useState(null);
     const [selectedClient, setSelectedClient] = useState('todos');
+    const [periodPreset, setPeriodPreset] = useState('mes_actual'); // 'mes_actual' | 'mes_anterior' | 'ultimos_12_meses' | 'anio_actual' | 'personalizado' | 'especifico' | 'todos'
+    const [customStartDate, setCustomStartDate] = useState('');
+    const [customEndDate, setCustomEndDate] = useState('');
     const [selectedYear, setSelectedYear] = useState('todos');
     const [selectedMonth, setSelectedMonth] = useState('todos');
     const [selectedConsolidatedClient, setSelectedConsolidatedClient] = useState(null);
@@ -360,7 +363,7 @@ const BillingRequestsPage = ({ navigate }) => {
 
     useEffect(() => {
         setSelectedConsolidatedClient(null);
-    }, [selectedClient, selectedYear, selectedMonth]);
+    }, [selectedClient, selectedYear, selectedMonth, periodPreset, customStartDate, customEndDate]);
 
     const availableYears = useMemo(() => {
         const currentYear = new Date().getFullYear();
@@ -371,23 +374,140 @@ const BillingRequestsPage = ({ navigate }) => {
         return years;
     }, []);
 
+    const getRequestDate = (req) => {
+        if (!req) return null;
+        if (req.timestamp?.toDate) {
+            try { return req.timestamp.toDate(); } catch (e) {}
+        }
+        if (req.timestamp instanceof Date) {
+            return req.timestamp;
+        }
+        if (req.timestamp && typeof req.timestamp === 'string') {
+            const d = new Date(req.timestamp);
+            if (!isNaN(d.getTime())) return d;
+        }
+        const rawFecha = req.manualData?.fecha || req.aiData?.fecha;
+        if (rawFecha) {
+            const d = new Date(rawFecha);
+            if (!isNaN(d.getTime())) return d;
+        }
+        if (req.createdAt?.toDate) {
+            try { return req.createdAt.toDate(); } catch (e) {}
+        }
+        return null;
+    };
+
+    const isRequestInPeriod = (req) => {
+        if (periodPreset === 'todos') return true;
+
+        const reqDate = getRequestDate(req);
+        if (!reqDate) return false;
+
+        const now = new Date();
+
+        if (periodPreset === 'mes_actual') {
+            return reqDate.getFullYear() === now.getFullYear() && reqDate.getMonth() === now.getMonth();
+        }
+
+        if (periodPreset === 'mes_anterior') {
+            const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            return reqDate.getFullYear() === prevMonthDate.getFullYear() && reqDate.getMonth() === prevMonthDate.getMonth();
+        }
+
+        if (periodPreset === 'ultimos_12_meses') {
+            const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, now.getDate(), 0, 0, 0, 0);
+            const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+            return reqDate >= twelveMonthsAgo && reqDate <= endOfToday;
+        }
+
+        if (periodPreset === 'anio_actual') {
+            return reqDate.getFullYear() === now.getFullYear();
+        }
+
+        if (periodPreset === 'personalizado') {
+            if (!customStartDate && !customEndDate) return true;
+            
+            let startOk = true;
+            let endOk = true;
+
+            if (customStartDate) {
+                const [sY, sM, sD] = customStartDate.split('-').map(Number);
+                const startDate = new Date(sY, sM - 1, sD, 0, 0, 0, 0);
+                startOk = reqDate >= startDate;
+            }
+
+            if (customEndDate) {
+                const [eY, eM, eD] = customEndDate.split('-').map(Number);
+                const endDate = new Date(eY, eM - 1, eD, 23, 59, 59, 999);
+                endOk = reqDate <= endDate;
+            }
+
+            return startOk && endOk;
+        }
+
+        if (periodPreset === 'especifico') {
+            if (selectedYear !== 'todos') {
+                const y = parseInt(selectedYear, 10);
+                if (reqDate.getFullYear() !== y) return false;
+            }
+            if (selectedMonth !== 'todos') {
+                const m = parseInt(selectedMonth, 10);
+                if ((reqDate.getMonth() + 1) !== m) return false;
+            }
+            return true;
+        }
+
+        return true;
+    };
+
     const getPeriodLabel = () => {
-        if (selectedYear === 'todos' && selectedMonth === 'todos') {
-            return '(Mes Actual)';
+        const now = new Date();
+        if (periodPreset === 'mes_actual') {
+            const monthObj = MONTHS.find(m => m.value === String(now.getMonth() + 1));
+            return `(${monthObj?.label || 'Mes Actual'} ${now.getFullYear()})`;
         }
-        const monthObj = MONTHS.find(m => m.value === String(selectedMonth));
-        const monthLabel = monthObj && monthObj.value !== 'todos' ? monthObj.label : '';
-        
-        if (selectedYear !== 'todos' && selectedMonth !== 'todos') {
-            return `(${monthLabel} ${selectedYear})`;
+        if (periodPreset === 'mes_anterior') {
+            const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const monthObj = MONTHS.find(m => m.value === String(prevMonthDate.getMonth() + 1));
+            return `(Mes Anterior: ${monthObj?.label || ''} ${prevMonthDate.getFullYear()})`;
         }
-        if (selectedYear !== 'todos') {
-            return `(Año ${selectedYear})`;
+        if (periodPreset === 'ultimos_12_meses') {
+            return '(Últimos 12 Meses)';
         }
-        if (selectedMonth !== 'todos') {
-            return `(${monthLabel} - Histórico)`;
+        if (periodPreset === 'anio_actual') {
+            return `(Año ${now.getFullYear()})`;
         }
-        return '';
+        if (periodPreset === 'personalizado') {
+            if (customStartDate && customEndDate) {
+                const fStart = customStartDate.split('-').reverse().join('/');
+                const fEnd = customEndDate.split('-').reverse().join('/');
+                return `(${fStart} al ${fEnd})`;
+            }
+            if (customStartDate) {
+                const fStart = customStartDate.split('-').reverse().join('/');
+                return `(Desde ${fStart})`;
+            }
+            if (customEndDate) {
+                const fEnd = customEndDate.split('-').reverse().join('/');
+                return `(Hasta ${fEnd})`;
+            }
+            return '(Rango Personalizado)';
+        }
+        if (periodPreset === 'especifico') {
+            const monthObj = MONTHS.find(m => m.value === String(selectedMonth));
+            const monthLabel = monthObj && monthObj.value !== 'todos' ? monthObj.label : '';
+            if (selectedYear !== 'todos' && selectedMonth !== 'todos') {
+                return `(${monthLabel} ${selectedYear})`;
+            }
+            if (selectedYear !== 'todos') {
+                return `(Año ${selectedYear})`;
+            }
+            if (selectedMonth !== 'todos') {
+                return `(${monthLabel} - Histórico)`;
+            }
+            return '(Histórico Completo)';
+        }
+        return '(Histórico Completo)';
     };
 
     const [createMode, setCreateMode] = useState('file'); 
@@ -747,24 +867,9 @@ const BillingRequestsPage = ({ navigate }) => {
         if (selectedClient !== 'todos') {
             data = data.filter(req => getUnifiedName(req) === selectedClient);
         }
-        if (selectedYear !== 'todos') {
-            const y = parseInt(selectedYear, 10);
-            data = data.filter(req => {
-                const reqDate = req.timestamp?.toDate();
-                if (!reqDate || reqDate.getFullYear() !== y) return false;
-                if (selectedMonth !== 'todos') {
-                    const m = parseInt(selectedMonth, 10);
-                    return (reqDate.getMonth() + 1) === m;
-                }
-                return true;
-            });
-        } else if (selectedMonth !== 'todos') {
-            const m = parseInt(selectedMonth, 10);
-            data = data.filter(req => {
-                const reqDate = req.timestamp?.toDate();
-                return reqDate && (reqDate.getMonth() + 1) === m;
-            });
-        }
+        
+        // Filtrado por Período
+        data = data.filter(isRequestInPeriod);
 
         // Filtrado por Módulo Operativo Principal
         if (activeModule === 'unassigned') {
@@ -787,13 +892,13 @@ const BillingRequestsPage = ({ navigate }) => {
         }
 
         if (filterStatus === 'completed') {
-            return (selectedYear !== 'todos' || selectedMonth !== 'todos') 
+            return (periodPreset !== 'todos') 
                 ? data.filter(r => r.status === 'completed') 
                 : data.filter(r => r.status === 'completed').slice(0, 30);
         } else {
             return data.filter(r => r.status !== 'completed');
         }
-    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, filterStatus, activeModule, subFilterExpense, clientDictionary]);
+    }, [visibleRequests, selectedClient, periodPreset, customStartDate, customEndDate, selectedYear, selectedMonth, filterStatus, activeModule, subFilterExpense, clientDictionary]);
 
     const metrics = useMemo(() => {
         let baseData = visibleRequests;
@@ -801,30 +906,7 @@ const BillingRequestsPage = ({ navigate }) => {
             baseData = baseData.filter(req => getUnifiedName(req) === selectedClient);
         }
         
-        let reqs = baseData;
-        if (selectedYear !== 'todos') {
-            const y = parseInt(selectedYear, 10);
-            reqs = baseData.filter(req => {
-                const reqDate = req.timestamp?.toDate();
-                if (!reqDate || reqDate.getFullYear() !== y) return false;
-                if (selectedMonth !== 'todos') {
-                    const m = parseInt(selectedMonth, 10);
-                    return (reqDate.getMonth() + 1) === m;
-                }
-                return true;
-            });
-        } else if (selectedMonth !== 'todos') {
-            const m = parseInt(selectedMonth, 10);
-            reqs = baseData.filter(req => {
-                const reqDate = req.timestamp?.toDate();
-                return reqDate && (reqDate.getMonth() + 1) === m;
-            });
-        } else {
-            const now = new Date();
-            const currentMonth = now.getMonth();
-            const currentYear = now.getFullYear();
-            reqs = baseData.filter(req => req.timestamp && req.timestamp.toDate().getMonth() === currentMonth && req.timestamp.toDate().getFullYear() === currentYear);
-        }
+        const reqs = baseData.filter(isRequestInPeriod);
 
         const isExpenseModule = activeModule === 'compras_gastos';
         const isConsolidatedModule = activeModule === 'summary';
@@ -842,7 +924,7 @@ const BillingRequestsPage = ({ navigate }) => {
             totalComprasGastos: filteredByModule.filter(r => r.status === 'completed' && ((r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta') === 'compra' || (r.clasificacionContable || r.aiData?.clasificacion_contable || 'venta') === 'gasto')).reduce((sum, r) => sum + (r.aiData?.monto_total || r.manualData?.monto || 0), 0),
             totalPendiente: filteredByModule.filter(r => r.status !== 'completed' && r.status !== 'duplicate').reduce((sum, r) => sum + (r.aiData?.monto_total || r.manualData?.monto || 0), 0)
         };
-    }, [visibleRequests, selectedClient, selectedYear, selectedMonth, activeModule, clientDictionary]);
+    }, [visibleRequests, selectedClient, periodPreset, customStartDate, customEndDate, selectedYear, selectedMonth, activeModule, clientDictionary]);
 
     const clientBillingSummary = useMemo(() => {
         const summaryMap = {};
@@ -863,25 +945,8 @@ const BillingRequestsPage = ({ navigate }) => {
             });
         }
 
-        // 2. Filtrado por Período (Año y Mes)
-        if (selectedYear !== 'todos') {
-            const y = parseInt(selectedYear, 10);
-            targetRequests = targetRequests.filter(req => {
-                const reqDate = req.timestamp?.toDate();
-                if (!reqDate || reqDate.getFullYear() !== y) return false;
-                if (selectedMonth !== 'todos') {
-                    const m = parseInt(selectedMonth, 10);
-                    return (reqDate.getMonth() + 1) === m;
-                }
-                return true;
-            });
-        } else if (selectedMonth !== 'todos') {
-            const m = parseInt(selectedMonth, 10);
-            targetRequests = targetRequests.filter(req => {
-                const reqDate = req.timestamp?.toDate();
-                return reqDate && (reqDate.getMonth() + 1) === m;
-            });
-        }
+        // 2. Filtrado por Período
+        targetRequests = targetRequests.filter(isRequestInPeriod);
 
         targetRequests.forEach(req => {
             const party = getPartyDetails(req);
@@ -971,7 +1036,7 @@ const BillingRequestsPage = ({ navigate }) => {
         });
         
         return Object.values(summaryMap).sort((a, b) => (b.totalFacturado + b.totalComprasGastos) - (a.totalFacturado + a.totalComprasGastos));
-    }, [requests, selectedClient, selectedYear, selectedMonth, clientDictionary, tercerosByCuit, userData?.isAdmin]);
+    }, [requests, selectedClient, periodPreset, customStartDate, customEndDate, selectedYear, selectedMonth, clientDictionary, tercerosByCuit, userData?.isAdmin]);
 
     const consolidatedClientRequests = useMemo(() => {
         if (!selectedConsolidatedClient) return [];
@@ -983,26 +1048,11 @@ const BillingRequestsPage = ({ navigate }) => {
             if (clientCuit && normReqCuit && clientCuit === normReqCuit) return true;
             return uName === selectedConsolidatedClient.name;
         });
-        if (selectedYear !== 'todos') {
-            const y = parseInt(selectedYear, 10);
-            data = data.filter(req => {
-                const reqDate = req.timestamp?.toDate();
-                if (!reqDate || reqDate.getFullYear() !== y) return false;
-                if (selectedMonth !== 'todos') {
-                    const m = parseInt(selectedMonth, 10);
-                    return (reqDate.getMonth() + 1) === m;
-                }
-                return true;
-            });
-        } else if (selectedMonth !== 'todos') {
-            const m = parseInt(selectedMonth, 10);
-            data = data.filter(req => {
-                const reqDate = req.timestamp?.toDate();
-                return reqDate && (reqDate.getMonth() + 1) === m;
-            });
-        }
+
+        // Filtrado por Período
+        data = data.filter(isRequestInPeriod);
         return data;
-    }, [requests, selectedConsolidatedClient, selectedYear, selectedMonth, clientDictionary, tercerosByCuit]);
+    }, [requests, selectedConsolidatedClient, periodPreset, customStartDate, customEndDate, selectedYear, selectedMonth, clientDictionary, tercerosByCuit]);
 
     // 4. Backup ZIP Logic
     const downloadYearlyBackup = async (year) => {
@@ -1376,6 +1426,12 @@ const BillingRequestsPage = ({ navigate }) => {
                         terceroId: party.terceroMatch?.id || (normCuit ? tercerosByCuit[normCuit]?.id : null) || null,
                         clienteCuit: party.clienteCuit || null,
                         clienteNombre: party.clienteNombre || null,
+                        bancoOrigen: req.aiData?.banco_origen || null,
+                        bancoReceptor: req.aiData?.banco_receptor || null,
+                        medioPago: req.aiData?.medio_pago_detalle || req.aiData?.aplicacion_pago || (req.aiData?.tipo_comprobante === 'Transferencia' ? 'Transferencia' : null),
+                        cuotas: req.aiData?.cuotas || null,
+                        aplicacionPago: req.aiData?.aplicacion_pago || null,
+                        tipoTicketPos: req.aiData?.tipo_ticket_pos || null,
                         source: req.source || 'web'
                     });
                 } catch (opErr) {
@@ -1571,7 +1627,11 @@ const BillingRequestsPage = ({ navigate }) => {
                                     month: localDate.getMonth() + 1,
                                     day: localDate.getDate(),
                                     clienteCuit: party.clienteCuit || null,
-                                    clienteNombre: party.clienteNombre || null
+                                    clienteNombre: party.clienteNombre || null,
+                                    bancoOrigen: safeStr(editFormData.banco_origen) || null,
+                                    bancoReceptor: safeStr(editFormData.banco_receptor) || null,
+                                    medioPago: safeStr(editFormData.medio_pago_detalle) || safeStr(editFormData.aplicacion_pago) || null,
+                                    cuotas: safeStr(editFormData.cuotas) || null
                                 });
                             }
                         } catch (errSyncOp) {
@@ -1738,6 +1798,14 @@ const BillingRequestsPage = ({ navigate }) => {
                 month: localDate.getMonth() + 1,
                 day: localDate.getDate(),
                 billingRequestId: req.id,
+                bancoOrigen: req.aiData?.banco_origen || null,
+                bancoReceptor: req.aiData?.banco_receptor || null,
+                medioPago: req.aiData?.medio_pago_detalle || req.aiData?.aplicacion_pago || (req.aiData?.tipo_comprobante === 'Transferencia' ? 'Transferencia' : null),
+                cuotas: req.aiData?.cuotas || null,
+                aplicacionPago: req.aiData?.aplicacion_pago || null,
+                tipoTicketPos: req.aiData?.tipo_ticket_pos || null,
+                clienteCuit: party.clienteCuit || null,
+                clienteNombre: party.clienteNombre || null,
                 source: req.source || 'web'
             });
 
@@ -1790,6 +1858,7 @@ const BillingRequestsPage = ({ navigate }) => {
                     <p className="text-gray-500 mt-1 font-medium">Gestión de comprobantes y solicitudes de facturas.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
+                    {/* Filtro por Cliente */}
                     <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2">
                         <Icon name="Filter" className="w-4 h-4 text-gray-400 ml-2"/>
                         <select 
@@ -1801,27 +1870,80 @@ const BillingRequestsPage = ({ navigate }) => {
                             {uniqueClients.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                     </div>
+
+                    {/* Selector de Período Temporal */}
                     <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2">
-                        <Icon name="Calendar" className="w-4 h-4 text-gray-400 ml-2"/>
+                        <Icon name="Calendar" className="w-4 h-4 text-blue-600 ml-2"/>
                         <select 
-                            value={selectedYear} 
-                            onChange={(e) => setSelectedYear(e.target.value)} 
-                            className="bg-transparent border-none text-sm font-bold text-gray-700 focus:ring-0 outline-none pr-8 cursor-pointer"
+                            value={periodPreset} 
+                            onChange={(e) => setPeriodPreset(e.target.value)} 
+                            className="bg-transparent border-none text-sm font-bold text-gray-800 focus:ring-0 outline-none pr-8 cursor-pointer"
                         >
-                            <option value="todos">Todos los Años</option>
-                            {availableYears.map(year => <option key={year} value={year}>{year}</option>)}
+                            <option value="mes_actual">📅 Mes en Curso</option>
+                            <option value="mes_anterior">⏮️ Mes Anterior</option>
+                            <option value="ultimos_12_meses">📈 Últimos 12 Meses</option>
+                            <option value="anio_actual">📆 Año en Curso ({new Date().getFullYear()})</option>
+                            <option value="personalizado">🗓️ Rango de Fechas Personalizado</option>
+                            <option value="especifico">🔍 Año / Mes Específico</option>
+                            <option value="todos">🌐 Histórico Completo</option>
                         </select>
                     </div>
-                    <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2">
-                        <Icon name="Clock" className="w-4 h-4 text-gray-400 ml-2"/>
-                        <select 
-                            value={selectedMonth} 
-                            onChange={(e) => setSelectedMonth(e.target.value)} 
-                            className="bg-transparent border-none text-sm font-bold text-gray-700 focus:ring-0 outline-none pr-8 cursor-pointer"
-                        >
-                            {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                        </select>
-                    </div>
+
+                    {/* Inputs de Rango Personalizado */}
+                    {periodPreset === 'personalizado' && (
+                        <div className="bg-white px-3 py-2 rounded-2xl shadow-sm border border-blue-200 flex items-center gap-2 animate-in fade-in duration-200">
+                            <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Desde</span>
+                            <input 
+                                type="date" 
+                                value={customStartDate} 
+                                onChange={(e) => setCustomStartDate(e.target.value)} 
+                                className="bg-slate-50 border border-slate-200 text-xs font-bold text-gray-700 rounded-xl px-2 py-1 outline-none focus:border-blue-500 focus:bg-white transition-all cursor-pointer"
+                            />
+                            <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Hasta</span>
+                            <input 
+                                type="date" 
+                                value={customEndDate} 
+                                onChange={(e) => setCustomEndDate(e.target.value)} 
+                                className="bg-slate-50 border border-slate-200 text-xs font-bold text-gray-700 rounded-xl px-2 py-1 outline-none focus:border-blue-500 focus:bg-white transition-all cursor-pointer"
+                            />
+                            {(customStartDate || customEndDate) && (
+                                <button 
+                                    onClick={() => { setCustomStartDate(''); setCustomEndDate(''); }}
+                                    className="p-1 text-gray-400 hover:text-red-500 rounded-lg hover:bg-slate-100 transition-all text-xs font-bold"
+                                    title="Limpiar fechas"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Controles para Año / Mes Específico */}
+                    {periodPreset === 'especifico' && (
+                        <>
+                            <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2 animate-in fade-in duration-200">
+                                <Icon name="Calendar" className="w-4 h-4 text-gray-400 ml-2"/>
+                                <select 
+                                    value={selectedYear} 
+                                    onChange={(e) => setSelectedYear(e.target.value)} 
+                                    className="bg-transparent border-none text-sm font-bold text-gray-700 focus:ring-0 outline-none pr-8 cursor-pointer"
+                                >
+                                    <option value="todos">Todos los Años</option>
+                                    {availableYears.map(year => <option key={year} value={year}>{year}</option>)}
+                                </select>
+                            </div>
+                            <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2 animate-in fade-in duration-200">
+                                <Icon name="Clock" className="w-4 h-4 text-gray-400 ml-2"/>
+                                <select 
+                                    value={selectedMonth} 
+                                    onChange={(e) => setSelectedMonth(e.target.value)} 
+                                    className="bg-transparent border-none text-sm font-bold text-gray-700 focus:ring-0 outline-none pr-8 cursor-pointer"
+                                >
+                                    {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                </select>
+                            </div>
+                        </>
+                    )}
                     <button 
                         onClick={() => setShowWhatsAppModal(true)} 
                         className="bg-emerald-600 text-white px-5 py-3 rounded-2xl hover:bg-emerald-700 flex items-center font-bold shadow-lg shadow-emerald-100 transition-all transform active:scale-95 text-sm"
@@ -2219,8 +2341,14 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                 </td>
                                                                 <td className="px-8 py-6">
                                                                     <div className="flex items-center gap-2">
-                                                                        <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-black uppercase tracking-widest">
-                                                                            {req.isManualEntry ? 'Manual' : (req.aiData?.banco_receptor || 'Extraído')}
+                                                                        <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-[10px] font-black uppercase tracking-widest" title="Entidad / Destino donde cobró el Cliente">
+                                                                            {req.isManualEntry 
+                                                                                ? 'Manual' 
+                                                                                : (party.clienteBanco && party.clienteBanco !== '-' 
+                                                                                    ? party.clienteBanco 
+                                                                                    : (party.isVenta 
+                                                                                        ? (req.aiData?.banco_receptor || req.aiData?.aplicacion_pago) 
+                                                                                        : (req.aiData?.banco_origen || req.aiData?.aplicacion_pago)) || 'Extraído')}
                                                                         </span>
                                                                         {party.isVenta ? (
                                                                             <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200/80 rounded-full text-[9px] font-black uppercase tracking-wider">Venta</span>
@@ -2531,8 +2659,12 @@ const BillingRequestsPage = ({ navigate }) => {
                                     <tr>
                                         <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Cliente / Razón Social</th>
                                         <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">CUIT</th>
-                                        <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Facturado</th>
-                                        <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Compras / Gastos</th>
+                                        <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                            Total Facturado <span className="text-blue-600 font-bold lowercase">{getPeriodLabel()}</span>
+                                        </th>
+                                        <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                            Total Compras / Gastos <span className="text-rose-600 font-bold lowercase">{getPeriodLabel()}</span>
+                                        </th>
                                         <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Pendiente</th>
                                         <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Comprobantes</th>
                                         <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Último Movimiento</th>
@@ -2769,9 +2901,15 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                 return <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200/80 rounded-full text-[9px] font-black uppercase tracking-wider">Venta/Cobro</span>;
                                                             }
                                                         })()}
-                                                        {/* Badge de Banco / Terminal */}
-                                                        <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[9px] font-bold uppercase tracking-wider">
-                                                            {req.isManualEntry ? 'Manual' : (req.aiData?.aplicacion_pago || req.aiData?.banco_receptor || 'Extraído')}
+                                                        {/* Badge de Banco / Medio de Cobro o Pago del Cliente */}
+                                                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-[9px] font-bold uppercase tracking-wider" title="Entidad / Destino donde cobró el Cliente">
+                                                            {req.isManualEntry 
+                                                                ? 'Manual' 
+                                                                : (party.clienteBanco && party.clienteBanco !== '-' 
+                                                                    ? party.clienteBanco 
+                                                                    : (party.isVenta 
+                                                                        ? (req.aiData?.banco_receptor || req.aiData?.aplicacion_pago) 
+                                                                        : (req.aiData?.banco_origen || req.aiData?.aplicacion_pago)) || 'Extraído')}
                                                         </span>
                                                         {/* Badge de Terminal POS (si aplica) */}
                                                         {req.aiData?.tipo_ticket_pos && req.aiData.tipo_ticket_pos !== 'no_aplica' && (

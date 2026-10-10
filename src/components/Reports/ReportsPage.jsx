@@ -1,6 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import { useYearlyCollection } from '../../hooks/useCollections';
+import { db } from '../../firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import Icon from '../Common/Icon';
 import {
   Chart as ChartJS,
@@ -42,6 +45,32 @@ const ReportsPage = () => {
     // Carga de operaciones del año seleccionado y año anterior (para comparativa)
     const { data: operations, loading } = useYearlyCollection('operations', selectedYear);
     const { data: prevOperations, loading: prevLoading } = useYearlyCollection('operations', compareWithPrevious ? selectedYear - 1 : null);
+
+    // Carga de billing_requests para análisis histórico enriquecido de medios de pago
+    const [billingRequests, setBillingRequests] = useState([]);
+    useEffect(() => {
+        let clientSelection = null;
+        try {
+            clientSelection = useClientSelection();
+        } catch (e) {}
+        const effectiveUid = clientSelection?.targetUserId || userData?.uid;
+
+        let q;
+        if (userData?.isAdmin && !clientSelection?.targetUserId) {
+            q = collection(db, 'billing_requests');
+        } else if (effectiveUid) {
+            q = query(collection(db, 'billing_requests'), where('userId', '==', effectiveUid));
+        }
+
+        if (!q) return;
+
+        const unsub = onSnapshot(q, (snap) => {
+            setBillingRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }, (err) => {
+            console.warn("Aviso al cargar billing_requests para análisis de medios de pago:", err);
+        });
+        return () => unsub();
+    }, [userData]);
 
     const years = Array.from({ length: 10 }, (_, i) => currentYear - i);
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value || 0);
@@ -306,6 +335,165 @@ const ReportsPage = () => {
             borderWidth: 0,
             hoverOffset: 4
         }]
+    };
+
+    // Normalizador de entidades bancarias y billeteras de compradores
+    const normalizeBuyerBank = (bancoRaw) => {
+        if (!bancoRaw || bancoRaw === '-' || bancoRaw === 'S/D' || bancoRaw === 'null') return 'Otros / Varios';
+        const b = String(bancoRaw).trim().toLowerCase();
+        if (b.includes('naranja')) return 'Naranja X';
+        if (b.includes('macro')) return 'Banco Macro';
+        if (b.includes('mercado') || b.includes('mp')) return 'Mercado Pago';
+        if (b.includes('santander')) return 'Banco Santander';
+        if (b.includes('galicia')) return 'Banco Galicia';
+        if (b.includes('bbva') || b.includes('frances')) return 'BBVA';
+        if (b.includes('nacion') || b.includes('nación')) return 'Banco Nación';
+        if (b.includes('provincia') || b.includes('cuenta dni')) return 'Cuenta DNI / Prov.';
+        if (b.includes('prex')) return 'Prex';
+        if (b.includes('efectivo') || b.includes('caja')) return 'Efectivo';
+        if (b.includes('uala') || b.includes('ualá')) return 'Ualá';
+        if (b.includes('brubank')) return 'Brubank';
+        if (b.includes('icbc')) return 'ICBC';
+        if (b.includes('ciudad')) return 'Banco Ciudad';
+        return bancoRaw;
+    };
+
+    // Inteligencia Comercial de Cobros y Medios de Pago
+    const paymentIntelligence = useMemo(() => {
+        const bankMap = {};
+        let cuotasCount = 0;
+        let contadoCount = 0;
+        let cuotasTotal = 0;
+        let contadoTotal = 0;
+        let totalSalesAnalyzed = 0;
+
+        // 1. Tomar de las operaciones del año activo (y meses activos)
+        operations.forEach(op => {
+            const monthIdx = op.month - 1;
+            if (activeMonthsIndices.includes(monthIdx) && (op.type === 'venta' || op.type === 'ingreso')) {
+                const amount = op.amount || 0;
+                totalSalesAnalyzed += amount;
+                
+                let rawBank = op.bancoOrigen || op.aplicacionPago;
+                if (!rawBank && op.billingRequestId) {
+                    const matchedReq = billingRequests.find(r => r.id === op.billingRequestId);
+                    if (matchedReq) {
+                        rawBank = matchedReq.aiData?.banco_origen || matchedReq.aiData?.aplicacion_pago;
+                    }
+                }
+                const bank = normalizeBuyerBank(rawBank);
+                if (!bankMap[bank]) bankMap[bank] = { total: 0, count: 0 };
+                bankMap[bank].total += amount;
+                bankMap[bank].count += 1;
+
+                const hasCuotas = Boolean(op.cuotas && !op.cuotas.includes('1 pago') && !op.cuotas.includes('1 cuota'));
+                if (hasCuotas) {
+                    cuotasCount += 1;
+                    cuotasTotal += amount;
+                } else {
+                    contadoCount += 1;
+                    contadoTotal += amount;
+                }
+            }
+        });
+
+        // 2. Si no hay operaciones contables cargadas aún pero sí billing_requests para el período
+        if (totalSalesAnalyzed === 0 && billingRequests.length > 0) {
+            billingRequests.forEach(req => {
+                const fechaStr = req.aiData?.fecha_pago || (req.timestamp?.toDate ? req.timestamp.toDate().toISOString().split('T')[0] : '');
+                if (!fechaStr) return;
+                const reqYear = parseInt(fechaStr.split('-')[0]);
+                const reqMonth = parseInt(fechaStr.split('-')[1]);
+                const isVenta = (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === 'venta';
+                
+                if (reqYear === selectedYear && activeMonthsIndices.includes(reqMonth - 1) && isVenta) {
+                    const amount = req.aiData?.monto_total || req.manualData?.monto || 0;
+                    totalSalesAnalyzed += amount;
+                    const bank = normalizeBuyerBank(req.aiData?.banco_origen || req.aiData?.aplicacion_pago);
+                    if (!bankMap[bank]) bankMap[bank] = { total: 0, count: 0 };
+                    bankMap[bank].total += amount;
+                    bankMap[bank].count += 1;
+
+                    const cuotas = req.aiData?.cuotas;
+                    const hasCuotas = Boolean(cuotas && !cuotas.includes('1 pago') && !cuotas.includes('1 cuota'));
+                    if (hasCuotas) {
+                        cuotasCount += 1;
+                        cuotasTotal += amount;
+                    } else {
+                        contadoCount += 1;
+                        contadoTotal += amount;
+                    }
+                }
+            });
+        }
+
+        const sortedBanks = Object.entries(bankMap).sort((a, b) => b[1].total - a[1].total);
+        const topBank = sortedBanks[0] ? { name: sortedBanks[0][0], total: sortedBanks[0][1].total, count: sortedBanks[0][1].count } : null;
+        
+        const sortedByAvg = [...sortedBanks].sort((a, b) => (b[1].total / b[1].count) - (a[1].total / a[1].count));
+        const highestAvgBank = sortedByAvg[0] ? { name: sortedByAvg[0][0], avg: sortedByAvg[0][1].total / sortedByAvg[0][1].count } : null;
+
+        const topBankShare = topBank && totalSalesAnalyzed > 0 ? ((topBank.total / totalSalesAnalyzed) * 100).toFixed(1) : 0;
+        const cuotasShare = (cuotasCount + contadoCount) > 0 ? ((cuotasCount / (cuotasCount + contadoCount)) * 100).toFixed(1) : 0;
+
+        return {
+            totalSalesAnalyzed,
+            sortedBanks,
+            topBank,
+            topBankShare,
+            highestAvgBank,
+            cuotasCount,
+            contadoCount,
+            cuotasShare,
+            cuotasTotal,
+            contadoTotal
+        };
+    }, [operations, billingRequests, activeMonthsIndices, selectedYear]);
+
+    const paymentMethodsPalette = ['#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#eab308', '#64748b'];
+
+    const doughnutPaymentShareData = {
+        labels: paymentIntelligence.sortedBanks.map(b => b[0]),
+        datasets: [{
+            data: paymentIntelligence.sortedBanks.map(b => b[1].total),
+            backgroundColor: paymentMethodsPalette.slice(0, Math.max(paymentIntelligence.sortedBanks.length, 1)),
+            borderWidth: 0,
+            hoverOffset: 6
+        }]
+    };
+
+    const barPaymentAvgTicketData = {
+        labels: paymentIntelligence.sortedBanks.map(b => b[0]),
+        datasets: [{
+            label: 'Ticket Promedio ($)',
+            data: paymentIntelligence.sortedBanks.map(b => Math.round(b[1].total / b[1].count)),
+            backgroundColor: '#6366f1',
+            borderRadius: 8
+        }]
+    };
+
+    const singleBarChartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                callbacks: {
+                    label: (ctx) => `Ticket Promedio: ${formatCurrency(ctx.parsed.y)}`
+                }
+            }
+        },
+        scales: {
+            x: { grid: { display: false }, ticks: { font: { weight: 'bold' } } },
+            y: {
+                beginAtZero: true,
+                grid: { color: '#f3f4f6' },
+                ticks: {
+                    callback: (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', notation: 'compact' }).format(value),
+                    font: { weight: 'bold' }
+                }
+            }
+        }
     };
 
     const baseChartOptions = {
@@ -797,7 +985,7 @@ const ReportsPage = () => {
                                 </h4>
                                 
                                 {/* Selector de Tipo de Gráfico */}
-                                <div className="flex bg-white p-1 rounded-2xl border border-gray-200 shadow-sm no-print">
+                                <div className="flex flex-wrap bg-white p-1 rounded-2xl border border-gray-200 shadow-sm no-print gap-1">
                                     <button
                                         onClick={() => setChartMode('bars')}
                                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
@@ -822,11 +1010,19 @@ const ReportsPage = () => {
                                     >
                                         <Icon name="PieChart" size={14}/> Distribución
                                     </button>
+                                    <button
+                                        onClick={() => setChartMode('paymentMethods')}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                            chartMode === 'paymentMethods' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'
+                                        }`}
+                                    >
+                                        <Icon name="CreditCard" size={14}/> Medios de Pago & BI
+                                    </button>
                                 </div>
                             </div>
 
                             {/* Renderizado Condicional del Gráfico */}
-                            <div className="h-[380px]">
+                            <div className={chartMode === 'paymentMethods' ? 'min-h-[460px]' : 'h-[380px]'}>
                                 {chartMode === 'bars' && (
                                     <Bar data={barChartData} options={baseChartOptions} />
                                 )}
@@ -847,6 +1043,101 @@ const ReportsPage = () => {
                                                 <Doughnut data={doughnutEgresosData} options={doughnutOptions} />
                                             </div>
                                         </div>
+                                    </div>
+                                )}
+                                {chartMode === 'paymentMethods' && (
+                                    <div className="space-y-6 animate-fade-in">
+                                        {/* KPI Cards de Inteligencia Comercial */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <div className="bg-white p-4 rounded-2xl border border-indigo-100 shadow-xs flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center shrink-0">
+                                                    <Icon name="Wallet" size={18} />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">Billetera / Banco Líder</p>
+                                                    <p className="text-sm font-black text-gray-800 truncate">{paymentIntelligence.topBank?.name || 'S/D'}</p>
+                                                    <p className="text-[10px] font-bold text-orange-600">
+                                                        {paymentIntelligence.topBankShare}% de ventas ({formatCurrency(paymentIntelligence.topBank?.total || 0)})
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-white p-4 rounded-2xl border border-indigo-100 shadow-xs flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                                                    <Icon name="TrendingUp" size={18} />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">Mayor Ticket Promedio</p>
+                                                    <p className="text-sm font-black text-gray-800 truncate">{paymentIntelligence.highestAvgBank?.name || 'S/D'}</p>
+                                                    <p className="text-[10px] font-bold text-indigo-600">
+                                                        {formatCurrency(paymentIntelligence.highestAvgBank?.avg || 0)} por operación
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-white p-4 rounded-2xl border border-indigo-100 shadow-xs flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-xl bg-violet-100 text-violet-600 flex items-center justify-center shrink-0">
+                                                    <Icon name="CreditCard" size={18} />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">Modalidad Financiación</p>
+                                                    <p className="text-sm font-black text-gray-800 truncate">
+                                                        {paymentIntelligence.cuotasShare > 0 ? `${paymentIntelligence.cuotasShare}% Cuotas` : '100% Contado / 1 Pago'}
+                                                    </p>
+                                                    <p className="text-[10px] font-bold text-violet-600">
+                                                        {paymentIntelligence.cuotasCount} ventas financiadas
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Gráficos de Medios de Pago */}
+                                        {paymentIntelligence.sortedBanks.length === 0 ? (
+                                            <div className="text-center py-12 text-gray-400 font-bold italic bg-white rounded-3xl border border-dashed border-gray-200">
+                                                No se registraron ventas con medios de cobro identificados en este período.
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 bg-white p-6 rounded-3xl border border-indigo-50 shadow-xs">
+                                                <div className="flex flex-col items-center">
+                                                    <p className="text-xs font-black text-gray-700 uppercase tracking-wider mb-2">
+                                                        Participación de Mercado de Billeteras / Bancos
+                                                    </p>
+                                                    <div className="h-[260px] w-full">
+                                                        <Doughnut data={doughnutPaymentShareData} options={doughnutOptions} />
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col items-center">
+                                                    <p className="text-xs font-black text-gray-700 uppercase tracking-wider mb-2">
+                                                        Ticket Promedio por Medio de Pago
+                                                    </p>
+                                                    <div className="h-[260px] w-full">
+                                                        <Bar data={barPaymentAvgTicketData} options={singleBarChartOptions} />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Insight Accionable de Campaña de Marketing */}
+                                        {paymentIntelligence.topBank && (
+                                            <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-blue-900 p-5 rounded-3xl text-white shadow-md flex items-start gap-4">
+                                                <div className="p-2.5 bg-white/10 rounded-2xl shrink-0 mt-0.5">
+                                                    <Icon name="Zap" size={20} className="text-yellow-300" />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-[10px] font-black uppercase tracking-widest text-indigo-200 bg-white/10 px-2.5 py-0.5 rounded-full">
+                                                            Insight Comercial de Negocio
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs font-medium text-indigo-100 leading-relaxed">
+                                                        El <strong className="text-white font-bold">{paymentIntelligence.topBankShare}%</strong> de las ventas cobradas fueron transferidas o abonadas a través de <strong className="text-yellow-300 font-bold">{paymentIntelligence.topBank.name}</strong>.
+                                                    </p>
+                                                    <p className="text-[11px] text-white/80 font-medium">
+                                                        💡 <strong>Sugerencia de Campaña:</strong> Crea promociones específicas orientadas a clientes que utilicen {paymentIntelligence.topBank.name} (ej. beneficios de fin de semana o cuotas sin interés) para captar mayor volumen y fidelizar a este segmento mayoritario.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
