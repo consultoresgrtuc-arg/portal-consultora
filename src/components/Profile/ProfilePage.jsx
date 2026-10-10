@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../firebase';
+import { db, functions } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
+import ConfirmModal from '../Common/ConfirmModal';
 
 const ProfilePage = () => {
-    const { user, userData } = useAuth();
+    const { user, userData, logoutNow } = useAuth();
     const [profile, setProfile] = useState({ 
         nombre: '', 
         cuit: '', 
@@ -15,6 +17,8 @@ const ProfilePage = () => {
     });
     const [message, setMessage] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
     useEffect(() => { 
         if (userData) {
@@ -48,8 +52,24 @@ const ProfilePage = () => {
         }
     };
     
+    const handleSelfDeleteAccount = async () => {
+        if (!user?.uid || isDeletingAccount) return;
+        setIsDeletingAccount(true);
+        try {
+            const deleteFn = httpsCallable(functions, 'deleteUserAndData');
+            await deleteFn({ uid: user.uid });
+            alert("Tu cuenta, tus comprobantes y todos tus datos fueron eliminados de forma permanente. Si deseas volver a utilizar la plataforma en el futuro, podrás darte de alta nuevamente como un usuario nuevo.");
+            logoutNow();
+        } catch (err) {
+            console.error("Error al procesar la baja de cuenta:", err);
+            alert("No se pudo procesar la baja de la cuenta: " + (err.message || "Error desconocido"));
+            setIsDeletingAccount(false);
+            setShowDeleteModal(false);
+        }
+    };
+
     return (
-        <div className="p-6 max-w-4xl mx-auto animate-fade-in">
+        <div className="p-6 max-w-4xl mx-auto animate-fade-in space-y-8">
             <header className="mb-8">
                 <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">Mi Perfil</h2>
                 <p className="text-gray-500 mt-1">Administra tu información personal y tributaria.</p>
@@ -140,6 +160,40 @@ const ProfilePage = () => {
                     )}
                 </form>
             </div>
+
+            {/* Zona de Peligro: Darse de baja de la aplicación (solo para clientes, no admin principal) */}
+            {!userData?.isAdmin && (
+                <div className="bg-red-50/50 border border-red-200/60 rounded-3xl p-6 sm:p-8 space-y-4">
+                    <div className="flex items-center gap-3 text-red-700">
+                        <Icon name="AlertTriangle" size={20} className="shrink-0" />
+                        <h3 className="text-base font-extrabold uppercase tracking-wider">Zona de Peligro</h3>
+                    </div>
+                    <p className="text-xs text-red-900/80 leading-relaxed font-medium">
+                        Si ya no deseas utilizar la plataforma, puedes dar de baja tu cuenta en cualquier momento. Al hacerlo, se eliminarán permanentemente todos tus datos contables, comprobantes y archivos adjuntos del sistema sin dejar registros residuales.
+                    </p>
+                    <div className="pt-2">
+                        <button 
+                            type="button"
+                            onClick={() => setShowDeleteModal(true)}
+                            className="px-6 py-3.5 bg-white border border-red-300 text-red-600 hover:bg-red-600 hover:text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-xs active:scale-95 flex items-center gap-2 cursor-pointer"
+                        >
+                            <Icon name="Trash2" size={14} /> Darme de baja de la aplicación
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {showDeleteModal && (
+                <ConfirmModal 
+                    message="¿Estás seguro de que deseas darte de baja de la aplicación? Esta acción es definitiva e irreversible: perderás todos tus archivos, comprobantes y registros contables cargados en el sistema sin dejar datos residuales. Si en el futuro deseas volver a utilizar nuestros servicios, podrás darte de alta nuevamente como un usuario nuevo con este u otro correo."
+                    onConfirm={handleSelfDeleteAccount}
+                    onCancel={() => {
+                        if (!isDeletingAccount) setShowDeleteModal(false);
+                    }}
+                    confirmText={isDeletingAccount ? "Eliminando todo..." : "Sí, darme de baja y borrar mis datos"}
+                    isDestructive={true}
+                />
+            )}
         </div>
     );
 };

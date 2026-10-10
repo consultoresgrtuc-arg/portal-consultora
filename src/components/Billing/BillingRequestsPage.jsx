@@ -14,7 +14,7 @@ import {
   getDocs,
   Timestamp 
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { useAuth } from '../../context/AuthContext';
 import { useClientSelection } from '../../context/ClientSelectionContext';
 import Icon from '../Common/Icon';
@@ -1527,6 +1527,62 @@ const BillingRequestsPage = ({ navigate }) => {
             }
 
             await updateDoc(doc(db, 'billing_requests', editingRequest.id), updatePayload); 
+
+            // Si el comprobante ya estaba asentado en el Libro de Operaciones, sincronizar la operación contable vinculada
+            if (editingRequest.exportedToOperations) {
+                try {
+                    const party = getPartyDetails(editingRequest);
+                    const normCuit = cleanCuit(party.clienteCuit);
+                    const targetClientId = party.terceroMatch?.id 
+                        || (normCuit && tercerosByCuit[normCuit]?.id) 
+                        || (editingRequest.userId && editingRequest.userId !== 'unassigned' && !userData?.isAdmin ? editingRequest.userId : null)
+                        || (normCuit && normCuit.length >= 10 ? `cuit_${normCuit}` : editingRequest.userId);
+
+                    const candidateUids = new Set([
+                        targetClientId,
+                        editingRequest.userId,
+                        user?.uid,
+                        party.terceroMatch?.id,
+                        normCuit && tercerosByCuit[normCuit]?.id ? tercerosByCuit[normCuit].id : null
+                    ].filter(Boolean));
+
+                    const fechaStr = safeStr(editFormData.fecha_pago) || editingRequest.aiData?.fecha_pago || new Date().toISOString().split('T')[0];
+                    const localDate = new Date(fechaStr + 'T00:00:00-03:00');
+                    const tipo = finalClasif;
+                    const partyDesc = isVenta ? (party.contraparteNombre || 'Comprador') : (party.contraparteNombre || 'Proveedor');
+                    const newDesc = editFormData.concepto_detectado 
+                        ? `[${tipo.toUpperCase()}] ${partyDesc} - ${editFormData.concepto_detectado}`
+                        : `${tipo.toUpperCase()} - ${partyDesc}`;
+
+                    for (const cUid of candidateUids) {
+                        try {
+                            const qOp = query(
+                                collection(db, 'users', cUid, 'operations'), 
+                                where('billingRequestId', '==', editingRequest.id)
+                            );
+                            const qSnap = await getDocs(qOp);
+                            for (const opDoc of qSnap.docs) {
+                                await updateDoc(opDoc.ref, {
+                                    type: tipo,
+                                    amount: safeFloat(editFormData.monto_total),
+                                    description: newDesc,
+                                    fechaEmision: Timestamp.fromDate(localDate),
+                                    year: localDate.getFullYear(),
+                                    month: localDate.getMonth() + 1,
+                                    day: localDate.getDate(),
+                                    clienteCuit: party.clienteCuit || null,
+                                    clienteNombre: party.clienteNombre || null
+                                });
+                            }
+                        } catch (errSyncOp) {
+                            console.error(`Error al sincronizar operación vinculada en ${cUid}:`, errSyncOp);
+                        }
+                    }
+                } catch (syncErr) {
+                    console.warn("Advertencia al sincronizar operación contable vinculada:", syncErr);
+                }
+            }
+
             setEditingRequest(null); 
         } catch (err) { 
             console.error("Error al guardar edición de comprobante:", err);
@@ -1572,7 +1628,22 @@ const BillingRequestsPage = ({ navigate }) => {
                 }
             }
 
-            // 2. Eliminar el comprobante de billing_requests
+            // 2. Eliminar archivos asociados en Firebase Storage para no dejar archivos residuales
+            if (req) {
+                const urlsToDelete = [req.requestImageUrl, req.invoiceUrl].filter(Boolean);
+                for (const fileUrl of urlsToDelete) {
+                    if (typeof fileUrl === 'string' && fileUrl.includes('firebasestorage.googleapis.com')) {
+                        try {
+                            const storageRef = ref(storage, fileUrl);
+                            await deleteObject(storageRef);
+                        } catch (storageErr) {
+                            console.warn("Aviso al eliminar archivo físico de storage:", storageErr.message);
+                        }
+                    }
+                }
+            }
+
+            // 3. Eliminar el comprobante de billing_requests
             await deleteDoc(doc(db, 'billing_requests', requestToDelete)); 
         } catch (error) {
             console.error("Error deleting request:", error);

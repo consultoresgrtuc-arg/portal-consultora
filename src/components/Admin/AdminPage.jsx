@@ -235,8 +235,8 @@ const AdminPage = ({ navigate }) => {
 
             {userToDelete && (
                 <ConfirmModal 
-                    title="Eliminar Usuario"
-                    message={`¿Estás seguro de que deseas eliminar permanentemente a ${userToDelete?.nombre || userToDelete?.email || 'este usuario'}? Esta acción borrará su cuenta, sus datos y todos sus documentos subidos en el sistema. Es irreversible.`}
+                    title="Eliminar Usuario y Todos sus Registros"
+                    message={`¿Estás seguro de que deseas eliminar permanentemente a ${userToDelete?.nombre || userToDelete?.email || 'este usuario'}? Esta acción borrará de raíz su cuenta de acceso, todos sus comprobantes, registros contables y archivos subidos sin dejar datos residuales. Si en el futuro lo desea, el usuario podrá volver a registrarse como un cliente nuevo desde cero.`}
                     onConfirm={handleDeleteUser}
                     onCancel={() => {
                         if (!isDeleting) {
