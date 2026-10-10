@@ -507,23 +507,83 @@ const BillingRequestsPage = ({ navigate }) => {
             const normCuit = cleanCuit(rawCuit);
             const terceroMatch = normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null;
 
-            // Buscar el usuario del estudio en systemUsers por userId o por CUIT
-            const assignedUser = (req.userId && req.userId !== 'unassigned') 
-                ? systemUsers.find(u => u.id === req.userId) 
-                : (normCuit && normCuit.length >= 10 ? systemUsers.find(u => cleanCuit(u.cuit) === normCuit) : null);
+            // Buscar usuario en systemUsers por CUIT
+            const userByCuit = normCuit && normCuit.length >= 10 
+                ? systemUsers.find(u => cleanCuit(u.cuit) === normCuit) 
+                : null;
 
-            // El nombre legal / real registrado en el estudio TIENE MÁXIMA PRIORIDAD sobre la fantasía del ticket:
-            let clienteNombre = assignedUser?.nombre 
-                || (req.userName && req.userId !== 'unassigned' && !req.userName.includes('Sin Asignar') ? req.userName : null)
-                || terceroMatch?.nombre 
-                || req.aiData?.nombre_receptor 
-                || req.manualData?.nombreCliente 
-                || 'Cliente';
+            // Usuario que creó la solicitud
+            const userById = (req.userId && req.userId !== 'unassigned') 
+                ? systemUsers.find(u => u.id === req.userId) 
+                : null;
+
+            // Determinar si el usuario que subió es administrador del estudio
+            const isUserAdmin = Boolean(
+                userById?.isAdmin || 
+                userById?.role === 'admin' || 
+                (req.userId === user?.uid && userData?.isAdmin)
+            );
+
+            // Verificar si el CUIT del comprobante pertenece realmente al admin
+            const adminCuit = cleanCuit(userData?.cuit || userById?.cuit);
+            const isComprobanteDelAdmin = Boolean(normCuit && adminCuit && normCuit === adminCuit);
+
+            // Nombres de administradores para evitar que contaminen el cliente vendedor de un comprobante ajeno
+            const adminNames = [
+                userData?.nombre, 
+                userById?.nombre, 
+                'gustavo eduardo gramajo', 
+                'g&r consultores'
+            ].filter(Boolean).map(n => n.trim().toLowerCase());
+
+            const isReceptorAdmin = adminNames.some(an => 
+                (req.aiData?.nombre_receptor || '').trim().toLowerCase().includes(an)
+            );
+
+            // Si el nombre del receptor fue contaminado con el del admin pero el CUIT no es del admin:
+            const rawNombreReceptor = req.aiData?.nombre_receptor;
+            const validNombreReceptor = (rawNombreReceptor && (!isReceptorAdmin || isComprobanteDelAdmin))
+                ? rawNombreReceptor
+                : (req.aiData?.nombre_fantasia || null);
+
+            // Jerarquía estricta para determinar Cliente Vendedor:
+            // 1. Tercero registrado en Gestión por CUIT (máxima fidelidad del estudio)
+            // 2. Cliente del sistema registrado en users por CUIT (si no es admin o si coincide CUIT)
+            // 3. Nombre detectado en el comprobante por IA (nombre_receptor válido)
+            // 4. Nombre cargado manualmente
+            // 5. Usuario asignado / uploader (SOLO si NO es admin, o si el CUIT coincide explícitamente con el admin)
+            // 6. Nombre de fantasía si existía como respaldo
+            // 7. Fallback a 'Cliente'
+            let clienteNombre = null;
+
+            if (terceroMatch?.nombre) {
+                clienteNombre = terceroMatch.nombre;
+            } else if (userByCuit?.nombre && (!userByCuit.isAdmin || isComprobanteDelAdmin)) {
+                clienteNombre = userByCuit.nombre;
+            } else if (validNombreReceptor && validNombreReceptor !== 'S/D' && validNombreReceptor !== 'null') {
+                clienteNombre = validNombreReceptor;
+            } else if (req.manualData?.nombreCliente) {
+                clienteNombre = req.manualData.nombreCliente;
+            } else if (userById && (!isUserAdmin || isComprobanteDelAdmin) && userById.nombre) {
+                clienteNombre = userById.nombre;
+            } else if (req.userName && (!isUserAdmin || isComprobanteDelAdmin) && !req.userName.includes('Sin Asignar')) {
+                clienteNombre = req.userName;
+            } else if (req.aiData?.nombre_fantasia && req.aiData.nombre_fantasia !== 'null') {
+                clienteNombre = req.aiData.nombre_fantasia;
+            } else {
+                clienteNombre = 'Cliente';
+            }
 
             // Nombre de fantasía del local comercial:
+            // SOLO debe asignarse si la IA detectó un nombre_fantasia real (ej. ticket POS)
+            // que NO sea igual al nombre legal del cliente ni al nombre del admin
             let nombreFantasia = req.aiData?.nombre_fantasia || null;
-            if (!nombreFantasia && req.aiData?.nombre_receptor && req.aiData.nombre_receptor !== clienteNombre) {
-                nombreFantasia = req.aiData.nombre_receptor;
+            if (nombreFantasia) {
+                const normFant = nombreFantasia.trim().toLowerCase();
+                const normCli = clienteNombre.trim().toLowerCase();
+                if (normFant === normCli || normFant === 'null' || normFant === 's/d' || adminNames.some(an => normFant.includes(an))) {
+                    nombreFantasia = null;
+                }
             }
 
             return {
@@ -542,13 +602,15 @@ const BillingRequestsPage = ({ navigate }) => {
             };
         } else {
             // Compra o Gasto: Inversión Contable de Roles
-            // Si el comprobante está asignado a un cliente del estudio en el sistema,
-            // pero el papel es un ticket sin CUIT de pagador, usamos el CUIT/Nombre del cliente asignado:
-            const assignedUser = (req.userId && req.userId !== 'unassigned') 
+            const userById = (req.userId && req.userId !== 'unassigned') 
                 ? systemUsers.find(u => u.id === req.userId) 
                 : null;
-            const fallbackCuit = assignedUser?.cuit || '';
-            const fallbackNombre = assignedUser?.nombre || assignedUser?.email || '';
+
+            const isUserAdmin = Boolean(
+                userById?.isAdmin || 
+                userById?.role === 'admin' || 
+                (req.userId === user?.uid && userData?.isAdmin)
+            );
 
             // Si pagó por transferencia: nuestro cliente fue el EMISOR del pago
             // Si es factura de compra o ticket de cliente: el cliente fue el COMPRADOR / PAGADOR
@@ -564,18 +626,26 @@ const BillingRequestsPage = ({ navigate }) => {
                 clienteEsEmisor = false;
             }
 
+            const fallbackCuit = !isUserAdmin ? (userById?.cuit || '') : '';
+            const fallbackNombre = !isUserAdmin ? (userById?.nombre || userById?.email || '') : '';
+
             let rawCuit = (clienteEsEmisor ? req.aiData?.cuit_emisor : req.aiData?.cuit_receptor) || req.manualData?.cuitCliente;
             if (!rawCuit || rawCuit === 'S/D' || rawCuit === 'null') {
                 rawCuit = fallbackCuit || 'S/D';
             }
             const normCuit = cleanCuit(rawCuit);
             const terceroMatch = (clienteEsEmisor ? matchEmisor : matchReceptor) || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
+            const userByCuit = normCuit && normCuit.length >= 10 ? systemUsers.find(u => cleanCuit(u.cuit) === normCuit) : null;
 
-            let clienteNombre = terceroMatch?.nombre || (clienteEsEmisor ? req.aiData?.nombre_emisor : req.aiData?.nombre_receptor) || req.manualData?.nombreCliente;
+            let clienteNombre = terceroMatch?.nombre 
+                || (userByCuit && (!userByCuit.isAdmin || (normCuit && cleanCuit(userData?.cuit) === normCuit)) ? userByCuit.nombre : null)
+                || (clienteEsEmisor ? req.aiData?.nombre_emisor : req.aiData?.nombre_receptor) 
+                || req.manualData?.nombreCliente;
+
             if (!clienteNombre || clienteNombre === 'Cliente' || clienteNombre.includes('Consumidor') || clienteNombre.includes('Tarjeta')) {
                 if (fallbackNombre) {
                     clienteNombre = fallbackNombre;
-                } else if (req.userName && req.userId !== 'unassigned' && !userData?.isAdmin) {
+                } else if (req.userName && req.userId !== 'unassigned' && !isUserAdmin) {
                     clienteNombre = req.userName;
                 } else {
                     clienteNombre = 'Cliente';
