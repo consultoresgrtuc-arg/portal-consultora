@@ -292,34 +292,55 @@ const BillingRequestsPage = ({ navigate }) => {
 
     // Helper robusto para parsear fechas (soporta DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, Firestore Timestamps y Date)
     const parseLocalDate = (dateVal) => {
-        if (!dateVal) return new Date();
-        if (dateVal instanceof Date && !isNaN(dateVal.getTime())) return dateVal;
-        if (dateVal?.toDate && typeof dateVal.toDate === 'function') {
+        const currentYear = new Date().getFullYear();
+        let result = null;
+
+        if (!dateVal) {
+            result = new Date();
+        } else if (dateVal instanceof Date && !isNaN(dateVal.getTime())) {
+            result = new Date(dateVal);
+        } else if (dateVal?.toDate && typeof dateVal.toDate === 'function') {
             try {
                 const d = dateVal.toDate();
-                if (!isNaN(d.getTime())) return d;
+                if (!isNaN(d.getTime())) result = d;
             } catch (e) {}
         }
-        const s = String(dateVal).trim();
-        const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-        if (dmyMatch) {
-            const day = parseInt(dmyMatch[1], 10);
-            const month = parseInt(dmyMatch[2], 10) - 1;
-            const year = parseInt(dmyMatch[3], 10);
-            const d = new Date(year, month, day, 12, 0, 0);
-            if (!isNaN(d.getTime())) return d;
+
+        if (!result) {
+            const s = String(dateVal).trim();
+            const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+            if (dmyMatch) {
+                const day = parseInt(dmyMatch[1], 10);
+                const month = parseInt(dmyMatch[2], 10) - 1;
+                const year = parseInt(dmyMatch[3], 10);
+                const d = new Date(year, month, day, 12, 0, 0);
+                if (!isNaN(d.getTime())) result = d;
+            } else {
+                const ymdMatch = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+                if (ymdMatch) {
+                    const year = parseInt(ymdMatch[1], 10);
+                    const month = parseInt(ymdMatch[2], 10) - 1;
+                    const day = parseInt(ymdMatch[3], 10);
+                    const d = new Date(year, month, day, 12, 0, 0);
+                    if (!isNaN(d.getTime())) result = d;
+                } else {
+                    const parsed = new Date(s);
+                    if (!isNaN(parsed.getTime())) result = parsed;
+                }
+            }
         }
-        const ymdMatch = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-        if (ymdMatch) {
-            const year = parseInt(ymdMatch[1], 10);
-            const month = parseInt(ymdMatch[2], 10) - 1;
-            const day = parseInt(ymdMatch[3], 10);
-            const d = new Date(year, month, day, 12, 0, 0);
-            if (!isNaN(d.getTime())) return d;
+
+        if (!result || isNaN(result.getTime())) {
+            result = new Date();
         }
-        const parsed = new Date(s);
-        if (!isNaN(parsed.getTime())) return parsed;
-        return new Date();
+
+        // Si la IA o comprobante antiguo leyó un año del pasado (ej. 2024 en lugar del año en curso 2026),
+        // ajustar el año al corriente para asegurar que la operación contable impacte en el ejercicio actual
+        if (result.getFullYear() < currentYear) {
+            result.setFullYear(currentYear);
+        }
+
+        return result;
     };
 
     const [requests, setRequests] = useState([]);
