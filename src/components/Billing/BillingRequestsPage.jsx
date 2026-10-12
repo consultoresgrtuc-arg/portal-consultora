@@ -249,7 +249,78 @@ const MONTHS = [
 
 const BillingRequestsPage = ({ navigate }) => {
     const { user, userData } = useAuth();
-    const { clients, clientList, selectClientById, setActiveEntity } = useClientSelection();
+    const { 
+        clients, 
+        clientList, 
+        selectClientById, 
+        setActiveEntity, 
+        activeEntity, 
+        targetUserId, 
+        isViewingClient 
+    } = useClientSelection();
+
+    // Helper robusto para parsear montos contables (soporta formato AR $ 150.000,50 / EN 150,000.50 y strings)
+    const parseAmount = (val) => {
+        if (typeof val === 'number') {
+            return isNaN(val) ? 0 : val;
+        }
+        if (!val) return 0;
+        let s = String(val).trim().replace(/[$\s]/g, '');
+        if (s.includes('.') && s.includes(',')) {
+            if (s.indexOf('.') < s.indexOf(',')) {
+                // Formato AR: 150.000,50 -> 150000.50
+                s = s.replace(/\./g, '').replace(',', '.');
+            } else {
+                // Formato EN: 150,000.50 -> 150000.50
+                s = s.replace(/,/g, '');
+            }
+        } else if (s.includes(',')) {
+            s = s.replace(',', '.');
+        } else if (s.includes('.')) {
+            const parts = s.split('.');
+            if (parts.length === 2 && parts[1].length === 3 && parseInt(parts[0], 10) > 0) {
+                // Caso común de miles sin decimales: 150.000
+                s = parts[0] + parts[1];
+            } else if (parts.length > 2) {
+                // Caso millones: 1.500.000
+                s = parts.join('');
+            }
+        }
+        const num = parseFloat(s);
+        return isNaN(num) ? 0 : num;
+    };
+
+    // Helper robusto para parsear fechas (soporta DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, Firestore Timestamps y Date)
+    const parseLocalDate = (dateVal) => {
+        if (!dateVal) return new Date();
+        if (dateVal instanceof Date && !isNaN(dateVal.getTime())) return dateVal;
+        if (dateVal?.toDate && typeof dateVal.toDate === 'function') {
+            try {
+                const d = dateVal.toDate();
+                if (!isNaN(d.getTime())) return d;
+            } catch (e) {}
+        }
+        const s = String(dateVal).trim();
+        const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (dmyMatch) {
+            const day = parseInt(dmyMatch[1], 10);
+            const month = parseInt(dmyMatch[2], 10) - 1;
+            const year = parseInt(dmyMatch[3], 10);
+            const d = new Date(year, month, day, 12, 0, 0);
+            if (!isNaN(d.getTime())) return d;
+        }
+        const ymdMatch = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+        if (ymdMatch) {
+            const year = parseInt(ymdMatch[1], 10);
+            const month = parseInt(ymdMatch[2], 10) - 1;
+            const day = parseInt(ymdMatch[3], 10);
+            const d = new Date(year, month, day, 12, 0, 0);
+            if (!isNaN(d.getTime())) return d;
+        }
+        const parsed = new Date(s);
+        if (!isNaN(parsed.getTime())) return parsed;
+        return new Date();
+    };
 
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -623,9 +694,52 @@ const BillingRequestsPage = ({ navigate }) => {
         const isTransfer = tipoComp.includes('transferencia') || tipoComp.includes('pago');
 
         if (isVenta) {
-            const rawCuit = req.aiData?.cuit_receptor || req.manualData?.cuitCliente || 'S/D';
+            const cuitEmisorNorm = cleanCuit(req.aiData?.cuit_emisor || req.manualData?.cuitEmisor || '');
+            const cuitReceptorNorm = cleanCuit(req.aiData?.cuit_receptor || req.manualData?.cuitReceptor || req.manualData?.cuitCliente || '');
+            const matchEmisor = cuitEmisorNorm && cuitEmisorNorm.length >= 10 ? tercerosByCuit[cuitEmisorNorm] : null;
+            const matchReceptor = cuitReceptorNorm && cuitReceptorNorm.length >= 10 ? tercerosByCuit[cuitReceptorNorm] : null;
+
+            // En una FACTURA DE VENTA: el cliente del estudio es el EMISOR (quien vende y factura).
+            // En una TRANSFERENCIA / COBRO RECIBIDO o COBRO EN EFECTIVO: el cliente del estudio es quien recibe los fondos.
+            let clienteEsEmisor = !isTransfer;
+
+            if (matchEmisor && !matchReceptor) {
+                clienteEsEmisor = true;
+            } else if (matchReceptor && !matchEmisor) {
+                clienteEsEmisor = false;
+            } else if (cuitEmisorNorm && !cuitReceptorNorm) {
+                clienteEsEmisor = true;
+            } else if (cuitReceptorNorm && !cuitEmisorNorm) {
+                clienteEsEmisor = false;
+            } else if (req.isManualEntry || tipoComp.includes('manual') || tipoComp.includes('efectivo')) {
+                clienteEsEmisor = false;
+            } else if ((req.aiData?.nombre_emisor || '').toLowerCase().includes('consumidor')) {
+                clienteEsEmisor = false;
+            } else if ((req.aiData?.nombre_receptor || '').toLowerCase().includes('consumidor')) {
+                clienteEsEmisor = true;
+            } else if (activeEntity && !activeEntity.isStudio) {
+                const activeCuit = cleanCuit(activeEntity.cuit);
+                if (activeCuit && cuitEmisorNorm === activeCuit) {
+                    clienteEsEmisor = true;
+                } else if (activeCuit && cuitReceptorNorm === activeCuit) {
+                    clienteEsEmisor = false;
+                }
+            } else if (req.userCuit) {
+                const uCuit = cleanCuit(req.userCuit);
+                if (uCuit && cuitEmisorNorm === uCuit) {
+                    clienteEsEmisor = true;
+                } else if (uCuit && cuitReceptorNorm === uCuit) {
+                    clienteEsEmisor = false;
+                }
+            }
+
+            const rawCuit = (clienteEsEmisor 
+                ? (req.aiData?.cuit_emisor || req.manualData?.cuitEmisor) 
+                : (req.aiData?.cuit_receptor || req.manualData?.cuitReceptor || req.manualData?.cuitCliente)
+            ) || (activeEntity && !activeEntity.isStudio ? activeEntity.cuit : '') || req.userCuit || 'S/D';
+            
             const normCuit = cleanCuit(rawCuit);
-            const terceroMatch = normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null;
+            const terceroMatch = (clienteEsEmisor ? matchEmisor : matchReceptor) || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
 
             // Buscar usuario en systemUsers por CUIT
             const userByCuit = normCuit && normCuit.length >= 10 
@@ -637,18 +751,15 @@ const BillingRequestsPage = ({ navigate }) => {
                 ? systemUsers.find(u => u.id === req.userId) 
                 : null;
 
-            // Determinar si el usuario que subió es administrador del estudio
             const isUserAdmin = Boolean(
                 userById?.isAdmin || 
                 userById?.role === 'admin' || 
                 (req.userId === user?.uid && userData?.isAdmin)
             );
 
-            // Verificar si el CUIT del comprobante pertenece realmente al admin
             const adminCuit = cleanCuit(userData?.cuit || userById?.cuit);
             const isComprobanteDelAdmin = Boolean(normCuit && adminCuit && normCuit === adminCuit);
 
-            // Nombres de administradores para evitar que contaminen el cliente vendedor de un comprobante ajeno
             const adminNames = [
                 userData?.nombre, 
                 userById?.nombre, 
@@ -656,31 +767,24 @@ const BillingRequestsPage = ({ navigate }) => {
                 'g&r consultores'
             ].filter(Boolean).map(n => n.trim().toLowerCase());
 
-            const isReceptorAdmin = adminNames.some(an => 
-                (req.aiData?.nombre_receptor || '').trim().toLowerCase().includes(an)
-            );
-
-            // Si el nombre del receptor fue contaminado con el del admin pero el CUIT no es del admin:
             const rawNombreReceptor = req.aiData?.nombre_receptor;
+            const isReceptorAdmin = adminNames.some(an => 
+                (rawNombreReceptor || '').trim().toLowerCase().includes(an)
+            );
             const validNombreReceptor = (rawNombreReceptor && (!isReceptorAdmin || isComprobanteDelAdmin))
                 ? rawNombreReceptor
                 : (req.aiData?.nombre_fantasia || null);
 
-            // Jerarquía estricta para determinar Cliente Vendedor:
-            // 1. Tercero registrado en Gestión por CUIT (máxima fidelidad del estudio)
-            // 2. Cliente del sistema registrado en users por CUIT (si no es admin o si coincide CUIT)
-            // 3. Nombre detectado en el comprobante por IA (nombre_receptor válido)
-            // 4. Nombre cargado manualmente
-            // 5. Usuario asignado / uploader (SOLO si NO es admin, o si el CUIT coincide explícitamente con el admin)
-            // 6. Nombre de fantasía si existía como respaldo
-            // 7. Fallback a 'Cliente'
             let clienteNombre = null;
-
             if (terceroMatch?.nombre) {
                 clienteNombre = terceroMatch.nombre;
             } else if (userByCuit?.nombre && (!userByCuit.isAdmin || isComprobanteDelAdmin)) {
                 clienteNombre = userByCuit.nombre;
-            } else if (validNombreReceptor && validNombreReceptor !== 'S/D' && validNombreReceptor !== 'null') {
+            } else if (activeEntity && !activeEntity.isStudio && activeEntity.name) {
+                clienteNombre = activeEntity.name;
+            } else if (clienteEsEmisor && req.aiData?.nombre_emisor) {
+                clienteNombre = req.aiData.nombre_emisor;
+            } else if (!clienteEsEmisor && validNombreReceptor && validNombreReceptor !== 'S/D' && validNombreReceptor !== 'null') {
                 clienteNombre = validNombreReceptor;
             } else if (req.manualData?.nombreCliente) {
                 clienteNombre = req.manualData.nombreCliente;
@@ -694,9 +798,6 @@ const BillingRequestsPage = ({ navigate }) => {
                 clienteNombre = 'Cliente';
             }
 
-            // Nombre de fantasía del local comercial:
-            // SOLO debe asignarse si la IA detectó un nombre_fantasia real (ej. ticket POS)
-            // que NO sea igual al nombre legal del cliente ni al nombre del admin
             let nombreFantasia = req.aiData?.nombre_fantasia || null;
             if (nombreFantasia) {
                 const normFant = nombreFantasia.trim().toLowerCase();
@@ -706,6 +807,16 @@ const BillingRequestsPage = ({ navigate }) => {
                 }
             }
 
+            const contraparteNombre = (clienteEsEmisor 
+                ? (req.aiData?.nombre_receptor || req.manualData?.nombreReceptor || req.manualData?.nombreCliente) 
+                : (req.aiData?.nombre_emisor || req.manualData?.nombreEmisor)
+            ) || 'Comprador';
+
+            const contraparteCuit = (clienteEsEmisor 
+                ? (req.aiData?.cuit_receptor || req.manualData?.cuitReceptor || req.manualData?.cuitCliente) 
+                : (req.aiData?.cuit_emisor || req.manualData?.cuitEmisor)
+            ) || 'S/D';
+
             return {
                 tipo,
                 isVenta: true,
@@ -713,12 +824,12 @@ const BillingRequestsPage = ({ navigate }) => {
                 clienteNombre,
                 nombreFantasia,
                 clienteCuit: rawCuit,
-                clienteBanco: req.aiData?.banco_receptor || req.aiData?.aplicacion_pago || '-',
+                clienteBanco: (clienteEsEmisor ? req.aiData?.banco_origen : req.aiData?.banco_receptor) || req.aiData?.aplicacion_pago || '-',
                 terceroMatch,
                 contraparteLabel: 'Comprador (Pagador / Origen Fondos)',
-                contraparteNombre: req.aiData?.nombre_emisor || req.manualData?.nombreEmisor || 'Comprador',
-                contraparteCuit: req.aiData?.cuit_emisor || req.manualData?.cuitEmisor || 'S/D',
-                contraparteBanco: req.aiData?.banco_origen || '-'
+                contraparteNombre,
+                contraparteCuit,
+                contraparteBanco: (clienteEsEmisor ? req.aiData?.banco_receptor : req.aiData?.banco_origen) || '-'
             };
         } else {
             // Compra o Gasto: Inversión Contable de Roles
@@ -732,8 +843,6 @@ const BillingRequestsPage = ({ navigate }) => {
                 (req.userId === user?.uid && userData?.isAdmin)
             );
 
-            // Si pagó por transferencia: nuestro cliente fue el EMISOR del pago
-            // Si es factura de compra o ticket de cliente: el cliente fue el COMPRADOR / PAGADOR
             const cuitEmisorNorm = cleanCuit(req.aiData?.cuit_emisor || '');
             const cuitReceptorNorm = cleanCuit(req.aiData?.cuit_receptor || '');
             const matchEmisor = cuitEmisorNorm && cuitEmisorNorm.length >= 10 ? tercerosByCuit[cuitEmisorNorm] : null;
@@ -751,7 +860,7 @@ const BillingRequestsPage = ({ navigate }) => {
 
             let rawCuit = (clienteEsEmisor ? req.aiData?.cuit_emisor : req.aiData?.cuit_receptor) || req.manualData?.cuitCliente;
             if (!rawCuit || rawCuit === 'S/D' || rawCuit === 'null') {
-                rawCuit = fallbackCuit || 'S/D';
+                rawCuit = fallbackCuit || (activeEntity && !activeEntity.isStudio ? activeEntity.cuit : '') || 'S/D';
             }
             const normCuit = cleanCuit(rawCuit);
             const terceroMatch = (clienteEsEmisor ? matchEmisor : matchReceptor) || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
@@ -759,6 +868,7 @@ const BillingRequestsPage = ({ navigate }) => {
 
             let clienteNombre = terceroMatch?.nombre 
                 || (userByCuit && (!userByCuit.isAdmin || (normCuit && cleanCuit(userData?.cuit) === normCuit)) ? userByCuit.nombre : null)
+                || (activeEntity && !activeEntity.isStudio && activeEntity.name ? activeEntity.name : null)
                 || (clienteEsEmisor ? req.aiData?.nombre_emisor : req.aiData?.nombre_receptor) 
                 || req.manualData?.nombreCliente;
 
@@ -794,6 +904,69 @@ const BillingRequestsPage = ({ navigate }) => {
                 contraparteBanco
             };
         }
+    };
+
+    // Helper unificado para resolver todos los UIDs contables donde debe asentarse una operación
+    const resolveTargetClientUids = (req, party) => {
+        const uids = new Set();
+        const normCuit = cleanCuit(party?.clienteCuit);
+
+        // 1. Tercero asignado o coincidente en tercerosByCuit (usado por el selector del admin y Libro/Dashboard)
+        if (party?.terceroMatch?.id) {
+            uids.add(party.terceroMatch.id);
+        }
+        if (normCuit && tercerosByCuit[normCuit]?.id) {
+            uids.add(tercerosByCuit[normCuit].id);
+        }
+
+        // 2. Si el administrador tiene seleccionado un cliente en el dropdown global
+        if (activeEntity && !activeEntity.isStudio && activeEntity.id) {
+            const normActiveCuit = cleanCuit(activeEntity.cuit);
+            if (!normCuit || !normActiveCuit || normCuit === normActiveCuit || activeEntity.id === party?.terceroMatch?.id) {
+                uids.add(activeEntity.id);
+            }
+        }
+
+        // 3. Si la solicitud fue subida por un cliente con cuenta en Auth (no admin)
+        if (req.userId && req.userId !== 'unassigned') {
+            const userById = systemUsers.find(u => u.id === req.userId);
+            const isReqUserAdmin = Boolean(
+                userById?.isAdmin || 
+                userById?.role === 'admin' || 
+                (req.userId === user?.uid && userData?.isAdmin)
+            );
+            if (!isReqUserAdmin) {
+                uids.add(req.userId);
+            }
+        }
+
+        // 4. Usuario registrado en Auth (systemUsers) por CUIT
+        if (normCuit && normCuit.length >= 10) {
+            const userByCuit = systemUsers.find(u => cleanCuit(u.cuit) === normCuit);
+            if (userByCuit && !userByCuit.isAdmin && userByCuit.role !== 'admin') {
+                uids.add(userByCuit.id);
+            }
+        }
+
+        // 5. Coincidencia en la lista de clientes del selector (clientList / clients)
+        if (normCuit && normCuit.length >= 10) {
+            const cliMatch = (clientList || clients || []).find(c => cleanCuit(c.cuit) === normCuit);
+            if (cliMatch?.id) {
+                uids.add(cliMatch.id);
+            }
+        }
+
+        // 6. Si no hay UIDs detectados, fallback a targetUserId del contexto si se está auditando un cliente
+        if (uids.size === 0 && isViewingClient && targetUserId) {
+            uids.add(targetUserId);
+        }
+
+        // 7. Si aún está vacío y hay un filtro local seleccionado en la página
+        if (uids.size === 0 && selectedClient && selectedClient !== 'todos') {
+            uids.add(selectedClient);
+        }
+
+        return Array.from(uids).filter(Boolean);
     };
 
     const clientDictionary = useMemo(() => {
@@ -1384,16 +1557,42 @@ const BillingRequestsPage = ({ navigate }) => {
                 url = await getDownloadURL(fileRef); 
             }
 
-            // Determinar a qué entidad contable corresponde la operación
+            // 1. Determinar entidad contable y contraparte
             const party = getPartyDetails(req);
-            const normCuit = cleanCuit(party.clienteCuit);
-            const targetClientId = party.terceroMatch?.id 
-                || (normCuit && tercerosByCuit[normCuit]?.id) 
-                || (req.userId && req.userId !== 'unassigned' && !userData?.isAdmin ? req.userId : null)
-                || (normCuit && normCuit.length >= 10 ? `cuit_${normCuit}` : req.userId);
+            let normCuit = cleanCuit(party.clienteCuit);
 
-            // Determinar si también se registra en el Libro de Operaciones
-            const shouldExport = (autoRegisterInBook || !isVenta) && targetClientId && targetClientId !== 'unassigned' && !req.exportedToOperations;
+            // 2. Si el cliente no existe aún como Tercero del estudio, darlo de alta automáticamente
+            let terceroMatch = party.terceroMatch || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
+            if (!terceroMatch && normCuit && normCuit.length >= 10 && user?.uid && userData?.isAdmin) {
+                try {
+                    const nuevoNombre = (party.clienteNombre && party.clienteNombre !== 'Cliente' && party.clienteNombre !== 'Desconocido') 
+                        ? party.clienteNombre 
+                        : `Cliente ${normCuit}`;
+                    const nuevoTerceroRef = await addDoc(collection(db, 'users', user.uid, 'terceros'), {
+                        nombre: nuevoNombre.trim(),
+                        cuit: party.clienteCuit || normCuit,
+                        tipo: 'Cliente',
+                        email: '',
+                        telefono: '',
+                        categoriaTributaria: 'Monotributo',
+                        createdAt: Timestamp.now()
+                    });
+                    terceroMatch = {
+                        id: nuevoTerceroRef.id,
+                        nombre: nuevoNombre,
+                        cuit: party.clienteCuit || normCuit
+                    };
+                    party.terceroMatch = terceroMatch;
+                } catch (createErr) {
+                    console.warn("No se pudo auto-crear tercero al completar factura:", createErr);
+                }
+            }
+
+            // 3. Resolver todos los UIDs contables destino donde debe impactar la operación
+            const targetUids = resolveTargetClientUids(req, party);
+
+            // 4. Determinar si se asienta en el Libro de Operaciones
+            const shouldExport = (autoRegisterInBook || !isVenta) && targetUids.length > 0;
 
             await updateDoc(doc(db, 'billing_requests', id), { 
                 status: 'completed', 
@@ -1402,28 +1601,30 @@ const BillingRequestsPage = ({ navigate }) => {
                 ...(shouldExport ? { exportedToOperations: true } : {})
             }); 
 
-            // Auto-registrar en el Libro de Operaciones si corresponde
+            // 5. Asentar en el Libro de Operaciones de los UIDs correspondientes
             if (shouldExport) {
                 try {
-                    const monto = req.aiData?.monto_total || req.manualData?.monto || 0;
+                    const rawMonto = req.aiData?.monto_total ?? req.manualData?.monto ?? 0;
+                    const parsedMonto = parseAmount(rawMonto);
                     const tipo = req.clasificacionContable === 'gasto' ? 'gasto' : (req.clasificacionContable === 'compra' ? 'compra' : 'venta');
                     const partyDesc = isVenta ? (party.contraparteNombre || 'Comprador') : (party.contraparteNombre || 'Proveedor');
                     const desc = req.aiData?.concepto_detectado 
                         ? `[${tipo.toUpperCase()}] ${partyDesc} - ${req.aiData.concepto_detectado}`
                         : `${tipo.toUpperCase()} - ${partyDesc}`;
-                    const fechaStr = req.aiData?.fecha_pago || new Date().toISOString().split('T')[0];
-                    const localDate = new Date(fechaStr + 'T00:00:00-03:00');
 
-                    await addDoc(collection(db, 'users', targetClientId, 'operations'), {
+                    const fechaRaw = req.aiData?.fecha_pago || req.manualData?.fecha || req.timestamp || new Date();
+                    const localDate = parseLocalDate(fechaRaw);
+
+                    const operationPayload = {
                         type: tipo,
-                        amount: parseFloat(monto),
+                        amount: parsedMonto,
                         description: desc,
                         fechaEmision: Timestamp.fromDate(localDate),
                         year: localDate.getFullYear(),
                         month: localDate.getMonth() + 1,
                         day: localDate.getDate(),
                         billingRequestId: req.id,
-                        terceroId: party.terceroMatch?.id || (normCuit ? tercerosByCuit[normCuit]?.id : null) || null,
+                        terceroId: terceroMatch?.id || null,
                         clienteCuit: party.clienteCuit || null,
                         clienteNombre: party.clienteNombre || null,
                         bancoOrigen: req.aiData?.banco_origen || null,
@@ -1433,7 +1634,26 @@ const BillingRequestsPage = ({ navigate }) => {
                         aplicacionPago: req.aiData?.aplicacion_pago || null,
                         tipoTicketPos: req.aiData?.tipo_ticket_pos || null,
                         source: req.source || 'web'
-                    });
+                    };
+
+                    for (const targetId of targetUids) {
+                        try {
+                            const qExisting = query(
+                                collection(db, 'users', targetId, 'operations'),
+                                where('billingRequestId', '==', req.id)
+                            );
+                            const existingSnap = await getDocs(qExisting);
+                            if (!existingSnap.empty) {
+                                for (const docOp of existingSnap.docs) {
+                                    await updateDoc(docOp.ref, operationPayload);
+                                }
+                            } else {
+                                await addDoc(collection(db, 'users', targetId, 'operations'), operationPayload);
+                            }
+                        } catch (singleOpErr) {
+                            console.error(`Error al registrar operación en users/${targetId}/operations:`, singleOpErr);
+                        }
+                    }
                 } catch (opErr) {
                     console.error("Error al auto-registrar en libro de operaciones:", opErr);
                 }
@@ -1588,22 +1808,16 @@ const BillingRequestsPage = ({ navigate }) => {
             if (editingRequest.exportedToOperations) {
                 try {
                     const party = getPartyDetails(editingRequest);
-                    const normCuit = cleanCuit(party.clienteCuit);
-                    const targetClientId = party.terceroMatch?.id 
-                        || (normCuit && tercerosByCuit[normCuit]?.id) 
-                        || (editingRequest.userId && editingRequest.userId !== 'unassigned' && !userData?.isAdmin ? editingRequest.userId : null)
-                        || (normCuit && normCuit.length >= 10 ? `cuit_${normCuit}` : editingRequest.userId);
-
+                    const targetUids = resolveTargetClientUids(editingRequest, party);
                     const candidateUids = new Set([
-                        targetClientId,
+                        ...targetUids,
                         editingRequest.userId,
                         user?.uid,
-                        party.terceroMatch?.id,
-                        normCuit && tercerosByCuit[normCuit]?.id ? tercerosByCuit[normCuit].id : null
+                        party.terceroMatch?.id
                     ].filter(Boolean));
 
                     const fechaStr = safeStr(editFormData.fecha_pago) || editingRequest.aiData?.fecha_pago || new Date().toISOString().split('T')[0];
-                    const localDate = new Date(fechaStr + 'T00:00:00-03:00');
+                    const localDate = parseLocalDate(fechaStr);
                     const tipo = finalClasif;
                     const partyDesc = isVenta ? (party.contraparteNombre || 'Comprador') : (party.contraparteNombre || 'Proveedor');
                     const newDesc = editFormData.concepto_detectado 
@@ -1620,7 +1834,7 @@ const BillingRequestsPage = ({ navigate }) => {
                             for (const opDoc of qSnap.docs) {
                                 await updateDoc(opDoc.ref, {
                                     type: tipo,
-                                    amount: safeFloat(editFormData.monto_total),
+                                    amount: parseAmount(editFormData.monto_total),
                                     description: newDesc,
                                     fechaEmision: Timestamp.fromDate(localDate),
                                     year: localDate.getFullYear(),
@@ -1650,7 +1864,8 @@ const BillingRequestsPage = ({ navigate }) => {
         } 
     };
 
-    const handleDeleteRequest = async () => { 
+    const handleDeleteRequest = async () => 
+    { 
         if (!requestToDelete) return;
         try { 
             const req = requests.find(r => r.id === requestToDelete);
@@ -1658,18 +1873,12 @@ const BillingRequestsPage = ({ navigate }) => {
             // 1. Si estaba asentado en el Libro de Operaciones, buscar y eliminar el asiento correspondiente
             if (req) {
                 const party = getPartyDetails(req);
-                const normCuit = cleanCuit(party.clienteCuit);
-                const targetClientId = party.terceroMatch?.id 
-                    || (normCuit && tercerosByCuit[normCuit]?.id) 
-                    || (req.userId && req.userId !== 'unassigned' && !userData?.isAdmin ? req.userId : null)
-                    || (normCuit && normCuit.length >= 10 ? `cuit_${normCuit}` : req.userId);
-
+                const targetUids = resolveTargetClientUids(req, party);
                 const candidateUids = new Set([
-                    targetClientId,
+                    ...targetUids,
                     req.userId,
                     user?.uid,
-                    party.terceroMatch?.id,
-                    normCuit && tercerosByCuit[normCuit]?.id ? tercerosByCuit[normCuit].id : null
+                    party.terceroMatch?.id
                 ].filter(Boolean));
 
                 for (const cUid of candidateUids) {
@@ -1772,42 +1981,94 @@ const BillingRequestsPage = ({ navigate }) => {
     };
 
     const handleExportToOperations = async (req) => {
-        if (!req.userId || req.userId === 'unassigned') {
-            return alert("Primero debes asignar este comprobante a un cliente.");
+        const party = getPartyDetails(req);
+        let normCuit = cleanCuit(party.clienteCuit);
+
+        let terceroMatch = party.terceroMatch || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
+        if (!terceroMatch && normCuit && normCuit.length >= 10 && user?.uid && userData?.isAdmin) {
+            try {
+                const nuevoNombre = (party.clienteNombre && party.clienteNombre !== 'Cliente' && party.clienteNombre !== 'Desconocido') 
+                    ? party.clienteNombre 
+                    : `Cliente ${normCuit}`;
+                const nuevoTerceroRef = await addDoc(collection(db, 'users', user.uid, 'terceros'), {
+                    nombre: nuevoNombre.trim(),
+                    cuit: party.clienteCuit || normCuit,
+                    tipo: 'Cliente',
+                    email: '',
+                    telefono: '',
+                    categoriaTributaria: 'Monotributo',
+                    createdAt: Timestamp.now()
+                });
+                terceroMatch = {
+                    id: nuevoTerceroRef.id,
+                    nombre: nuevoNombre,
+                    cuit: party.clienteCuit || normCuit
+                };
+                party.terceroMatch = terceroMatch;
+            } catch (createErr) {
+                console.warn("No se pudo auto-crear tercero al exportar operación:", createErr);
+            }
         }
 
-        const monto = req.aiData?.monto_total || 0;
-        if (!monto) return alert("El comprobante no tiene un monto válido registrado.");
+        const targetUids = resolveTargetClientUids(req, party);
+        if (targetUids.length === 0) {
+            return alert("No se pudo determinar el cliente destino. Por favor asigna el comprobante a un cliente de la lista.");
+        }
 
+        const rawMonto = req.aiData?.monto_total ?? req.manualData?.monto ?? 0;
+        const parsedMonto = parseAmount(rawMonto);
+        if (!parsedMonto) return alert("El comprobante no tiene un monto válido registrado.");
+
+        const isVenta = (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === 'venta';
         const tipo = req.clasificacionContable === 'gasto' ? 'gasto' : (req.clasificacionContable === 'compra' ? 'compra' : 'venta');
-        const desc = req.aiData?.concepto_detectado || `${tipo.toUpperCase()} - ${req.aiData?.nombre_emisor || 'Comprobante'}`;
-        const fechaStr = req.aiData?.fecha_pago || new Date().toISOString().split('T')[0];
-        const localDate = new Date(fechaStr + 'T00:00:00-03:00');
+        const partyDesc = isVenta ? (party.contraparteNombre || 'Comprador') : (party.contraparteNombre || 'Proveedor');
+        const desc = req.aiData?.concepto_detectado 
+            ? `[${tipo.toUpperCase()}] ${partyDesc} - ${req.aiData.concepto_detectado}`
+            : `${tipo.toUpperCase()} - ${partyDesc}`;
+        const fechaRaw = req.aiData?.fecha_pago || req.manualData?.fecha || req.timestamp || new Date();
+        const localDate = parseLocalDate(fechaRaw);
 
-        if (!confirm(`¿Deseas asentar este registro de ${formatCurrency(monto)} como '${tipo.toUpperCase()}' en el Libro de Operaciones del cliente?`)) {
+        const targetNombre = party.clienteNombre || party.terceroMatch?.nombre || 'el cliente';
+        if (!confirm(`¿Deseas asentar este registro de ${formatCurrency(parsedMonto)} como '${tipo.toUpperCase()}' en el Libro de Operaciones de ${targetNombre}?`)) {
             return;
         }
 
         try {
-            await addDoc(collection(db, 'users', req.userId, 'operations'), {
+            const operationPayload = {
                 type: tipo,
-                amount: parseFloat(monto),
+                amount: parsedMonto,
                 description: desc,
                 fechaEmision: Timestamp.fromDate(localDate),
                 year: localDate.getFullYear(),
                 month: localDate.getMonth() + 1,
                 day: localDate.getDate(),
                 billingRequestId: req.id,
+                terceroId: terceroMatch?.id || null,
+                clienteCuit: party.clienteCuit || null,
+                clienteNombre: party.clienteNombre || null,
                 bancoOrigen: req.aiData?.banco_origen || null,
                 bancoReceptor: req.aiData?.banco_receptor || null,
                 medioPago: req.aiData?.medio_pago_detalle || req.aiData?.aplicacion_pago || (req.aiData?.tipo_comprobante === 'Transferencia' ? 'Transferencia' : null),
                 cuotas: req.aiData?.cuotas || null,
                 aplicacionPago: req.aiData?.aplicacion_pago || null,
                 tipoTicketPos: req.aiData?.tipo_ticket_pos || null,
-                clienteCuit: party.clienteCuit || null,
-                clienteNombre: party.clienteNombre || null,
                 source: req.source || 'web'
-            });
+            };
+
+            for (const targetId of targetUids) {
+                const qExisting = query(
+                    collection(db, 'users', targetId, 'operations'),
+                    where('billingRequestId', '==', req.id)
+                );
+                const existingSnap = await getDocs(qExisting);
+                if (!existingSnap.empty) {
+                    for (const docOp of existingSnap.docs) {
+                        await updateDoc(docOp.ref, operationPayload);
+                    }
+                } else {
+                    await addDoc(collection(db, 'users', targetId, 'operations'), operationPayload);
+                }
+            }
 
             await updateDoc(doc(db, 'billing_requests', req.id), {
                 exportedToOperations: true,
@@ -1815,10 +2076,10 @@ const BillingRequestsPage = ({ navigate }) => {
                 completedAt: Timestamp.now()
             });
 
-            alert(`✅ Operación asentada con éxito en el libro del cliente.`);
+            alert(`✅ Operación de ${tipo.toUpperCase()} asentada con éxito en el Libro de Operaciones de ${targetNombre}.`);
         } catch (err) {
             console.error("Error al exportar operación:", err);
-            alert("Error al registrar la operación en el libro diario.");
+            alert("Error al registrar la operación en el libro diario: " + (err.message || ''));
         }
     };
 
@@ -2617,13 +2878,24 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                                                     {!req.invoiceUrl && <span className="text-[10px] font-black uppercase tracking-widest">Notificar</span>}
                                                                                                 </button>
                                                                                             </div>
-                                                                                            {!req.exportedToOperations && (
+                                                                                            {!req.exportedToOperations ? (
                                                                                                 <button 
                                                                                                     onClick={() => handleExportToOperations(req)} 
-                                                                                                    className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2 mt-2"
+                                                                                                    className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2 mt-2 cursor-pointer active:scale-95 shadow-xs"
                                                                                                 >
                                                                                                     <Icon name="BookOpen" size={14}/> Asentar en Libro de Operaciones
                                                                                                 </button>
+                                                                                            ) : (
+                                                                                                <div className="w-full bg-emerald-50 text-emerald-800 py-2.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-wider border border-emerald-200 flex items-center justify-between mt-2">
+                                                                                                    <span className="flex items-center gap-1.5"><Icon name="CheckCircle" size={14} className="text-emerald-600"/> Asentado en Libro Diario</span>
+                                                                                                    <button 
+                                                                                                        onClick={() => handleInspectClient({ terceroId: party.terceroMatch?.id, cuit: party.clienteCuit, name: party.clienteNombre }, 'operations')} 
+                                                                                                        className="text-emerald-900 hover:underline font-extrabold flex items-center gap-1 cursor-pointer"
+                                                                                                        title="Ver en Libro de Operaciones"
+                                                                                                    >
+                                                                                                        Ver Libro <Icon name="ArrowRight" size={12}/>
+                                                                                                    </button>
+                                                                                                </div>
                                                                                             )}
                                                                                         </div>
                                                                                     )}
@@ -3355,13 +3627,24 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                             </div>
                                                                         )}
 
-                                                                        {!req.exportedToOperations && (
+                                                                        {!req.exportedToOperations ? (
                                                                             <button 
                                                                                 onClick={() => handleExportToOperations(req)} 
-                                                                                className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2 mt-2"
+                                                                                className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2 mt-2 cursor-pointer active:scale-95 shadow-xs"
                                                                             >
                                                                                 <Icon name="BookOpen" size={14}/> Asentar en Libro de Operaciones
                                                                             </button>
+                                                                        ) : (
+                                                                            <div className="w-full bg-emerald-50 text-emerald-800 py-2.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-wider border border-emerald-200 flex items-center justify-between mt-2">
+                                                                                <span className="flex items-center gap-1.5"><Icon name="CheckCircle" size={14} className="text-emerald-600"/> Asentado en Libro Diario</span>
+                                                                                <button 
+                                                                                    onClick={() => handleInspectClient({ terceroId: party.terceroMatch?.id, cuit: party.clienteCuit, name: party.clienteNombre }, 'operations')} 
+                                                                                    className="text-emerald-900 hover:underline font-extrabold flex items-center gap-1 cursor-pointer"
+                                                                                    title="Ver en Libro de Operaciones"
+                                                                                >
+                                                                                    Ver Libro <Icon name="ArrowRight" size={12}/>
+                                                                                </button>
+                                                                            </div>
                                                                         )}
                                                                     </div>
                                                                 )}
