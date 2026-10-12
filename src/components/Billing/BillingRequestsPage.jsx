@@ -290,7 +290,7 @@ const BillingRequestsPage = ({ navigate }) => {
         return isNaN(num) ? 0 : num;
     };
 
-    // Helper robusto para parsear fechas (soporta DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, Firestore Timestamps y Date)
+    // Helper robusto para parsear fechas (soporta DD/MM/YYYY, DD/MM/YY, DD-MM-YYYY, YYYY-MM-DD, Firestore Timestamps y Date)
     const parseLocalDate = (dateVal) => {
         const currentYear = new Date().getFullYear();
         let result = null;
@@ -308,11 +308,13 @@ const BillingRequestsPage = ({ navigate }) => {
 
         if (!result) {
             const s = String(dateVal).trim();
-            const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+            // Soporta DD/MM/YYYY o DD/MM/YY (ej: 03/10/26)
+            const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
             if (dmyMatch) {
                 const day = parseInt(dmyMatch[1], 10);
                 const month = parseInt(dmyMatch[2], 10) - 1;
-                const year = parseInt(dmyMatch[3], 10);
+                let year = parseInt(dmyMatch[3], 10);
+                if (year < 100) year += 2000; // Ej: 26 -> 2026
                 const d = new Date(year, month, day, 12, 0, 0);
                 if (!isNaN(d.getTime())) result = d;
             } else {
@@ -335,12 +337,79 @@ const BillingRequestsPage = ({ navigate }) => {
         }
 
         // Si la IA o comprobante antiguo leyó un año del pasado (ej. 2024 en lugar del año en curso 2026),
-        // ajustar el año al corriente para asegurar que la operación contable impacte en el ejercicio actual
+        // ajustar defensivamente el año al corriente para asegurar que la operación contable impacte en el ejercicio actual
         if (result.getFullYear() < currentYear) {
             result.setFullYear(currentYear);
         }
 
         return result;
+    };
+
+    // Helper para detectar fechas dudosas o que no coinciden con el ejercicio fiscal corriente
+    const checkSuspiciousDate = (dateVal) => {
+        if (!dateVal) return null;
+        const currentYear = new Date().getFullYear();
+        const now = new Date();
+
+        let originalYear = null;
+        let originalMonth = null;
+        let originalDay = null;
+
+        const s = String(dateVal).trim();
+        const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+        if (dmyMatch) {
+            originalDay = parseInt(dmyMatch[1], 10);
+            originalMonth = parseInt(dmyMatch[2], 10);
+            let y = parseInt(dmyMatch[3], 10);
+            if (y < 100) y += 2000;
+            originalYear = y;
+        } else {
+            const ymdMatch = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+            if (ymdMatch) {
+                originalYear = parseInt(ymdMatch[1], 10);
+                originalMonth = parseInt(ymdMatch[2], 10);
+                originalDay = parseInt(ymdMatch[3], 10);
+            } else {
+                const parsed = new Date(s);
+                if (!isNaN(parsed.getTime())) {
+                    originalYear = parsed.getFullYear();
+                    originalMonth = parsed.getMonth() + 1;
+                    originalDay = parsed.getDate();
+                }
+            }
+        }
+
+        if (!originalYear || isNaN(originalYear)) return null;
+
+        const isPastYear = originalYear < currentYear;
+        const isFutureYear = originalYear > currentYear;
+
+        if (isPastYear || isFutureYear) {
+            const pad = (n) => String(n).padStart(2, '0');
+            const safeMonth = (originalMonth >= 1 && originalMonth <= 12) ? originalMonth : (now.getMonth() + 1);
+            const safeDay = (originalDay >= 1 && originalDay <= 31) ? originalDay : now.getDate();
+
+            const suggestedCorrectedDate = `${currentYear}-${pad(safeMonth)}-${pad(safeDay)}`;
+            const suggestedCorrectedDisplay = `${pad(safeDay)}/${pad(safeMonth)}/${currentYear}`;
+            const todayDate = `${currentYear}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+            const todayDisplay = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${currentYear}`;
+
+            return {
+                isSuspicious: true,
+                detectedYear: originalYear,
+                currentYear,
+                originalDateFormatted: `${pad(safeDay)}/${pad(safeMonth)}/${originalYear}`,
+                suggestedCorrectedDate,
+                suggestedCorrectedDisplay,
+                todayDate,
+                todayDisplay,
+                reason: isPastYear
+                    ? `La IA detectó el año ${originalYear}, pero el ejercicio actual de trabajo es ${currentYear}. Podría ser un comprobante antiguo subido por error o una lectura errónea de la IA (ej. interpretar el año '26' como '24').`
+                    : `La IA detectó una fecha en el año futuro ${originalYear}. Se recomienda verificar.`
+            };
+        }
+
+        return null;
     };
 
     const [requests, setRequests] = useState([]);
@@ -1885,6 +1954,64 @@ const BillingRequestsPage = ({ navigate }) => {
         } 
     };
 
+    const handleQuickFixDate = async (req, newDateStr) => {
+        if (!req || !newDateStr) return;
+        try {
+            const safeDate = String(newDateStr).trim();
+            const localDate = parseLocalDate(safeDate);
+
+            const updatePayload = {
+                'aiData.fecha_pago': safeDate
+            };
+            if (req.manualData) {
+                updatePayload['manualData.fecha'] = safeDate;
+            }
+
+            await updateDoc(doc(db, 'billing_requests', req.id), updatePayload);
+
+            // Si el comprobante ya estaba asentado en el Libro de Operaciones, sincronizar la fecha
+            if (req.exportedToOperations) {
+                try {
+                    const party = getPartyDetails(req);
+                    const targetUids = resolveTargetClientUids(req, party);
+                    const candidateUids = new Set([
+                        ...targetUids,
+                        req.userId,
+                        user?.uid,
+                        party.terceroMatch?.id
+                    ].filter(Boolean));
+
+                    for (const cUid of candidateUids) {
+                        try {
+                            const qOp = query(
+                                collection(db, 'users', cUid, 'operations'),
+                                where('billingRequestId', '==', req.id)
+                            );
+                            const qSnap = await getDocs(qOp);
+                            for (const opDoc of qSnap.docs) {
+                                await updateDoc(opDoc.ref, {
+                                    fechaEmision: Timestamp.fromDate(localDate),
+                                    year: localDate.getFullYear(),
+                                    month: localDate.getMonth() + 1,
+                                    day: localDate.getDate()
+                                });
+                            }
+                        } catch (errSync) {
+                            console.error(`Error al actualizar fecha en operación vinculada para ${cUid}:`, errSync);
+                        }
+                    }
+                } catch (syncErr) {
+                    console.warn("Advertencia al sincronizar operación:", syncErr);
+                }
+            }
+
+            alert(`✅ Fecha actualizada correctamente a ${safeDate}.`);
+        } catch (err) {
+            console.error("Error al actualizar fecha de comprobante:", err);
+            alert(`Error al actualizar la fecha: ${err.message || ''}`);
+        }
+    };
+
     const handleDeleteRequest = async () => 
     { 
         if (!requestToDelete) return;
@@ -2050,7 +2177,12 @@ const BillingRequestsPage = ({ navigate }) => {
         const localDate = parseLocalDate(fechaRaw);
 
         const targetNombre = party.clienteNombre || party.terceroMatch?.nombre || 'el cliente';
-        if (!confirm(`¿Deseas asentar este registro de ${formatCurrency(parsedMonto)} como '${tipo.toUpperCase()}' en el Libro de Operaciones de ${targetNombre}?`)) {
+        const suspiciousInfo = checkSuspiciousDate(fechaRaw);
+        let confirmMsg = `¿Deseas asentar este registro de ${formatCurrency(parsedMonto)} como '${tipo.toUpperCase()}' en el Libro de Operaciones de ${targetNombre}?`;
+        if (suspiciousInfo) {
+            confirmMsg = `⚠️ ATENCIÓN: VERIFICAR FECHA DEL COMPROBANTE\n\nEl comprobante detectado tiene fecha ${suspiciousInfo.originalDateFormatted} (año ${suspiciousInfo.detectedYear}), pero el ejercicio fiscal actual es ${suspiciousInfo.currentYear}.\n\nSi la IA leyó incorrectamente el año o se subió un comprobante de un año anterior, puedes cancelar y usar los botones de sugerencia rápida o 'Corregir' para modificarlo.\n\nFecha asignada a la operación: ${localDate.toLocaleDateString('es-AR')}\n\n¿Deseas continuar y registrar de todas formas?`;
+        }
+        if (!confirm(confirmMsg)) {
             return;
         }
 
@@ -2619,7 +2751,18 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                 onClick={() => toggleDetails(req.id)}
                                                             >
                                                                 <td className="px-8 py-6 whitespace-nowrap text-sm font-bold text-gray-500">
-                                                                    {req.timestamp?.toDate().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                                                    <div className="flex flex-col">
+                                                                        <span>{req.aiData?.fecha_pago || req.timestamp?.toDate().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                                                        {(() => {
+                                                                            const susp = checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha);
+                                                                            if (!susp) return null;
+                                                                            return (
+                                                                                <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300 mt-1 w-fit shadow-xs animate-pulse" title={susp.reason}>
+                                                                                    <Icon name="AlertTriangle" size={11} className="text-amber-600" /> Año {susp.detectedYear} (Actual: {susp.currentYear})
+                                                                                </span>
+                                                                            );
+                                                                        })()}
+                                                                    </div>
                                                                 </td>
                                                                 <td className="px-8 py-6">
                                                                     <div className="flex items-center gap-2">
@@ -2662,7 +2805,7 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                             {/* Data Card */}
                                                                             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-blue-50/80 flex flex-col justify-between">
                                                                                 <div>
-                                                                                    <div className="flex justify-between items-center mb-8">
+                                                                                    <div className="flex justify-between items-center mb-6">
                                                                                         <div>
                                                                                             <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Detalle Técnico Extraído</h4>
                                                                                             <span className={`inline-block mt-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-md border ${party.isVenta ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-sky-50 text-sky-700 border-sky-100'}`}>
@@ -2671,15 +2814,79 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                                         </div>
                                                                                         <button 
                                                                                             onClick={() => openEditModal(req)} 
-                                                                                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-50'}`}
+                                                                                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-50 cursor-pointer'}`}
                                                                                         >
                                                                                             <Icon name="Edit" size={14}/> {req.status === 'pending' && !req.aiData && !req.isManualEntry ? 'Procesando...' : 'Corregir'}
                                                                                         </button>
                                                                                     </div>
+
+                                                                                    {/* Banner de alerta interactivo si la fecha es sospechosa */}
+                                                                                    {(() => {
+                                                                                        const susp = checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha);
+                                                                                        if (!susp) return null;
+                                                                                        return (
+                                                                                            <div className="mb-6 p-4 bg-amber-50/95 border-2 border-amber-300 rounded-2xl shadow-sm text-amber-950 animate-in fade-in duration-300">
+                                                                                                <div className="flex items-start gap-3">
+                                                                                                    <div className="p-2 bg-amber-200/90 rounded-xl text-amber-800 shrink-0 mt-0.5">
+                                                                                                        <Icon name="AlertTriangle" size={18} />
+                                                                                                    </div>
+                                                                                                    <div className="flex-1">
+                                                                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                                                                            <h5 className="font-black text-xs text-amber-900 tracking-tight">
+                                                                                                                Atención: Fecha detectada en {susp.detectedYear} (Año actual: {susp.currentYear})
+                                                                                                            </h5>
+                                                                                                            <span className="px-2 py-0.5 bg-amber-200 text-amber-900 font-black text-[9px] uppercase rounded-full tracking-wider">
+                                                                                                                Verificar Fecha
+                                                                                                            </span>
+                                                                                                        </div>
+                                                                                                        <p className="text-[11px] text-amber-800 mt-1 leading-relaxed">
+                                                                                                            {susp.reason}
+                                                                                                        </p>
+                                                                                                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                                                                            <button
+                                                                                                                type="button"
+                                                                                                                onClick={() => handleQuickFixDate(req, susp.suggestedCorrectedDate)}
+                                                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+                                                                                                                title={`Cambiar año ${susp.detectedYear} a ${susp.currentYear} manteniendo día y mes`}
+                                                                                                            >
+                                                                                                                <Icon name="Calendar" size={13} /> Corregir a {susp.suggestedCorrectedDisplay}
+                                                                                                            </button>
+                                                                                                            <button
+                                                                                                                type="button"
+                                                                                                                onClick={() => handleQuickFixDate(req, susp.todayDate)}
+                                                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+                                                                                                                title="Asignar la fecha de hoy"
+                                                                                                            >
+                                                                                                                <Icon name="Clock" size={13} /> Usar Hoy ({susp.todayDisplay})
+                                                                                                            </button>
+                                                                                                            <button
+                                                                                                                type="button"
+                                                                                                                onClick={() => openEditModal(req)}
+                                                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                                                                                                                title="Modificar manualmente en el panel de edición"
+                                                                                                            >
+                                                                                                                <Icon name="Edit" size={13} /> Modificar manual
+                                                                                                            </button>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        );
+                                                                                    })()}
+
                                                                                     <div className="grid grid-cols-2 gap-6 mb-8">
                                                                                         <div>
                                                                                             <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Pago</p>
-                                                                                            <p className="font-bold text-gray-800">{req.aiData?.fecha_pago || 'S/D'}</p>
+                                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                                <p className={`font-bold ${checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha) ? 'text-amber-800 font-black' : 'text-gray-800'}`}>
+                                                                                                    {req.aiData?.fecha_pago || 'S/D'}
+                                                                                                </p>
+                                                                                                {checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha) && (
+                                                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black rounded-md">
+                                                                                                        ⚠️ {checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha).detectedYear}
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
                                                                                         </div>
                                                                                         <div>
                                                                                             <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Tipo Comprobante</p>
@@ -3077,7 +3284,18 @@ const BillingRequestsPage = ({ navigate }) => {
                                                 {isAIAnalyzing ? (
                                                     <div className="h-4 bg-gray-100 rounded-lg w-20 animate-pulse"></div>
                                                 ) : (
-                                                    req.timestamp?.toDate().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                                    <div className="flex flex-col">
+                                                        <span>{req.aiData?.fecha_pago || req.timestamp?.toDate().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                                        {(() => {
+                                                            const susp = checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha);
+                                                            if (!susp) return null;
+                                                            return (
+                                                                <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300 mt-1 w-fit shadow-xs animate-pulse" title={susp.reason}>
+                                                                    <Icon name="AlertTriangle" size={11} className="text-amber-600" /> Año {susp.detectedYear} (Actual: {susp.currentYear})
+                                                                </span>
+                                                            );
+                                                        })()}
+                                                    </div>
                                                 )}
                                             </td>
                                             <td className="px-8 py-6">
@@ -3305,10 +3523,74 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                         </button>
                                                                     </div>
                                                                 )}
+
+                                                                {/* Banner de alerta interactivo si la fecha es sospechosa */}
+                                                                {(() => {
+                                                                    const susp = checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha);
+                                                                    if (!susp) return null;
+                                                                    return (
+                                                                        <div className="mb-6 p-4 bg-amber-50/95 border-2 border-amber-300 rounded-2xl shadow-sm text-amber-950 animate-in fade-in duration-300">
+                                                                            <div className="flex items-start gap-3">
+                                                                                <div className="p-2 bg-amber-200/90 rounded-xl text-amber-800 shrink-0 mt-0.5">
+                                                                                    <Icon name="AlertTriangle" size={18} />
+                                                                                </div>
+                                                                                <div className="flex-1">
+                                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                                        <h5 className="font-black text-xs text-amber-900 tracking-tight">
+                                                                                            Atención: Fecha detectada en {susp.detectedYear} (Año actual: {susp.currentYear})
+                                                                                        </h5>
+                                                                                        <span className="px-2 py-0.5 bg-amber-200 text-amber-900 font-black text-[9px] uppercase rounded-full tracking-wider">
+                                                                                            Verificar Fecha
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <p className="text-[11px] text-amber-800 mt-1 leading-relaxed">
+                                                                                        {susp.reason}
+                                                                                    </p>
+                                                                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => handleQuickFixDate(req, susp.suggestedCorrectedDate)}
+                                                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+                                                                                            title={`Cambiar año ${susp.detectedYear} a ${susp.currentYear} manteniendo día y mes`}
+                                                                                        >
+                                                                                            <Icon name="Calendar" size={13} /> Corregir a {susp.suggestedCorrectedDisplay}
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => handleQuickFixDate(req, susp.todayDate)}
+                                                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+                                                                                            title="Asignar la fecha de hoy"
+                                                                                        >
+                                                                                            <Icon name="Clock" size={13} /> Usar Hoy ({susp.todayDisplay})
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => openEditModal(req)}
+                                                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                                                                                            title="Modificar manualmente en el panel de edición"
+                                                                                        >
+                                                                                            <Icon name="Edit" size={13} /> Modificar manual
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })()}
+
                                                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                                                                     <div>
                                                                         <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Fecha de Pago</p>
-                                                                        <p className="font-bold text-gray-800 text-sm">{req.aiData?.fecha_pago || 'S/D'}</p>
+                                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                                            <p className={`font-bold text-sm ${checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha) ? 'text-amber-800 font-black' : 'text-gray-800'}`}>
+                                                                                {req.aiData?.fecha_pago || 'S/D'}
+                                                                            </p>
+                                                                            {checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha) && (
+                                                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black rounded-md">
+                                                                                    ⚠️ {checkSuspiciousDate(req.aiData?.fecha_pago || req.manualData?.fecha).detectedYear}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                     <div>
                                                                         <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Tipo</p>
@@ -4128,6 +4410,37 @@ const BillingRequestsPage = ({ navigate }) => {
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Fecha</label>
                                             <input type="date" value={editFormData.fecha_pago} onChange={e => setEditFormData({...editFormData, fecha_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
+                                            {(() => {
+                                                const susp = checkSuspiciousDate(editFormData.fecha_pago);
+                                                if (!susp) return null;
+                                                return (
+                                                    <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 text-xs mt-1 animate-in fade-in">
+                                                        <p className="font-bold flex items-center gap-1.5 text-amber-900">
+                                                            <Icon name="AlertTriangle" size={13} className="text-amber-600 shrink-0" />
+                                                            Año {susp.detectedYear} (Año actual: {susp.currentYear})
+                                                        </p>
+                                                        <p className="text-[10px] text-amber-800 mt-0.5 leading-snug">
+                                                            {susp.reason}
+                                                        </p>
+                                                        <div className="flex flex-wrap gap-1.5 mt-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditFormData({ ...editFormData, fecha_pago: susp.suggestedCorrectedDate })}
+                                                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] rounded-lg shadow-xs transition-all active:scale-95 cursor-pointer"
+                                                            >
+                                                                Cambiar a {susp.suggestedCorrectedDisplay}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditFormData({ ...editFormData, fecha_pago: susp.todayDate })}
+                                                                className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px] rounded-lg transition-all active:scale-95 cursor-pointer"
+                                                            >
+                                                                Usar Hoy ({susp.todayDisplay})
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Hora</label>
