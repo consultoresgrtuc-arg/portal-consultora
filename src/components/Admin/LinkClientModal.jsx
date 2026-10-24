@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebase';
 import { 
   doc, 
@@ -6,43 +6,75 @@ import {
   collection, 
   getDocs, 
   addDoc, 
-  Timestamp 
+  Timestamp,
+  query 
 } from 'firebase/firestore';
 import Icon from '../Common/Icon';
 
-const LinkClientModal = ({ targetUser, tercerosList, adminUid, onClose, onSuccess }) => {
+const LinkClientModal = ({ targetUser, tercerosList = [], adminUid, onClose, onSuccess }) => {
+    const [localTerceros, setLocalTerceros] = useState([]);
+    const [loadingLocal, setLoadingLocal] = useState(false);
+
+    // Fallback: si tercerosList viene vacío desde el padre, cargar directamente desde Firestore
+    useEffect(() => {
+        if ((!tercerosList || tercerosList.length === 0) && adminUid) {
+            setLoadingLocal(true);
+            const q = query(collection(db, 'users', adminUid, 'terceros'));
+            getDocs(q).then((snap) => {
+                setLocalTerceros(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            }).catch(err => {
+                console.error("Error al cargar terceros en modal:", err);
+            }).finally(() => {
+                setLoadingLocal(false);
+            });
+        }
+    }, [tercerosList, adminUid]);
+
+    const effectiveTerceros = useMemo(() => {
+        if (tercerosList && tercerosList.length > 0) return tercerosList;
+        return localTerceros;
+    }, [tercerosList, localTerceros]);
+
     const normUserCuit = useMemo(() => (targetUser?.cuit || '').replace(/\D/g, ''), [targetUser]);
     const userEmail = useMemo(() => (targetUser?.email || '').toLowerCase().trim(), [targetUser]);
 
     // Buscar sugerencia automática por CUIT o correo
     const suggestedTercero = useMemo(() => {
-        if (!tercerosList || tercerosList.length === 0) return null;
-        return tercerosList.find(t => {
+        if (!effectiveTerceros || effectiveTerceros.length === 0) return null;
+        return effectiveTerceros.find(t => {
             const normTCuit = (t.cuit || '').replace(/\D/g, '');
             const tEmail = (t.email || '').toLowerCase().trim();
             const matchCuit = normUserCuit && normUserCuit.length >= 10 && normTCuit === normUserCuit;
             const matchEmail = userEmail && tEmail && tEmail === userEmail;
             return matchCuit || matchEmail;
         });
-    }, [tercerosList, normUserCuit, userEmail]);
+    }, [effectiveTerceros, normUserCuit, userEmail]);
 
     const [selectedTerceroId, setSelectedTerceroId] = useState(
         targetUser?.terceroId || (suggestedTercero ? suggestedTercero.id : '')
     );
+
+    // Actualizar selectedTerceroId si la sugerencia se calcula luego de la carga
+    useEffect(() => {
+        if (!selectedTerceroId && suggestedTercero) {
+            setSelectedTerceroId(suggestedTercero.id);
+        }
+    }, [suggestedTercero, selectedTerceroId]);
+
     const [syncHistory, setSyncHistory] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [statusMessage, setStatusMessage] = useState('');
 
     const currentLinkedTercero = useMemo(() => {
         if (!targetUser?.terceroId) return null;
-        return tercerosList.find(t => t.id === targetUser.terceroId);
-    }, [targetUser, tercerosList]);
+        return effectiveTerceros.find(t => t.id === targetUser.terceroId);
+    }, [targetUser, effectiveTerceros]);
 
     const handleConfirmLink = async (e) => {
         e.preventDefault();
         if (!selectedTerceroId || !adminUid || !targetUser) return;
 
-        const selectedTercero = tercerosList.find(t => t.id === selectedTerceroId);
+        const selectedTercero = effectiveTerceros.find(t => t.id === selectedTerceroId);
         if (!selectedTercero) return;
 
         setIsSubmitting(true);
@@ -228,28 +260,54 @@ const LinkClientModal = ({ targetUser, tercerosList, adminUid, onClose, onSucces
 
                 <form onSubmit={handleConfirmLink} className="space-y-5">
                     <div>
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1 mb-2">
-                            Seleccionar Cliente de Cartera (Estudio)
-                        </label>
-                        <select
-                            value={selectedTerceroId}
-                            onChange={(e) => setSelectedTerceroId(e.target.value)}
-                            disabled={isSubmitting}
-                            className="w-full px-4 py-3 bg-white border-2 border-gray-200 focus:border-blue-500 rounded-2xl text-xs font-bold text-gray-800 outline-none transition-all cursor-pointer"
-                        >
-                            <option value="">-- Elige una Ficha de Cliente --</option>
-                            {tercerosList
-                                .filter(t => (t.tipo || 'Cliente').toLowerCase() !== 'proveedor')
-                                .map(t => {
-                                    const isSuggested = suggestedTercero?.id === t.id;
-                                    const alreadyLinkedOther = t.userId && t.userId !== targetUser.id;
-                                    return (
-                                        <option key={t.id} value={t.id}>
-                                            {isSuggested ? '✨ ' : ''}{t.nombre} (CUIT: {t.cuit || 'S/D'}) {alreadyLinkedOther ? '⚠️ Ya vinculado a otra cuenta' : ''}
+                        <div className="flex items-center justify-between mb-2 px-1">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">
+                                Seleccionar Cliente de Cartera (Estudio)
+                            </label>
+                            {loadingLocal && (
+                                <span className="text-[10px] text-blue-500 font-bold animate-pulse">
+                                    Cargando cartera...
+                                </span>
+                            )}
+                        </div>
+                        {(() => {
+                            const clientesDisponibles = effectiveTerceros.filter(
+                                t => (t.tipo || 'Cliente').toLowerCase() !== 'proveedor'
+                            );
+                            return (
+                                <>
+                                    <select
+                                        value={selectedTerceroId}
+                                        onChange={(e) => setSelectedTerceroId(e.target.value)}
+                                        disabled={isSubmitting || loadingLocal}
+                                        className="w-full px-4 py-3 bg-white border-2 border-gray-200 focus:border-blue-500 rounded-2xl text-xs font-bold text-gray-800 outline-none transition-all cursor-pointer"
+                                    >
+                                        <option value="">
+                                            {clientesDisponibles.length > 0
+                                                ? `-- Elige una Ficha de Cliente (${clientesDisponibles.length} disponibles) --`
+                                                : '-- No hay fichas de cliente en la cartera --'}
                                         </option>
-                                    );
-                                })}
-                        </select>
+                                        {clientesDisponibles.map(t => {
+                                            const isSuggested = suggestedTercero?.id === t.id;
+                                            const alreadyLinkedOther = t.userId && t.userId !== targetUser.id;
+                                            return (
+                                                <option key={t.id} value={t.id}>
+                                                    {isSuggested ? '✨ ' : ''}{t.nombre} (CUIT: {t.cuit || 'S/D'}) {alreadyLinkedOther ? '⚠️ Ya vinculado a otra cuenta' : ''}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                    {clientesDisponibles.length === 0 && !loadingLocal && (
+                                        <div className="mt-2.5 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-[11px] font-medium flex items-center gap-2">
+                                            <Icon name="AlertCircle" className="w-4 h-4 text-amber-600 shrink-0" />
+                                            <span>
+                                                No tienes fichas de clientes registradas en la libreta del estudio. Puedes darlas de alta desde <strong>Gestión → Terceros</strong>.
+                                            </span>
+                                        </div>
+                                    )}
+                                </>
+                            );
+                        })()}
                     </div>
 
                     {/* Sincronización Automática */}

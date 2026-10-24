@@ -14,7 +14,8 @@ import ConfirmModal from '../Common/ConfirmModal';
 import LinkClientModal from './LinkClientModal';
 
 const AdminPage = ({ navigate }) => {
-    const { userData } = useAuth();
+    const { user, userData } = useAuth();
+    const adminUid = user?.uid || userData?.uid || userData?.id;
     const [users, setUsers] = useState([]);
     const [tercerosList, setTercerosList] = useState([]);
     const [linkingUser, setLinkingUser] = useState(null);
@@ -43,15 +44,15 @@ const AdminPage = ({ navigate }) => {
     }, [userData]);
 
     useEffect(() => {
-        if (!userData?.uid || !userData?.isAdmin) return;
-        const qTerceros = query(collection(db, "users", userData.uid, "terceros"));
+        if (!adminUid || !userData?.isAdmin) return;
+        const qTerceros = query(collection(db, "users", adminUid, "terceros"));
         const unsubscribe = onSnapshot(qTerceros, (snapshot) => {
             setTercerosList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         }, (err) => {
             console.error("Error fetching terceros:", err);
         });
         return () => unsubscribe();
-    }, [userData?.uid, userData?.isAdmin]);
+    }, [adminUid, userData?.isAdmin]);
 
     const handleDeleteUser = async () => {
         if (!userToDelete) return;
@@ -285,7 +286,7 @@ const AdminPage = ({ navigate }) => {
                 <LinkClientModal
                     targetUser={linkingUser}
                     tercerosList={tercerosList}
-                    adminUid={userData.uid}
+                    adminUid={adminUid}
                     onClose={() => setLinkingUser(null)}
                     onSuccess={() => setLinkingUser(null)}
                 />

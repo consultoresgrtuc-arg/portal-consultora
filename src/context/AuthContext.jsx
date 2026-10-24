@@ -61,6 +61,8 @@ export const AuthProvider = ({ children }) => {
                         }
                         if (isAdminEmail && (!data.isAdmin || !data.permisos?.microcreditos)) {
                             const updated = {
+                                uid: firebaseUser.uid,
+                                id: firebaseUser.uid,
                                 ...data,
                                 isAdmin: true,
                                 permisos: {
@@ -79,10 +81,12 @@ export const AuthProvider = ({ children }) => {
                             setDoc(userDocRef, updated, { merge: true });
                             setUserData(updated);
                         } else {
-                            setUserData(data);
+                            setUserData({ uid: firebaseUser.uid, id: firebaseUser.uid, ...data });
                         }
                     } else {
                         const newUserProfile = {
+                            uid: firebaseUser.uid,
+                            id: firebaseUser.uid,
                             email: firebaseUser.email,
                             nombre: firebaseUser.displayName || (isAdminEmail ? 'Admin Test' : ''),
                             cuit: '',
