@@ -21,6 +21,7 @@ import Icon from '../Common/Icon';
 import ConfirmModal from '../Common/ConfirmModal';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { openWhatsApp, cleanWhatsAppNumber } from '../../utils/whatsapp';
 
 const WEBHOOK_URL = "https://us-central1-gyrconsultores-82422.cloudfunctions.net/whatsappWebhook";
 
@@ -1111,7 +1112,14 @@ const BillingRequestsPage = ({ navigate }) => {
         const party = getPartyDetails(req);
         const rawCuit = party.clienteCuit || '';
         const cuit = rawCuit.replace(/\D/g, '');
-        return req.userPhone || userProfilePhoneDictionary[cuit] || clientPhoneDictionary[cuit] || '';
+        return req.userPhone || 
+               req.senderPhone || 
+               party.terceroMatch?.telefono || 
+               userProfilePhoneDictionary[cuit] || 
+               clientPhoneDictionary[cuit] || 
+               req.telefono || 
+               req.clientPhone || 
+               '';
     };
 
     const uniqueClients = useMemo(() => {
@@ -2240,8 +2248,12 @@ const BillingRequestsPage = ({ navigate }) => {
 
     const sendWhatsAppNotification = (req) => {
         let phone = getReceptorPhone(req);
-        if (!phone) phone = prompt("Ingresa el número de celular del cliente (ej: 549381...):");
-        if (!phone) return;
+        if (!phone) {
+            phone = prompt(
+                "Ingresa el número de WhatsApp del cliente (ej: 381 555 1234):\nO deja el campo vacío y presiona 'Aceptar' para elegir el contacto directamente en WhatsApp:"
+            );
+            if (phone === null) return;
+        }
 
         const nombreCliente = getUnifiedName(req);
         const monto = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(req.aiData?.monto_total || 0);
@@ -2256,8 +2268,7 @@ const BillingRequestsPage = ({ navigate }) => {
             mensaje += `\n\nMuchas gracias!`;
         }
 
-        const urlWhatsApp = `https://wa.me/${phone}?text=${encodeURIComponent(mensaje)}`;
-        window.open(urlWhatsApp, '_blank');
+        openWhatsApp(phone, mensaje);
     };
 
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);

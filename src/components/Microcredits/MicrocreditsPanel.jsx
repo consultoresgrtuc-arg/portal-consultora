@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { db, auth } from '../../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { cleanWhatsAppNumber, openWhatsApp } from '../../utils/whatsapp';
 
 export default function MicrocreditsPanel({ userData }) {
   // --- CONFIGURACIÓN Y ESTADOS ---
@@ -116,20 +117,6 @@ export default function MicrocreditsPanel({ userData }) {
 
   const formatCurrency = (val) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val || 0);
 
-  const cleanWhatsAppNumber = (phone) => {
-    if (!phone) return '';
-    let clean = phone.replace(/\D/g, '');
-    if (!clean) return '';
-    // Formato Argentina: si ingresó 381..., agregar 549381...
-    if (clean.length === 10 && !clean.startsWith('54')) {
-      clean = '549' + clean;
-    } else if (clean.length === 11 && clean.startsWith('0')) {
-      clean = '549' + clean.slice(1);
-    } else if (clean.length === 12 && clean.startsWith('54') && !clean.startsWith('549')) {
-      clean = '549' + clean.slice(2);
-    }
-    return clean;
-  };
 
   // --- LÓGICA DE API GEMINI ---
   const callGemini = async (prompt, systemPrompt) => {
@@ -374,12 +361,7 @@ export default function MicrocreditsPanel({ userData }) {
 
   const enviarWhatsAppDirecto = () => {
     if (!aiCollectionMsg) return;
-    const phoneClean = cleanWhatsAppNumber(clienteTelefono);
-    const text = encodeURIComponent(aiCollectionMsg);
-    const url = phoneClean 
-      ? `https://wa.me/${phoneClean}?text=${text}`
-      : `https://wa.me/?text=${text}`;
-    window.open(url, '_blank');
+    openWhatsApp(clienteTelefono, aiCollectionMsg);
   };
 
   const generateSchedule = () => {
