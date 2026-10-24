@@ -717,17 +717,47 @@ const BillingRequestsPage = ({ navigate }) => {
         }
     }, [userData]);
 
+    const adminPhones = useMemo(() => {
+        const phones = new Set();
+        const addP = (p) => {
+            if (!p) return;
+            const c = String(p).replace(/\D/g, '');
+            if (c) {
+                phones.add(c);
+                if (c.length >= 8) phones.add(c.slice(-8));
+            }
+        };
+        if (userData?.telefono) addP(userData.telefono);
+        systemUsers.forEach(u => {
+            if (u.isAdmin || u.role === 'admin') {
+                if (u.telefono) addP(u.telefono);
+            }
+        });
+        return phones;
+    }, [userData, systemUsers]);
+
+    const isAdminPhone = (phone) => {
+        if (!phone) return false;
+        const c = String(phone).replace(/\D/g, '');
+        if (!c) return false;
+        if (adminPhones.has(c)) return true;
+        if (c.length >= 8 && adminPhones.has(c.slice(-8))) return true;
+        return false;
+    };
+
     const userProfilePhoneDictionary = useMemo(() => {
         const dict = {};
         systemUsers.forEach(u => {
+            // Excluir administradores para que no se use su teléfono en clientes
+            if (u.isAdmin || u.role === 'admin') return;
             const rawCuit = u.cuit || '';
             const cuit = rawCuit.replace(/\D/g, '');
-            if (cuit && u.telefono) {
+            if (cuit && u.telefono && !isAdminPhone(u.telefono)) {
                 dict[cuit] = u.telefono;
             }
         });
         return dict;
-    }, [systemUsers]);
+    }, [systemUsers, adminPhones]);
 
     // 1. Security check (activo por defecto salvo que se haya desactivado explícitamente)
     if (!loading && !userData?.isAdmin && (userData?.servicioFacturacion === false || userData?.permisos?.facturacion === false)) {
@@ -917,6 +947,7 @@ const BillingRequestsPage = ({ navigate }) => {
                 clienteCuit: rawCuit,
                 clienteBanco: (clienteEsEmisor ? req.aiData?.banco_origen : req.aiData?.banco_receptor) || req.aiData?.aplicacion_pago || '-',
                 terceroMatch,
+                userMatch: (!userByCuit?.isAdmin && userByCuit?.role !== 'admin') ? userByCuit : null,
                 contraparteLabel: 'Comprador (Pagador / Origen Fondos)',
                 contraparteNombre,
                 contraparteCuit,
@@ -989,6 +1020,7 @@ const BillingRequestsPage = ({ navigate }) => {
                 clienteCuit: rawCuit,
                 clienteBanco,
                 terceroMatch,
+                userMatch: (!userByCuit?.isAdmin && userByCuit?.role !== 'admin') ? userByCuit : null,
                 contraparteLabel: 'Proveedor / Comercio / Servicio',
                 contraparteNombre,
                 contraparteCuit,
@@ -1078,18 +1110,50 @@ const BillingRequestsPage = ({ navigate }) => {
 
     const clientPhoneDictionary = useMemo(() => {
         const dict = {}; 
-        visibleRequests.forEach(req => {
-            const party = getPartyDetails(req);
-            const rawCuit = party.clienteCuit || '';
-            const cuit = rawCuit.replace(/\D/g, ''); 
-            if (cuit && cuit.length > 5 && req.userPhone) {
-                if (!dict[cuit]) {
-                    dict[cuit] = req.userPhone;
+        // 1. Prioridad: Fichas de Terceros (Clientes del estudio ya cargados en el sistema)
+        tercerosList.forEach(t => {
+            const c = cleanCuit(t.cuit);
+            const phone = t.telefono || t.celular || t.whatsapp || t.phone;
+            if (c && c.length >= 10 && phone && !isAdminPhone(phone)) {
+                dict[c] = phone;
+            }
+        });
+        // 2. Usuarios del sistema clientes (no administradores)
+        systemUsers.forEach(u => {
+            if (u.isAdmin || u.role === 'admin') return;
+            const c = cleanCuit(u.cuit);
+            const phone = u.telefono || u.celular || u.whatsapp || u.phone;
+            if (c && c.length >= 10 && phone && !isAdminPhone(phone)) {
+                if (!dict[c]) {
+                    dict[c] = phone;
                 }
             }
         });
         return dict;
-    }, [visibleRequests]);
+    }, [tercerosList, systemUsers, adminPhones]);
+
+    const clientPhoneByNameDictionary = useMemo(() => {
+        const dict = {};
+        const normN = (s) => (s || '').toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        tercerosList.forEach(t => {
+            const name = normN(t.nombre);
+            const phone = t.telefono || t.celular || t.whatsapp || t.phone;
+            if (name && phone && !isAdminPhone(phone)) {
+                dict[name] = phone;
+            }
+        });
+        systemUsers.forEach(u => {
+            if (u.isAdmin || u.role === 'admin') return;
+            const name = normN(u.nombre);
+            const phone = u.telefono || u.celular || u.whatsapp || u.phone;
+            if (name && phone && !isAdminPhone(phone)) {
+                if (!dict[name]) {
+                    dict[name] = phone;
+                }
+            }
+        });
+        return dict;
+    }, [tercerosList, systemUsers, adminPhones]);
 
     const getUnifiedName = (req) => {
         const party = getPartyDetails(req);
@@ -1112,14 +1176,57 @@ const BillingRequestsPage = ({ navigate }) => {
         const party = getPartyDetails(req);
         const rawCuit = party.clienteCuit || '';
         const cuit = rawCuit.replace(/\D/g, '');
-        return req.userPhone || 
-               req.senderPhone || 
-               party.terceroMatch?.telefono || 
-               userProfilePhoneDictionary[cuit] || 
-               clientPhoneDictionary[cuit] || 
-               req.telefono || 
-               req.clientPhone || 
-               '';
+        const normN = (s) => (s || '').toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const clientNameNorm = normN(party.clienteNombre);
+
+        // 1. Ficha de Tercero vinculada directamente en party (cliente del estudio)
+        const tDirectPhone = party.terceroMatch?.telefono || party.terceroMatch?.celular || party.terceroMatch?.whatsapp || party.terceroMatch?.phone;
+        if (tDirectPhone && !isAdminPhone(tDirectPhone)) {
+            return tDirectPhone;
+        }
+
+        // 2. Diccionario de Clientes del Sistema por CUIT (Terceros del estudio y usuarios clientes)
+        if (cuit && clientPhoneDictionary[cuit] && !isAdminPhone(clientPhoneDictionary[cuit])) {
+            return clientPhoneDictionary[cuit];
+        }
+
+        // 3. Diccionario de Clientes del Sistema por Nombre (Terceros y usuarios clientes)
+        if (clientNameNorm && clientPhoneByNameDictionary[clientNameNorm] && !isAdminPhone(clientPhoneByNameDictionary[clientNameNorm])) {
+            return clientPhoneByNameDictionary[clientNameNorm];
+        }
+
+        // 4. Perfil de Usuario por CUIT (en caso de existir en systemUsers)
+        if (cuit && userProfilePhoneDictionary[cuit] && !isAdminPhone(userProfilePhoneDictionary[cuit])) {
+            return userProfilePhoneDictionary[cuit];
+        }
+
+        // 5. Usuario asignado en la solicitud si es un cliente del portal (no admin)
+        if (req.userId && req.userId !== 'unassigned') {
+            const u = systemUsers.find(sysU => sysU.id === req.userId);
+            if (u && !u.isAdmin && u.role !== 'admin' && u.telefono && !isAdminPhone(u.telefono)) {
+                return u.telefono;
+            }
+        }
+
+        // 6. Teléfono específico del cliente guardado en la solicitud (clientPhone)
+        if (req.clientPhone && !isAdminPhone(req.clientPhone)) {
+            return req.clientPhone;
+        }
+
+        // 7. Si fue enviado por WhatsApp por el cliente (senderPhone que no coincida con el admin)
+        if (req.senderPhone && !isAdminPhone(req.senderPhone)) {
+            return req.senderPhone;
+        }
+
+        // 8. userPhone o telefono solo si pertenece genuinamente a un cliente y NO al admin
+        if (req.userPhone && !isAdminPhone(req.userPhone)) {
+            return req.userPhone;
+        }
+        if (req.telefono && !isAdminPhone(req.telefono)) {
+            return req.telefono;
+        }
+
+        return '';
     };
 
     const uniqueClients = useMemo(() => {
@@ -1576,7 +1683,7 @@ const BillingRequestsPage = ({ navigate }) => {
                         await addDoc(collection(db, 'billing_requests'), {
                             userId: user.uid,
                             userName: userData.nombre || user.email,
-                            userPhone: userData.telefono || "",
+                            userPhone: userData?.isAdmin ? "" : (userData.telefono || ""),
                             userModoFacturacion: modo,
                             status: 'pending',
                             requestImageUrl: url,
@@ -1612,7 +1719,7 @@ const BillingRequestsPage = ({ navigate }) => {
                 await addDoc(collection(db, 'billing_requests'), {
                     userId: user.uid, 
                     userName: userData.nombre || user.email, 
-                    userPhone: userData.telefono || "",
+                    userPhone: userData?.isAdmin ? "" : (userData.telefono || ""),
                     userModoFacturacion: modo, 
                     status: 'pending', 
                     requestImageUrl: null, 
@@ -1822,7 +1929,7 @@ const BillingRequestsPage = ({ navigate }) => {
             cuit_receptor: cleanSD(!isVenta ? (req.aiData?.cuit_proveedor || req.aiData?.cuit_receptor || party.contraparteCuit) : (req.aiData?.cuit_receptor || party.clienteCuit)) || req.manualData?.cuitCliente || '',
             nombre_receptor: cleanSD(!isVenta ? (req.aiData?.nombre_proveedor || req.aiData?.nombre_receptor || party.contraparteNombre) : (req.aiData?.nombre_receptor || party.clienteNombre)) || req.manualData?.nombreCliente || '',
             banco_receptor: req.aiData?.banco_receptor || '',
-            userPhone: phoneToShow || req.userPhone || '', 
+            userPhone: phoneToShow || (!isAdminPhone(req.userPhone) ? req.userPhone : '') || '', 
             concepto_detectado: req.aiData?.concepto_detectado || '',
             cuotas: req.aiData?.cuotas || '',
             medio_pago_detalle: req.aiData?.medio_pago_detalle || '',
@@ -3338,7 +3445,7 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                             handleCreateTerceroQuick({
                                                                                 name: party.clienteNombre,
                                                                                 cuit: party.clienteCuit,
-                                                                                phone: req.userPhone
+                                                                                phone: getReceptorPhone(req)
                                                                             });
                                                                         }}
                                                                         disabled={creatingTerceroCuit === cleanCuit(party.clienteCuit)}
@@ -4662,7 +4769,7 @@ const BillingRequestsPage = ({ navigate }) => {
                         <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 mb-6 space-y-2 text-xs">
                             <div className="flex justify-between text-gray-600">
                                 <span className="font-bold">Remitente WhatsApp:</span>
-                                <span className="font-mono">{assigningRequest.senderPhone || assigningRequest.userPhone || 'S/D'}</span>
+                                <span className="font-mono">{assigningRequest.senderPhone || (!isAdminPhone(assigningRequest.userPhone) ? assigningRequest.userPhone : 'S/D')}</span>
                             </div>
                             <div className="flex justify-between text-gray-600">
                                 <span className="font-bold">Monto:</span>
