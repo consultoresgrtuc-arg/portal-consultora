@@ -113,16 +113,24 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                 onClick={() => setSidebarOpen(false)}
             ></div>
 
-            {/* Sidebar */}
+            {/* Sidebar con Efecto Azul Oscuro Elegante y Transparencia Glaseada */}
             <div className={`fixed inset-y-0 left-0 z-50 flex flex-col transition-all duration-300 ease-out transform 
                 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
                 lg:translate-x-0 lg:static lg:inset-0
                 ${isCollapsed ? 'lg:w-20' : 'lg:w-64'} w-64
-                bg-gray-900/95 backdrop-blur-xl border-r border-white/10 shadow-2xl`}
+                bg-[#0a1226]/85 backdrop-blur-2xl backdrop-saturate-150 border-r border-blue-500/20 shadow-[4px_0_35px_rgba(2,6,23,0.45)]`}
             >
-                <div className="flex items-center justify-between px-4 h-20 border-b border-white/10 bg-gradient-to-b from-white/5 to-transparent">
-                    <div className="flex items-center space-x-3 group overflow-hidden">
-                        <div className="shrink-0 rounded-xl overflow-hidden border border-white/10 shadow-lg shadow-black/40 group-hover:border-blue-500/50 transition-colors duration-300 w-11 h-11 bg-slate-950/80 flex items-center justify-center">
+                <div className={`relative flex items-center h-20 border-b border-blue-500/15 bg-gradient-to-b from-blue-500/[0.08] to-transparent transition-all duration-300 ${
+                    isCollapsed ? 'justify-center px-0' : 'justify-between px-4'
+                }`}>
+                    <div 
+                        onClick={() => isCollapsed && setIsCollapsed(false)}
+                        className={`flex items-center group overflow-hidden ${
+                            isCollapsed ? 'justify-center cursor-pointer' : 'space-x-3'
+                        }`}
+                        title={isCollapsed ? "Expandir barra lateral" : ""}
+                    >
+                        <div className="shrink-0 rounded-xl overflow-hidden border border-blue-400/25 shadow-lg shadow-blue-950/60 group-hover:border-blue-400/60 transition-all duration-300 w-11 h-11 bg-blue-950/60 backdrop-blur-md flex items-center justify-center">
                             <img 
                                 src="/logo.jpg" 
                                 alt="Logo G&R" 
@@ -131,53 +139,65 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                         </div>
                         {!isCollapsed && (
                             <div className="fade-in select-none">
-                                <span className="block text-lg font-black text-white tracking-tight leading-none text-white">G&R</span>
+                                <span className="block text-lg font-black text-white tracking-tight leading-none drop-shadow-sm">G&R</span>
                                 <span className="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Consultores</span>
                             </div>
                         )}
                     </div>
+
                     {/* Botón para colapsar en desktop */}
-                    <button 
-                        onClick={() => setIsCollapsed(!isCollapsed)}
-                        className="hidden lg:flex items-center justify-center p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
-                    >
-                        {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-                    </button>
+                    {isCollapsed ? (
+                        <button 
+                            onClick={() => setIsCollapsed(false)}
+                            className="hidden lg:flex absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 items-center justify-center rounded-full bg-[#0a1226] border border-blue-400/40 text-blue-200 hover:text-white hover:bg-blue-600 shadow-lg hover:scale-110 transition-all cursor-pointer z-50 backdrop-blur-md"
+                            title="Expandir barra lateral"
+                        >
+                            <ChevronRight size={14} />
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={() => setIsCollapsed(true)}
+                            className="hidden lg:flex items-center justify-center p-1.5 rounded-lg bg-blue-950/40 border border-blue-500/20 text-blue-200 hover:text-white hover:bg-blue-900/50 transition-all cursor-pointer backdrop-blur-md shadow-xs"
+                            title="Colapsar barra lateral"
+                        >
+                            <ChevronLeft size={16} />
+                        </button>
+                    )}
                 </div>
 
-                <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto custom-scrollbar">
+                <nav className="flex-1 px-3 py-6 space-y-1.5 overflow-y-auto sidebar-glass-scrollbar">
                     {filteredLinks.map(link => {
                         const isActive = currentRoute === link.path;
                         return (
                             <button 
                                 key={link.name} 
                                 onClick={() => { navigate(link.path); setSidebarOpen(false); }}
-                                className={`w-full group flex items-center py-3 text-sm font-medium rounded-xl transition-all duration-200 relative overflow-hidden mb-1
+                                className={`w-full group flex items-center py-3 text-sm font-medium rounded-xl transition-all duration-200 relative overflow-hidden mb-1 cursor-pointer
                                     ${isCollapsed ? 'justify-center px-0' : 'px-4'}
                                     ${isActive 
-                                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
-                                        : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                                        ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-600/35 border border-blue-400/30 backdrop-blur-md' 
+                                        : 'text-slate-300 hover:bg-blue-600/15 hover:text-white hover:backdrop-blur-md'
                                     }`}
                                 title={isCollapsed ? link.name : ''}
                             >
                                 {/* Indicador luminoso izquierdo */}
                                 {isActive && (
-                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-400 rounded-r-md"></div>
+                                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-cyan-400 shadow-[0_0_12px_#38bdf8] rounded-r-md"></div>
                                 )}
 
-                                <span className={`transition-transform duration-200 ${isCollapsed ? '' : 'mr-3'} ${isActive ? 'text-white scale-110' : 'text-gray-500 group-hover:text-gray-300'}`}>
+                                <span className={`transition-transform duration-200 ${isCollapsed ? '' : 'mr-3'} ${isActive ? 'text-white scale-110' : 'text-slate-400 group-hover:text-blue-200'}`}>
                                     {link.icon}
                                 </span>
-                                {!isCollapsed && <span className="fade-in">{link.name}</span>}
+                                {!isCollapsed && <span className="fade-in font-medium">{link.name}</span>}
                             </button>
                         );
                     })}
                 </nav>
                 
-                <div className="p-4 border-t border-white/10 bg-black/20">
+                <div className="p-4 border-t border-blue-500/15 bg-[#050b18]/60 backdrop-blur-md">
                     <button 
                         onClick={handleLogout} 
-                        className={`flex items-center justify-center py-2 text-xs font-bold text-gray-400 rounded-lg hover:bg-red-500/10 hover:text-red-400 transition-all border border-transparent hover:border-red-500/20 group cursor-pointer ${isCollapsed ? 'w-10 h-10 px-0 mx-auto' : 'w-full px-4'}`}
+                        className={`flex items-center justify-center py-2 text-xs font-bold text-slate-300 rounded-lg hover:bg-red-500/15 hover:text-red-300 transition-all border border-transparent hover:border-red-500/20 group cursor-pointer ${isCollapsed ? 'w-10 h-10 px-0 mx-auto' : 'w-full px-4'}`}
                         title="Cerrar Sesión"
                     >
                         <LogOut size={16} className={`${isCollapsed ? '' : 'mr-2'} group-hover:-translate-x-1 transition-transform`}/>
@@ -185,7 +205,7 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                     </button>
                     {!isCollapsed && (
                         <div className="mt-4 text-center fade-in">
-                            <p className="text-[10px] text-gray-600 font-mono tracking-wider uppercase">Vite Powered ✨ v2.7</p>
+                            <p className="text-[10px] text-blue-300/40 font-mono tracking-wider uppercase">G&R Consultores ✨ v2.7</p>
                         </div>
                     )}
                 </div>

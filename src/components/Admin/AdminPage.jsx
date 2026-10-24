@@ -197,26 +197,31 @@ const AdminPage = ({ navigate }) => {
                                         {u.isAdmin ? (
                                             <span className="text-[10px] text-gray-400 font-bold italic">Cuenta Administrador</span>
                                         ) : linkedTercero ? (
-                                            <div className="flex flex-col gap-1">
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                                        <Icon name="Link" className="w-3 h-3 text-emerald-500" />
-                                                        {linkedTercero.nombre}
-                                                    </span>
+                                            <div className="flex flex-col gap-1 items-start">
+                                                <div className="flex items-center gap-2">
                                                     <button
                                                         onClick={() => setLinkingUser(u)}
-                                                        className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-all shadow-sm cursor-pointer group"
+                                                        title="Hacer clic para ver detalles, cambiar o desvincular"
+                                                    >
+                                                        <Icon name="Link" className="w-3.5 h-3.5 text-emerald-600" />
+                                                        <span>{linkedTercero.nombre}</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setLinkingUser(u)}
+                                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-900 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border border-gray-200 hover:border-gray-300 cursor-pointer shadow-xs active:scale-95"
                                                         title="Gestionar o desvincular ficha de cliente"
                                                     >
-                                                        <Icon name="Settings" className="w-3.5 h-3.5" />
+                                                        <Icon name="Settings" className="w-3 h-3 text-gray-500" />
+                                                        <span>Gestionar</span>
                                                     </button>
                                                 </div>
-                                                <span className="text-[9px] text-gray-400 font-medium font-mono">CUIT: {linkedTercero.cuit || 'S/D'}</span>
+                                                <span className="text-[9px] text-gray-400 font-medium font-mono pl-1">CUIT Cartera: {linkedTercero.cuit || 'S/D'}</span>
                                             </div>
                                         ) : (
                                             <button
                                                 onClick={() => setLinkingUser(u)}
-                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-all active:scale-95 shadow-sm"
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-all active:scale-95 shadow-sm cursor-pointer"
                                             >
                                                 <Icon name="Link2" className="w-3.5 h-3.5 text-blue-500" />
                                                 Vincular a Ficha

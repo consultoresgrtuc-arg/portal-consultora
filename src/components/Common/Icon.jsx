@@ -56,10 +56,20 @@ import {
   Layers,
   Award,
   Activity,
-  ChevronRight
+  ChevronRight,
+  Settings,
+  Link,
+  Link2,
+  Unlink,
+  CheckCircle2
 } from 'lucide-react';
 
 const Icons = {
+  Settings,
+  Link,
+  Link2,
+  Unlink,
+  CheckCircle2,
   ClipboardList,
   Landmark,
   CreditCard,
