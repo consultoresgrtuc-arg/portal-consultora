@@ -200,7 +200,18 @@ const OperationsPage = () => {
                                                         <Icon name={['venta','ingreso'].includes(op.type) ? 'TrendingUp' : 'TrendingDown'} size={14}/>
                                                     </div>
                                                     <div>
-                                                        <div className="text-sm font-black text-gray-900 capitalize">{op.type}</div>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="text-sm font-black text-gray-900 capitalize">{op.type}</div>
+                                                            {op.cargadoPor && (
+                                                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                                                    op.cargadoPor === 'estudio' 
+                                                                        ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                                                                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                                }`}>
+                                                                    {op.cargadoPor === 'estudio' ? '🏛️ Estudio' : '👤 Cliente'}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <div className="text-[10px] text-gray-400 font-medium mt-0.5">{op.description}</div>
                                                     </div>
                                                 </div>

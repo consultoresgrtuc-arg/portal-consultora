@@ -27,6 +27,7 @@ dist-ssr
 seed_*.js
 seed_emulator_admin.js
 create_admin_user.js
+test_*.js
 
 # Environment files
 .env.local

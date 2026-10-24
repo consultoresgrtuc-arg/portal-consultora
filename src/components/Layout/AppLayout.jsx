@@ -325,6 +325,11 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                                                                             Gestión
                                                                         </span>
                                                                     )}
+                                                                    {client.isLinked && (
+                                                                        <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded shrink-0 ${isSelected ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800 border border-blue-200'}`}>
+                                                                            🔗 Vinculado
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                                 <p className={`text-[10px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
                                                                     CUIT: {client.cuit}

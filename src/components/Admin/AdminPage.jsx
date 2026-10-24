@@ -11,10 +11,13 @@ import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
 import ConfirmModal from '../Common/ConfirmModal';
+import LinkClientModal from './LinkClientModal';
 
 const AdminPage = ({ navigate }) => {
     const { userData } = useAuth();
     const [users, setUsers] = useState([]);
+    const [tercerosList, setTercerosList] = useState([]);
+    const [linkingUser, setLinkingUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [claimMessage, setClaimMessage] = useState('');
@@ -38,6 +41,17 @@ const AdminPage = ({ navigate }) => {
         });
         return () => unsubscribe();
     }, [userData]);
+
+    useEffect(() => {
+        if (!userData?.uid || !userData?.isAdmin) return;
+        const qTerceros = query(collection(db, "users", userData.uid, "terceros"));
+        const unsubscribe = onSnapshot(qTerceros, (snapshot) => {
+            setTercerosList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (err) => {
+            console.error("Error fetching terceros:", err);
+        });
+        return () => unsubscribe();
+    }, [userData?.uid, userData?.isAdmin]);
 
     const handleDeleteUser = async () => {
         if (!userToDelete) return;
@@ -145,16 +159,19 @@ const AdminPage = ({ navigate }) => {
                             <tr>
                                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Usuario</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Identificación</th>
+                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-widest">Ficha Estudio</th>
                                 <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">Servicio Facturación</th>
                                 <th className="px-6 py-4 text-right text-xs font-bold text-gray-400 uppercase tracking-widest">Gestión</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-50">
                             {loading ? (
-                                <tr><td colSpan="4" className="text-center py-20">
+                                <tr><td colSpan="5" className="text-center py-20">
                                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
                                 </td></tr>
-                            ) : users.map(u => (
+                            ) : users.map(u => {
+                                const linkedTercero = tercerosList.find(t => t.id === u.terceroId || t.userId === u.id);
+                                return (
                                 <tr key={u.id} className="hover:bg-gray-50 transition-colors group">
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="flex items-center gap-3">
@@ -174,6 +191,36 @@ const AdminPage = ({ navigate }) => {
                                         <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">
                                             {u.isAdmin ? 'Administrador' : 'Cliente'}
                                         </div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {u.isAdmin ? (
+                                            <span className="text-[10px] text-gray-400 font-bold italic">Cuenta Administrador</span>
+                                        ) : linkedTercero ? (
+                                            <div className="flex flex-col gap-1">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                        <Icon name="Link" className="w-3 h-3 text-emerald-500" />
+                                                        {linkedTercero.nombre}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setLinkingUser(u)}
+                                                        className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                                                        title="Gestionar o desvincular ficha de cliente"
+                                                    >
+                                                        <Icon name="Settings" className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </div>
+                                                <span className="text-[9px] text-gray-400 font-medium font-mono">CUIT: {linkedTercero.cuit || 'S/D'}</span>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => setLinkingUser(u)}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-all active:scale-95 shadow-sm"
+                                            >
+                                                <Icon name="Link2" className="w-3.5 h-3.5 text-blue-500" />
+                                                Vincular a Ficha
+                                            </button>
+                                        )}
                                     </td>
                                     <td className="px-6 py-4">
                                         {(() => {
@@ -227,11 +274,22 @@ const AdminPage = ({ navigate }) => {
                                         </div>
                                     </td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
             </div>
+
+            {linkingUser && (
+                <LinkClientModal
+                    targetUser={linkingUser}
+                    tercerosList={tercerosList}
+                    adminUid={userData.uid}
+                    onClose={() => setLinkingUser(null)}
+                    onSuccess={() => setLinkingUser(null)}
+                />
+            )}
 
             {userToDelete && (
                 <ConfirmModal 

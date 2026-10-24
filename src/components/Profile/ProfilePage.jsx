@@ -10,6 +10,7 @@ const ProfilePage = () => {
     const { user, userData, logoutNow } = useAuth();
     const [profile, setProfile] = useState({ 
         nombre: '', 
+        email: '',
         cuit: '', 
         actividad: '', 
         categoriaTributaria: 'Monotributo', 
@@ -21,17 +22,18 @@ const ProfilePage = () => {
     const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
     useEffect(() => { 
-        if (userData) {
+        if (userData || user) {
             setProfile(prev => ({
                 ...prev, 
-                nombre: userData.nombre || '',
-                cuit: userData.cuit || '',
-                actividad: userData.actividad || '',
-                categoriaTributaria: userData.categoriaTributaria || 'Monotributo',
-                telefono: userData.telefono || ''
+                nombre: userData?.nombre || user?.displayName || '',
+                email: userData?.email || user?.email || '',
+                cuit: userData?.cuit || '',
+                actividad: userData?.actividad || '',
+                categoriaTributaria: userData?.categoriaTributaria || 'Monotributo',
+                telefono: userData?.telefono || user?.phoneNumber || ''
             })); 
         }
-    }, [userData]);
+    }, [userData, user]);
     
     const handleChange = (e) => setProfile(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
@@ -92,6 +94,34 @@ const ProfilePage = () => {
                                 placeholder="Tu nombre"
                             />
                         </div>
+
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1 block">Correo Electrónico</label>
+                                {user?.email && (
+                                    <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                                        <Icon name="CheckCircle" className="w-3 h-3 text-emerald-500" />
+                                        Verificado por Google
+                                    </span>
+                                )}
+                            </div>
+                            <div className="relative">
+                                <input 
+                                    name="email" 
+                                    type="email"
+                                    value={profile.email} 
+                                    readOnly={Boolean(user?.email)}
+                                    onChange={handleChange} 
+                                    className={`w-full p-3 pl-10 bg-gray-50 border-transparent rounded-xl transition-all outline-none font-medium text-gray-700 shadow-sm ${user?.email ? 'cursor-not-allowed bg-gray-50/80 text-gray-500' : 'focus:bg-white focus:ring-2 focus:ring-blue-100'}`}
+                                    placeholder="nombre@gmail.com"
+                                    title={user?.email ? "Email asociado a tu cuenta de autenticación" : "Tu correo electrónico"}
+                                />
+                                <div className="absolute left-3 top-3.5 text-gray-400 pointer-events-none">
+                                    <Icon name="Mail" className="w-4 h-4" />
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="space-y-2">
                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1 block">CUIT/CUIL</label>
                             <input 
@@ -102,6 +132,18 @@ const ProfilePage = () => {
                                 placeholder="00-00000000-0"
                             />
                         </div>
+
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1 block">Teléfono de Contacto</label>
+                            <input 
+                                name="telefono" 
+                                value={profile.telefono} 
+                                onChange={handleChange} 
+                                className="w-full p-3 bg-gray-50 border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl transition-all outline-none font-medium text-gray-700 shadow-sm"
+                                placeholder="+54 9 11 ..."
+                            />
+                        </div>
+
                         <div className="space-y-2">
                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1 block">Actividad Principal</label>
                             <input 
@@ -112,6 +154,7 @@ const ProfilePage = () => {
                                 placeholder="Ej: Servicios de Software"
                             />
                         </div>
+
                         <div className="space-y-2">
                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1 block">Categoría Tributaria</label>
                             <select 
@@ -125,16 +168,6 @@ const ProfilePage = () => {
                                 <option value="Exento">Exento</option>
                                 <option value="Sociedad">Sociedad</option>
                             </select>
-                        </div>
-                        <div className="space-y-2 md:col-span-2">
-                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1 block">Teléfono de Contacto</label>
-                            <input 
-                                name="telefono" 
-                                value={profile.telefono} 
-                                onChange={handleChange} 
-                                className="w-full p-3 bg-gray-50 border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl transition-all outline-none font-medium text-gray-700 shadow-sm"
-                                placeholder="+54 9 11 ..."
-                            />
                         </div>
                     </div>
 

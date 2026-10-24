@@ -51,6 +51,9 @@ export const ClientSelectionProvider = ({ children }) => {
                 list.push({
                     id: docSnap.id,
                     terceroId: docSnap.id,
+                    userId: t.userId || null,
+                    userEmail: t.userEmail || '',
+                    isLinked: Boolean(t.userId),
                     name: t.nombre || 'Cliente sin nombre',
                     cuit: t.cuit || 'S/D',
                     email: t.email || '',
@@ -58,7 +61,7 @@ export const ClientSelectionProvider = ({ children }) => {
                     isStudio: false,
                     source: 'tercero',
                     categoriaTributaria: t.categoriaTributaria || 'Monotributo',
-                    modoFacturacion: 'estudio'
+                    modoFacturacion: t.modoFacturacion || 'estudio'
                 });
             });
 
@@ -78,8 +81,8 @@ export const ClientSelectionProvider = ({ children }) => {
         if (!userData?.isAdmin) {
             return user?.uid;
         }
-        return activeEntity?.id || user?.uid;
-    }, [userData?.isAdmin, activeEntity?.id, user?.uid]);
+        return activeEntity?.userId || activeEntity?.terceroId || activeEntity?.id || user?.uid;
+    }, [userData?.isAdmin, activeEntity, user?.uid]);
 
     const isViewingClient = useMemo(() => {
         return Boolean(userData?.isAdmin && activeEntity && !activeEntity.isStudio);

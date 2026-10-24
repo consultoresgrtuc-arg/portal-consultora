@@ -54,6 +54,11 @@ export const AuthProvider = ({ children }) => {
                     const isAdminEmail = firebaseUser.email?.toLowerCase().includes('admin');
                     if (docSnap.exists()) {
                         const data = docSnap.data();
+                        // Asegurar que el email de Google/Auth siempre esté presente en el documento de perfil
+                        if (!data.email && firebaseUser.email) {
+                            setDoc(userDocRef, { email: firebaseUser.email }, { merge: true });
+                            data.email = firebaseUser.email;
+                        }
                         if (isAdminEmail && (!data.isAdmin || !data.permisos?.microcreditos)) {
                             const updated = {
                                 ...data,

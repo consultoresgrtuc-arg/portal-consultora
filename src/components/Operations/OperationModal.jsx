@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
 
 const OperationModal = ({ op, onClose, targetUserId, targetEntityName }) => {
-    const { user } = useAuth();
+    const { user, userData } = useAuth();
     const effectiveUserId = targetUserId || user?.uid;
     const [formData, setFormData] = useState({
         type: op?.type || 'venta',
@@ -39,7 +39,8 @@ const OperationModal = ({ op, onClose, targetUserId, targetEntityName }) => {
             fechaEmision: Timestamp.fromDate(localDate),
             year: localDate.getFullYear(),
             month: localDate.getMonth() + 1,
-            day: localDate.getDate()
+            day: localDate.getDate(),
+            cargadoPor: op?.cargadoPor || (userData?.isAdmin ? 'estudio' : 'cliente')
         };
 
         try {
