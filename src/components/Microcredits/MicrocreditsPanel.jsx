@@ -31,7 +31,10 @@ import {
   Table,
   FileSpreadsheet,
   Printer,
-  ShieldCheck
+  ShieldCheck,
+  Receipt,
+  Scale,
+  Coins
 } from 'lucide-react';
 import { db, auth } from '../../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -79,6 +82,10 @@ export default function MicrocreditsPanel({ userData }) {
   // Estados para Cuadro de Amortización Francés
   const [showAmortizationModal, setShowAmortizationModal] = useState(false);
   const [amortizationTarget, setAmortizationTarget] = useState(null); // null = simulación en curso, objeto = cliente confirmado
+
+  // Estados para Imputación de Pagos (Art. 903 CCCN)
+  const [paymentModalData, setPaymentModalData] = useState(null); // { index, cuota }
+  const [montoAbonoInput, setMontoAbonoInput] = useState('');
 
   // Estados para la IA y Mensajería
   const [aiLoading, setAiLoading] = useState(false);
@@ -257,8 +264,17 @@ export default function MicrocreditsPanel({ userData }) {
         balance = saldoFinal;
 
         const lateDays = item.lateDays || 0;
-        const lateInterest = item.lateInterest || 0;
+        const lateInterest = typeof item.interes_punitorio_acumulado === 'number'
+          ? item.interes_punitorio_acumulado 
+          : (item.lateInterest || 0);
         const status = item.status || 'pending';
+
+        const saldoCapitalCuota = typeof item.saldo_capital_cuota === 'number'
+          ? item.saldo_capital_cuota
+          : (status === 'paid' ? 0 : principal);
+        const saldoCompCuota = typeof item.saldo_interes_compensatorio === 'number'
+          ? item.saldo_interes_compensatorio
+          : (status === 'paid' ? 0 : interest);
 
         totalAmort += principal;
         totalInteresCompensatorio += interest;
@@ -272,11 +288,13 @@ export default function MicrocreditsPanel({ userData }) {
           cuota,
           amortizacion: principal,
           interesCompensatorio: interest,
+          saldoCapitalCuota,
+          saldoCompCuota,
           saldoFinal,
           status,
           lateDays,
           lateInterest,
-          totalExigible: cuota + lateInterest
+          totalExigible: item.totalToPay !== undefined ? item.totalToPay : (saldoCapitalCuota + saldoCompCuota + lateInterest)
         });
       }
     }
@@ -419,54 +437,238 @@ export default function MicrocreditsPanel({ userData }) {
     if (result) setAiAnalysis(result);
   };
 
-  // --- MOTOR DE CÁLCULO DE DEUDA Y MORA CONSOLIDADA ---
+  // --- MOTOR DE CÁLCULO DE DEUDA Y MORA CONSOLIDADA (ARTS. 770 Y 903 CCCN) ---
   const parseLocalDate = (dateStr) => {
     if (!dateStr || dateStr === '---') return null;
     const [day, month, year] = dateStr.split('/');
     return new Date(year, month - 1, day);
   };
 
+  // Simulación de la cascada de imputación legal (Art. 903 CCCN):
+  // 1°) Cancelar interes_punitorio_acumulado
+  // 2°) Cancelar saldo_interes_compensatorio
+  // 3°) Remanente disminuye saldo_capital_cuota
+  const simularImputacionArt903 = (cuota, monto) => {
+    const montoNum = Math.round((parseFloat(monto) || 0) * 100) / 100;
+    
+    const principalOrig = typeof cuota.capitalOriginal === 'number' 
+      ? cuota.capitalOriginal 
+      : (typeof cuota.principal === 'number' ? cuota.principal : Math.max(0, cuota.cuotaPura - (cuota.interest || 0)));
+    const interestOrig = typeof cuota.interesCompensatorioOriginal === 'number' 
+      ? cuota.interesCompensatorioOriginal 
+      : (typeof cuota.interest === 'number' ? cuota.interest : 0);
+
+    const saldoPunitorio = cuota.interes_punitorio_acumulado !== undefined 
+      ? cuota.interes_punitorio_acumulado 
+      : (cuota.lateInterest || 0);
+    const saldoCompensatorio = cuota.saldo_interes_compensatorio !== undefined 
+      ? cuota.saldo_interes_compensatorio 
+      : (cuota.status === 'paid' ? 0 : interestOrig);
+    const saldoCapital = cuota.saldo_capital_cuota !== undefined 
+      ? cuota.saldo_capital_cuota 
+      : (cuota.status === 'paid' ? 0 : principalOrig);
+
+    let remanente = montoNum;
+
+    // 1° Cancelar interes_punitorio_acumulado
+    const pagoPunitorio = Math.min(remanente, saldoPunitorio);
+    const nuevoPunitorio = Math.round((saldoPunitorio - pagoPunitorio) * 100) / 100;
+    remanente = Math.round((remanente - pagoPunitorio) * 100) / 100;
+
+    // 2° Cancelar saldo_interes_compensatorio
+    const pagoCompensatorio = Math.min(remanente, saldoCompensatorio);
+    const nuevoCompensatorio = Math.round((saldoCompensatorio - pagoCompensatorio) * 100) / 100;
+    remanente = Math.round((remanente - pagoCompensatorio) * 100) / 100;
+
+    // 3° El remanente disminuye saldo_capital_cuota
+    const pagoCapital = Math.min(remanente, saldoCapital);
+    const nuevoCapital = Math.round((saldoCapital - pagoCapital) * 100) / 100;
+    remanente = Math.round((remanente - pagoCapital) * 100) / 100;
+
+    const totalExigibleRemanente = Math.round((nuevoCapital + nuevoCompensatorio + nuevoPunitorio) * 100) / 100;
+
+    return {
+      montoAbonado: montoNum,
+      pagoPunitorio,
+      pagoCompensatorio,
+      pagoCapital,
+      excedente: remanente,
+      saldoPunitorioOriginal: saldoPunitorio,
+      saldoCompensatorioOriginal: saldoCompensatorio,
+      saldoCapitalOriginal: saldoCapital,
+      nuevoPunitorio,
+      nuevoCompensatorio,
+      nuevoCapital,
+      totalExigibleRemanente,
+      esCancelacionTotal: totalExigibleRemanente <= 0
+    };
+  };
+
+  // Ejecución efectiva de imputación registrando el comprobante en la cuota
+  const ejecutarImputacionArt903 = (cuota, monto, fechaPagoStr = new Date().toISOString().split('T')[0]) => {
+    const sim = simularImputacionArt903(cuota, monto);
+    const historialPrevio = Array.isArray(cuota.pagos) ? cuota.pagos : [];
+
+    const nuevoPagoRegistro = {
+      id: Date.now().toString(),
+      fecha: fechaPagoStr,
+      montoTotal: sim.montoAbonado,
+      imputacion: {
+        punitorio: sim.pagoPunitorio,
+        compensatorio: sim.pagoCompensatorio,
+        capital: sim.pagoCapital,
+        excedente: sim.excedente
+      },
+      nuevoSaldoCapital: sim.nuevoCapital
+    };
+
+    const isPaid = sim.esCancelacionTotal;
+
+    const cuotaActualizada = {
+      ...cuota,
+      saldo_capital_cuota: sim.nuevoCapital,
+      saldo_interes_compensatorio: sim.nuevoCompensatorio,
+      interes_punitorio_acumulado: sim.nuevoPunitorio,
+      lateInterest: sim.nuevoPunitorio,
+      totalToPay: sim.totalExigibleRemanente,
+      status: isPaid ? 'paid' : (cuota.lateDays > 0 ? 'late' : 'pending'),
+      fechaUltimoCalculoMora: fechaPagoStr,
+      pagos: [...historialPrevio, nuevoPagoRegistro]
+    };
+
+    return { cuotaActualizada, detalle: nuevoPagoRegistro };
+  };
+
+  const abrirModalImputacion = (idx, cuota) => {
+    setPaymentModalData({ index: idx, cuota });
+    setMontoAbonoInput(cuota.totalToPay > 0 ? cuota.totalToPay.toString() : '');
+  };
+
+  const confirmarImputacionPago = () => {
+    if (!paymentModalData) return;
+    const monto = parseFloat(montoAbonoInput);
+    if (isNaN(monto) || monto <= 0) {
+      triggerNotification("Ingresa un monto válido a abonar");
+      return;
+    }
+    const { index, cuota } = paymentModalData;
+    const { cuotaActualizada } = ejecutarImputacionArt903(cuota, monto);
+
+    const newSchedule = [...schedule];
+    newSchedule[index] = cuotaActualizada;
+    setSchedule(newSchedule);
+    autoSaveCartera(newSchedule, checklist, clienteTelefono);
+
+    setPaymentModalData(null);
+    setMontoAbonoInput('');
+    triggerNotification(`Pago de ${formatCurrency(monto)} imputado con éxito (Art. 903 CCCN)`);
+  };
+
+  // Cálculo diario de mora sin anatocismo (Art. 770 CCCN)
+  // Base exclusiva: saldo_capital_cuota
   const checkAutoLateDays = (currentSchedule, currentParams) => {
     let changed = false;
     const now = new Date();
     now.setHours(0,0,0,0);
-    const moraDailyRate = (currentParams.moraTna / 100) / 365;
+    const moraDailyRate = ((parseFloat(currentParams.moraTna) || 0) / 100) / 365;
 
-    const newSchedule = currentSchedule.map(item => {
-      if (item.status === 'paid') return item;
-      
-      const limitDate = parseLocalDate(item.fecha);
-      if (!limitDate) return item;
-      
-      const diffTime = now - limitDate;
+    const newSchedule = currentSchedule.map(rawItem => {
+      const principalOrig = typeof rawItem.capitalOriginal === 'number' 
+        ? rawItem.capitalOriginal 
+        : (typeof rawItem.principal === 'number' ? rawItem.principal : Math.max(0, rawItem.cuotaPura - (rawItem.interest || 0)));
+      const interestOrig = typeof rawItem.interesCompensatorioOriginal === 'number' 
+        ? rawItem.interesCompensatorioOriginal 
+        : (typeof rawItem.interest === 'number' ? rawItem.interest : 0);
+
+      let saldoCapital = rawItem.saldo_capital_cuota !== undefined 
+        ? rawItem.saldo_capital_cuota 
+        : (rawItem.status === 'paid' ? 0 : principalOrig);
+      let saldoCompensatorio = rawItem.saldo_interes_compensatorio !== undefined 
+        ? rawItem.saldo_interes_compensatorio 
+        : (rawItem.status === 'paid' ? 0 : interestOrig);
+      let punitorioAcumulado = rawItem.interes_punitorio_acumulado !== undefined 
+        ? rawItem.interes_punitorio_acumulado 
+        : (rawItem.status === 'paid' ? 0 : (rawItem.lateInterest || 0));
+
+      if (rawItem.status === 'paid' || (saldoCapital <= 0 && saldoCompensatorio <= 0 && punitorioAcumulado <= 0)) {
+        return {
+          ...rawItem,
+          status: 'paid',
+          saldo_capital_cuota: 0,
+          saldo_interes_compensatorio: 0,
+          interes_punitorio_acumulado: 0,
+          lateInterest: 0,
+          totalToPay: 0
+        };
+      }
+
+      const limitDate = parseLocalDate(rawItem.fecha);
+      if (!limitDate) return rawItem;
+
+      const diffTime = now.getTime() - limitDate.getTime();
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      
+
       if (diffDays > 0) {
-        if (diffDays !== item.lateDays || item.status !== 'late') {
+        // Mora activa: fecha_actual > fecha_vencimiento
+        // Base de cálculo: EXCLUSIVAMENTE saldo_capital_cuota (Sin anatocismo - Art. 770 CCCN)
+        let nuevoPunitorio = punitorioAcumulado;
+
+        if (rawItem.fechaUltimoCalculoMora) {
+          const dUltimo = parseISODate(rawItem.fechaUltimoCalculoMora);
+          if (dUltimo) {
+            dUltimo.setHours(0,0,0,0);
+            const diffUltimo = Math.floor((now.getTime() - dUltimo.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffUltimo > 0 && saldoCapital > 0) {
+              const devengado = Math.round(saldoCapital * moraDailyRate * diffUltimo * 100) / 100;
+              nuevoPunitorio = Math.round((punitorioAcumulado + devengado) * 100) / 100;
+            }
+          }
+        } else {
+          // Devengamiento diario simple directo sobre saldo_capital_cuota
+          if (saldoCapital > 0) {
+            nuevoPunitorio = Math.round(saldoCapital * moraDailyRate * diffDays * 100) / 100;
+          }
+        }
+
+        const totalExigible = Math.round((saldoCapital + saldoCompensatorio + nuevoPunitorio) * 100) / 100;
+
+        if (diffDays !== rawItem.lateDays || nuevoPunitorio !== rawItem.interes_punitorio_acumulado || rawItem.status !== 'late') {
           changed = true;
-          const newLateDays = diffDays;
-          const lateInterest = Math.ceil(item.cuotaPura * moraDailyRate * newLateDays);
           return {
-            ...item,
-            lateDays: newLateDays,
-            lateInterest: lateInterest,
-            totalToPay: item.cuotaPura + lateInterest,
-            status: 'late'
+            ...rawItem,
+            saldo_capital_cuota: saldoCapital,
+            saldo_interes_compensatorio: saldoCompensatorio,
+            interes_punitorio_acumulado: nuevoPunitorio,
+            lateInterest: nuevoPunitorio,
+            lateDays: diffDays,
+            totalToPay: totalExigible,
+            status: 'late',
+            fechaUltimoCalculoMora: now.toISOString().split('T')[0]
           };
         }
       }
-      return item;
+
+      return {
+        ...rawItem,
+        saldo_capital_cuota: saldoCapital,
+        saldo_interes_compensatorio: saldoCompensatorio,
+        interes_punitorio_acumulado: punitorioAcumulado,
+        lateInterest: punitorioAcumulado,
+        totalToPay: Math.round((saldoCapital + saldoCompensatorio + punitorioAcumulado) * 100) / 100
+      };
     });
 
     return { newSchedule, changed };
   };
 
-  // Cálculo consolidado para evitar cualquier duplicación
+  // Cálculo consolidado de deuda con desglose de Capital, Compensatorio y Punitorio
   const calcularEstadoDeuda = (currentSchedule = schedule) => {
     const now = new Date();
     now.setHours(0,0,0,0);
 
     const cuotasVencidas = [];
+    let totalCapitalVencido = 0;
+    let totalCompensatorioVencido = 0;
     let totalCuotasVencidasPuras = 0;
     let totalInteresMora = 0;
     let totalDeudaVencida = 0;
@@ -475,19 +677,37 @@ export default function MicrocreditsPanel({ userData }) {
     for (const item of currentSchedule) {
       if (item.status === 'paid') continue;
 
+      const principalOrig = typeof item.capitalOriginal === 'number' 
+        ? item.capitalOriginal 
+        : (typeof item.principal === 'number' ? item.principal : Math.max(0, item.cuotaPura - (item.interest || 0)));
+      const interestOrig = typeof item.interesCompensatorioOriginal === 'number' 
+        ? item.interesCompensatorioOriginal 
+        : (typeof item.interest === 'number' ? item.interest : 0);
+
+      const saldoCapital = item.saldo_capital_cuota !== undefined ? item.saldo_capital_cuota : principalOrig;
+      const saldoComp = item.saldo_interes_compensatorio !== undefined ? item.saldo_interes_compensatorio : interestOrig;
+      const punitorio = item.interes_punitorio_acumulado !== undefined ? item.interes_punitorio_acumulado : (item.lateInterest || 0);
+      const totalExigible = item.totalToPay !== undefined ? item.totalToPay : Math.round((saldoCapital + saldoComp + punitorio) * 100) / 100;
+
       if (item.status === 'late' || item.lateDays > 0) {
         cuotasVencidas.push({
           week: item.week,
           fecha: item.fecha,
           cuotaPura: item.cuotaPura,
+          saldo_capital_cuota: saldoCapital,
+          saldo_interes_compensatorio: saldoComp,
+          interes_punitorio_acumulado: punitorio,
           lateDays: item.lateDays,
-          lateInterest: item.lateInterest,
-          totalToPay: item.totalToPay
+          lateInterest: punitorio,
+          totalToPay: totalExigible,
+          pagos: item.pagos || []
         });
-        totalCuotasVencidasPuras += item.cuotaPura;
-        totalInteresMora += item.lateInterest;
-        totalDeudaVencida += item.totalToPay;
-      } else if (!proximaCuota && item.status === 'pending') {
+        totalCapitalVencido += saldoCapital;
+        totalCompensatorioVencido += saldoComp;
+        totalCuotasVencidasPuras += (saldoCapital + saldoComp);
+        totalInteresMora += punitorio;
+        totalDeudaVencida += totalExigible;
+      } else if (!proximaCuota && (item.status === 'pending' || !item.status)) {
         const fechaLimit = parseLocalDate(item.fecha);
         let diasParaVencer = null;
         if (fechaLimit) {
@@ -498,6 +718,9 @@ export default function MicrocreditsPanel({ userData }) {
           week: item.week,
           fecha: item.fecha,
           cuotaPura: item.cuotaPura,
+          saldo_capital_cuota: saldoCapital,
+          saldo_interes_compensatorio: saldoComp,
+          totalToPay: totalExigible,
           diasParaVencer: diasParaVencer
         };
       }
@@ -506,6 +729,8 @@ export default function MicrocreditsPanel({ userData }) {
     return {
       tieneMora: cuotasVencidas.length > 0,
       cuotasVencidas,
+      totalCapitalVencido,
+      totalCompensatorioVencido,
       totalCuotasVencidasPuras,
       totalInteresMora,
       totalDeudaVencida,
@@ -523,23 +748,24 @@ export default function MicrocreditsPanel({ userData }) {
     }
 
     const desgloseCuotas = estado.cuotasVencidas.map(c => 
-      `• Cuota #${c.week} (Vto: ${c.fecha} | ${c.lateDays} días atraso): ${formatCurrency(c.cuotaPura)} + Int. mora: ${formatCurrency(c.lateInterest)} = Subtotal: ${formatCurrency(c.totalToPay)}`
+      `• Cuota #${c.week} (Vto: ${c.fecha} | ${c.lateDays} días atraso): Capital Vencido: ${formatCurrency(c.saldo_capital_cuota)} + Int. Compensatorio: ${formatCurrency(c.saldo_interes_compensatorio)} + Int. Punitorio Mora (Art. 770 CCCN): ${formatCurrency(c.interes_punitorio_acumulado)} = Exigible: ${formatCurrency(c.totalToPay)}`
     ).join('\n');
 
     const proximaCuotaTexto = estado.proximaCuota
-      ? `Próxima cuota (no vencida): Cuota #${estado.proximaCuota.week} con vencimiento el ${estado.proximaCuota.fecha} por ${formatCurrency(estado.proximaCuota.cuotaPura)}.`
+      ? `Próxima cuota (no vencida): Cuota #${estado.proximaCuota.week} con vencimiento el ${estado.proximaCuota.fecha} por ${formatCurrency(estado.proximaCuota.totalToPay)}.`
       : 'No registra cuotas pendientes posteriores.';
 
     const prompt = `Genera un mensaje de cobranza por WhatsApp para el cliente ${clienteNombre || 'Estimado Cliente'} emitido por Gramajo & Romero Consultores.
 
     DATOS EXACTOS CALCULADOS POR EL SISTEMA (Utiliza exactamente estos números, no los alteres ni dupliques):
     
-    DESGLOSE DE CUOTAS VENCIDAS:
+    DESGLOSE DE CUOTAS VENCIDAS (CÁLCULO SIN ANATOCISMO - ARTS. 770 y 903 CCCN):
     ${desgloseCuotas}
 
     RESUMEN CONSOLIDADO:
-    - Capital de cuotas vencidas: ${formatCurrency(estado.totalCuotasVencidasPuras)}
-    - Intereses por mora acumulados: ${formatCurrency(estado.totalInteresMora)}
+    - Saldo de Capital puro vencido: ${formatCurrency(estado.totalCapitalVencido)}
+    - Saldo de Interés compensatorio pactado: ${formatCurrency(estado.totalCompensatorioVencido)}
+    - Intereses punitorios por mora devengados (sobre capital vencido): ${formatCurrency(estado.totalInteresMora)}
     - TOTAL EXIGIBLE A LA FECHA: ${formatCurrency(estado.totalDeudaVencida)}
 
     INFORMACIÓN DE PRÓXIMO VENCIMIENTO:
@@ -547,10 +773,11 @@ export default function MicrocreditsPanel({ userData }) {
 
     REGLAS DE REDACCIÓN:
     1. Saludo formal y profesional en español de Argentina.
-    2. Detallar de forma ordenada y limpia cada una de las cuotas vencidas con su fecha de vencimiento original, días de mora, interés y subtotal.
+    2. Detallar de forma ordenada y transparente cada una de las cuotas vencidas con su fecha de vencimiento original, días de mora, interés punitorio y subtotal exigible.
     3. Resaltar en negrita el TOTAL GENERAL EXIGIBLE a regularizar.
-    4. Mencionar la fecha y monto de la próxima cuota a vencer para su debida planificación.
-    5. Solicitar coordinar el pago o enviar el comprobante de transferencia bancaria.`;
+    4. Indicar que ante un pago parcial, conforme al Art. 903 del CCCN, los abonos se imputan primero a cancelar intereses punitorios, luego intereses compensatorios y el remanente a capital puro, recalculándose la mora futura exclusivamente sobre el saldo de capital remanente.
+    5. Mencionar la fecha y monto de la próxima cuota a vencer para su debida planificación.
+    6. Solicitar coordinar el pago o enviar el comprobante de transferencia bancaria.`;
 
     const systemPrompt = "Eres el especialista de cobranzas y gestión financiera de Gramajo & Romero Consultores en Tucumán, Argentina. Escribe mensajes profesionales, concisos, estructurados y perfectamente adaptados para WhatsApp con emojis sobrios.";
 
@@ -631,12 +858,23 @@ export default function MicrocreditsPanel({ userData }) {
       let principal = cuotaFija - interest;
       balance -= principal;
       
+      const principalRounded = Math.round(principal * 100) / 100;
+      const interestRounded = Math.round(interest * 100) / 100;
+
       newSchedule.push({
         week: i,
         fecha: formatDateToLocal(calculateEndDate(params.fechaInicio, i, freq)),
         cuotaPura: cuotaFija,
-        principal: principal,
-        interest: interest,
+        principal: principalRounded,
+        interest: interestRounded,
+        // Desglose de cuota y saldos (Art. 770 y 903 CCCN)
+        saldo_capital_cuota: principalRounded,
+        saldo_interes_compensatorio: interestRounded,
+        interes_punitorio_acumulado: 0,
+        capitalOriginal: principalRounded,
+        interesCompensatorioOriginal: interestRounded,
+        fechaUltimoCalculoMora: null,
+        pagos: [],
         balance: Math.max(0, balance),
         status: 'pending', 
         lateDays: 0,
@@ -708,29 +946,76 @@ export default function MicrocreditsPanel({ userData }) {
 
   const updateLateDays = (index, days) => {
     const newSchedule = [...schedule];
-    const item = newSchedule[index];
+    const item = { ...newSchedule[index] };
+    const principalOrig = typeof item.capitalOriginal === 'number' 
+      ? item.capitalOriginal 
+      : (typeof item.principal === 'number' ? item.principal : Math.max(0, item.cuotaPura - (item.interest || 0)));
+    const interestOrig = typeof item.interesCompensatorioOriginal === 'number' 
+      ? item.interesCompensatorioOriginal 
+      : (typeof item.interest === 'number' ? item.interest : 0);
+
+    const saldoCapital = item.saldo_capital_cuota !== undefined ? item.saldo_capital_cuota : principalOrig;
+    const saldoComp = item.saldo_interes_compensatorio !== undefined ? item.saldo_interes_compensatorio : interestOrig;
+
     item.lateDays = days;
-    
-    const moraDailyRate = (params.moraTna / 100) / 365;
-    item.lateInterest = Math.ceil(item.cuotaPura * moraDailyRate * days); 
-    item.totalToPay = item.cuotaPura + item.lateInterest;
-    
+    const moraDailyRate = ((parseFloat(params.moraTna) || 0) / 100) / 365;
+
+    // BASE EXCLUSIVA: saldo_capital_cuota (Sin anatocismo - Art. 770 CCCN)
+    const nuevoPunitorio = days > 0 && saldoCapital > 0 
+      ? Math.round(saldoCapital * moraDailyRate * days * 100) / 100 
+      : 0;
+
+    item.interes_punitorio_acumulado = nuevoPunitorio;
+    item.lateInterest = nuevoPunitorio;
+    item.saldo_capital_cuota = saldoCapital;
+    item.saldo_interes_compensatorio = saldoComp;
+    item.totalToPay = Math.round((saldoCapital + saldoComp + nuevoPunitorio) * 100) / 100;
+
     if (days > 0 && item.status !== 'paid') {
       item.status = 'late';
     } else if (days === 0 && item.status === 'late') {
       item.status = 'pending';
     }
-    
+
+    newSchedule[index] = item;
     setSchedule(newSchedule);
     autoSaveCartera(newSchedule, checklist, clienteTelefono);
   };
 
   const togglePaymentStatus = (index) => {
     const newSchedule = [...schedule];
-    const currentStatus = newSchedule[index].status;
-    newSchedule[index].status = currentStatus === 'paid' 
-      ? (newSchedule[index].lateDays > 0 ? 'late' : 'pending') 
-      : 'paid';
+    const item = { ...newSchedule[index] };
+
+    if (item.status === 'paid') {
+      // Revertir a pendiente / mora restableciendo los saldos de capital e interés originales
+      const principalOrig = typeof item.capitalOriginal === 'number' 
+        ? item.capitalOriginal 
+        : (typeof item.principal === 'number' ? item.principal : Math.max(0, item.cuotaPura - (item.interest || 0)));
+      const interestOrig = typeof item.interesCompensatorioOriginal === 'number' 
+        ? item.interesCompensatorioOriginal 
+        : (typeof item.interest === 'number' ? item.interest : 0);
+
+      item.saldo_capital_cuota = principalOrig;
+      item.saldo_interes_compensatorio = interestOrig;
+
+      const moraDailyRate = ((parseFloat(params.moraTna) || 0) / 100) / 365;
+      const punitorio = item.lateDays > 0 ? Math.round(principalOrig * moraDailyRate * item.lateDays * 100) / 100 : 0;
+
+      item.interes_punitorio_acumulado = punitorio;
+      item.lateInterest = punitorio;
+      item.totalToPay = Math.round((principalOrig + interestOrig + punitorio) * 100) / 100;
+      item.status = item.lateDays > 0 ? 'late' : 'pending';
+      item.pagos = [];
+      item.fechaUltimoCalculoMora = null;
+
+      newSchedule[index] = item;
+    } else {
+      // Cancelación total de la cuota con imputación en cascada Art. 903 CCCN
+      const totalExigible = item.totalToPay || item.cuotaPura;
+      const { cuotaActualizada } = ejecutarImputacionArt903(item, totalExigible);
+      newSchedule[index] = cuotaActualizada;
+    }
+
     setSchedule(newSchedule);
     autoSaveCartera(newSchedule, checklist, clienteTelefono);
   };
@@ -937,8 +1222,16 @@ export default function MicrocreditsPanel({ userData }) {
 
     const tasaDirectaTotal = capital > 0 ? (totalInterest / capital) * 100 : 0;
     const mesesPlazo = ((periods * daysPerPeriod) / 30).toFixed(1);
-    const recaudado = schedule.filter(r => r.status === 'paid').reduce((acc, row) => acc + row.totalToPay, 0);
-    const saldoRestante = schedule.filter(r => r.status !== 'paid').reduce((acc, row) => acc + row.totalToPay, 0);
+    const recaudado = schedule.reduce((acc, row) => {
+      if (Array.isArray(row.pagos) && row.pagos.length > 0) {
+        return acc + row.pagos.reduce((pAcc, p) => pAcc + (p.montoTotal || 0), 0);
+      }
+      if (row.status === 'paid') {
+        return acc + (row.totalToPay || row.cuotaPura || 0);
+      }
+      return acc;
+    }, 0);
+    const saldoRestante = schedule.filter(r => r.status !== 'paid').reduce((acc, row) => acc + (row.totalToPay || 0), 0);
 
     return { 
       totalInterest, 
@@ -1328,7 +1621,7 @@ export default function MicrocreditsPanel({ userData }) {
                   <div className="flex items-start gap-2.5">
                     <Calculator size={18} className="text-emerald-700 flex-shrink-0 mt-0.5" />
                     <div>
-                      <strong className="font-bold">Regla de Amortización Francesa:</strong> Las cuotas son periódicas y constantes. En cada vencimiento, el interés compensatorio se calcula sobre el saldo deudor remanente, amortizándose progresivamente una mayor porción de capital hasta saldar el préstamo. Los eventuales intereses punitorios por mora se computan de forma separada sobre los días de atraso de cada vencimiento impago sin alterar el interés compensatorio pactado.
+                      <strong className="font-bold">Regla de Amortización Francesa y Punitorios (Arts. 770 y 903 CCCN):</strong> Las cuotas son periódicas y constantes. En cada vencimiento, el interés compensatorio se calcula sobre el saldo deudor remanente, amortizándose progresivamente una mayor porción de capital. Los intereses punitorios por mora se computan de forma separada exclusivamente sobre el saldo de capital vencido (<code className="font-bold text-emerald-900 bg-emerald-100 px-1 py-0.5 rounded">saldo_capital_cuota</code>) sin capitalización ni anatocismo (Art. 770 CCCN). Cualquier pago se imputa en orden legal: 1° Punitorios, 2° Compensatorios y 3° Capital puro (Art. 903 CCCN).
                     </div>
                   </div>
                   <div className="flex items-start gap-2.5 pt-2 border-t border-emerald-200/60">
@@ -1350,6 +1643,210 @@ export default function MicrocreditsPanel({ userData }) {
                   className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 px-6 rounded-xl text-xs transition-colors"
                 >
                   Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL DE IMPUTACIÓN DE PAGOS (ART. 903 CCCN) */}
+      {paymentModalData && (() => {
+        const { index, cuota } = paymentModalData;
+        const sim = simularImputacionArt903(cuota, montoAbonoInput || 0);
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[115] flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-slate-900 text-white p-5 sm:p-6 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-white/10 rounded-2xl border border-white/20 backdrop-blur-md">
+                    <Receipt size={24} className="text-blue-200" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                      Imputar Pago (Art. 903 CCCN)
+                    </h3>
+                    <p className="text-xs text-blue-100/90 font-medium">
+                      Cuota #{cuota.week} • Vencimiento: {cuota.fecha} {cuota.lateDays > 0 ? `(${cuota.lateDays}d mora)` : ''}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => { setPaymentModalData(null); setMontoAbonoInput(''); }}
+                  className="text-white/70 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors"
+                >
+                  <Plus className="rotate-45" size={24} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 sm:p-6 overflow-y-auto space-y-5 flex-1 scrollbar-thin scrollbar-thumb-slate-200">
+                {/* Desglose de saldos exigibles antes del pago */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    <span>Composición Exigible de la Cuota</span>
+                    <span className="text-blue-600 font-bold">Desglose Francés</span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-white p-2.5 rounded-xl border border-red-200 shadow-xs">
+                      <span className="text-[10px] font-bold text-red-600 uppercase block">1° Punitorio</span>
+                      <span className="text-xs sm:text-sm font-black text-red-700 mt-0.5 block">
+                        {formatCurrency(sim.saldoPunitorioOriginal)}
+                      </span>
+                      <span className="text-[9px] text-slate-400">Sin anatocismo</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-xs">
+                      <span className="text-[10px] font-bold text-amber-700 uppercase block">2° Compensatorio</span>
+                      <span className="text-xs sm:text-sm font-black text-amber-800 mt-0.5 block">
+                        {formatCurrency(sim.saldoCompensatorioOriginal)}
+                      </span>
+                      <span className="text-[9px] text-slate-400">Interés pactado</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-emerald-200 shadow-xs">
+                      <span className="text-[10px] font-bold text-emerald-700 uppercase block">3° Saldo Capital</span>
+                      <span className="text-xs sm:text-sm font-black text-emerald-800 mt-0.5 block">
+                        {formatCurrency(sim.saldoCapitalOriginal)}
+                      </span>
+                      <span className="text-[9px] text-slate-400">Amortización pura</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-200/80 flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-600">Total Exigible al Vencimiento:</span>
+                    <span className="text-base font-black text-slate-900">
+                      {formatCurrency(sim.saldoPunitorioOriginal + sim.saldoCompensatorioOriginal + sim.saldoCapitalOriginal)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Input de Monto a Abonar */}
+                <div>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5 block">
+                    Monto Abonado a Imputar (ARS)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">$</span>
+                    <input 
+                      type="number" 
+                      min="1"
+                      step="any"
+                      value={montoAbonoInput}
+                      onChange={(e) => setMontoAbonoInput(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl py-3 pl-8 pr-4 text-base font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    />
+                  </div>
+                  {/* Botones de selección rápida */}
+                  <div className="flex gap-2 mt-2">
+                    <button 
+                      type="button"
+                      onClick={() => setMontoAbonoInput(cuota.totalToPay.toString())}
+                      className="text-[11px] font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
+                    >
+                      Pagar Total ({formatCurrency(cuota.totalToPay)})
+                    </button>
+                    {(sim.saldoPunitorioOriginal + sim.saldoCompensatorioOriginal > 0) && (
+                      <button 
+                        type="button"
+                        onClick={() => setMontoAbonoInput((sim.saldoPunitorioOriginal + sim.saldoCompensatorioOriginal).toString())}
+                        className="text-[11px] font-bold bg-amber-50 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors border border-amber-200"
+                      >
+                        Intereses ({formatCurrency(sim.saldoPunitorioOriginal + sim.saldoCompensatorioOriginal)})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Cascada de Imputación Legal en Tiempo Real */}
+                {parseFloat(montoAbonoInput) > 0 && (
+                  <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-4 space-y-3 animate-in fade-in">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-900 uppercase tracking-wider">
+                      <Scale size={14} className="text-indigo-600" /> Prelación de Imputación (Art. 903 CCCN)
+                    </div>
+
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between items-center bg-white/90 p-2 rounded-lg border border-indigo-100/60">
+                        <span className="text-slate-600 font-medium">1° Cancelación Interés Punitorio:</span>
+                        <div className="text-right">
+                          <span className="font-bold text-red-600">-{formatCurrency(sim.pagoPunitorio)}</span>
+                          <span className="text-[10px] text-slate-400 block">Queda: {formatCurrency(sim.nuevoPunitorio)}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center bg-white/90 p-2 rounded-lg border border-indigo-100/60">
+                        <span className="text-slate-600 font-medium">2° Cancelación Interés Compensatorio:</span>
+                        <div className="text-right">
+                          <span className="font-bold text-amber-700">-{formatCurrency(sim.pagoCompensatorio)}</span>
+                          <span className="text-[10px] text-slate-400 block">Queda: {formatCurrency(sim.nuevoCompensatorio)}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center bg-white/90 p-2 rounded-lg border border-indigo-100/60">
+                        <span className="text-slate-600 font-medium">3° Amortización de Saldo Capital:</span>
+                        <div className="text-right">
+                          <span className="font-bold text-emerald-700">-{formatCurrency(sim.pagoCapital)}</span>
+                          <span className="text-[10px] font-bold text-emerald-900 block">Nuevo Capital: {formatCurrency(sim.nuevoCapital)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-indigo-200/60 flex justify-between items-center text-xs">
+                      <span className="font-bold text-indigo-950">Total Exigible Remanente:</span>
+                      <span className={`text-base font-black ${sim.totalExigibleRemanente === 0 ? 'text-emerald-700' : 'text-slate-900'}`}>
+                        {sim.totalExigibleRemanente === 0 ? 'CUOTA SALDADA ($0,00)' : formatCurrency(sim.totalExigibleRemanente)}
+                      </span>
+                    </div>
+
+                    {sim.nuevoCapital > 0 && cuota.lateDays > 0 && (
+                      <p className="text-[11px] text-indigo-800/90 italic bg-white/60 p-2.5 rounded-xl border border-indigo-100">
+                        ⚖️ <strong>Regla sin Anatocismo:</strong> A partir de mañana el interés punitorio diario ({params.moraTna}% TNA / 365) se devengará únicamente sobre el nuevo saldo de capital de <strong>{formatCurrency(sim.nuevoCapital)}</strong>.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Historial de pagos si existen */}
+                {Array.isArray(cuota.pagos) && cuota.pagos.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Abonos Registrados en esta Cuota ({cuota.pagos.length})
+                    </span>
+                    <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                      {cuota.pagos.map((p, pIdx) => (
+                        <div key={p.id || pIdx} className="bg-slate-50 border border-slate-200 p-2 rounded-xl text-[11px] flex justify-between items-center">
+                          <div>
+                            <span className="font-bold text-slate-700">{p.fecha}</span>: {formatCurrency(p.montoTotal)}
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            Pun: {formatCurrency(p.imputacion?.punitorio || 0)} | Comp: {formatCurrency(p.imputacion?.compensatorio || 0)} | Cap: {formatCurrency(p.imputacion?.capital || 0)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 flex-shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => { setPaymentModalData(null); setMontoAbonoInput(''); }}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="button"
+                  onClick={confirmarImputacionPago}
+                  disabled={!parseFloat(montoAbonoInput) || parseFloat(montoAbonoInput) <= 0}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2.5 px-6 rounded-xl text-xs flex items-center gap-2 shadow-md shadow-emerald-200 transition-all cursor-pointer"
+                >
+                  <Check size={16} /> Confirmar Imputación
                 </button>
               </div>
             </div>
@@ -1679,15 +2176,20 @@ export default function MicrocreditsPanel({ userData }) {
             {estadoDeuda.tieneMora && (
               <div className="bg-red-50/80 border-b border-red-100 p-4 px-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-red-100 text-red-600 rounded-xl">
-                    <AlertOctagon size={20} />
+                  <div className="p-2.5 bg-red-100 text-red-600 rounded-2xl shadow-xs">
+                    <AlertOctagon size={22} />
                   </div>
                   <div>
-                    <span className="text-xs font-black uppercase text-red-700 tracking-wider block">
-                      {estadoDeuda.cuotasVencidas.length} {estadoDeuda.cuotasVencidas.length === 1 ? 'Cuota Vencida' : 'Cuotas Vencidas'} Impagas
-                    </span>
-                    <span className="text-xs text-red-600 font-medium">
-                      Capital: {formatCurrency(estadoDeuda.totalCuotasVencidasPuras)} + Intereses Mora: {formatCurrency(estadoDeuda.totalInteresMora)}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-black uppercase text-red-700 tracking-wider">
+                        {estadoDeuda.cuotasVencidas.length} {estadoDeuda.cuotasVencidas.length === 1 ? 'Cuota Vencida' : 'Cuotas Vencidas'} Impagas
+                      </span>
+                      <span className="text-[10px] bg-red-200/80 text-red-800 font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
+                        <Scale size={11} /> Arts. 770 y 903 CCCN
+                      </span>
+                    </div>
+                    <span className="text-xs text-red-600 font-medium block mt-0.5">
+                      Capital: <strong className="font-bold text-slate-800">{formatCurrency(estadoDeuda.totalCapitalVencido)}</strong> • Int. Compensatorio: <strong className="font-bold text-slate-800">{formatCurrency(estadoDeuda.totalCompensatorioVencido)}</strong> • Mora Punitoria Diaria: <strong className="font-bold text-red-700">{formatCurrency(estadoDeuda.totalInteresMora)}</strong>
                     </span>
                   </div>
                 </div>
@@ -1699,7 +2201,7 @@ export default function MicrocreditsPanel({ userData }) {
                   <button 
                     onClick={generarMensajeCobranzaConsolidado}
                     className="bg-red-600 text-white p-2.5 rounded-xl hover:bg-red-700 transition-colors shadow-sm"
-                    title="Crear mensaje WhatsApp"
+                    title="Crear mensaje WhatsApp con desglose de mora"
                   >
                     <Send size={16} />
                   </button>
@@ -1713,67 +2215,132 @@ export default function MicrocreditsPanel({ userData }) {
                 <thead className="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-widest border-b">
                   <tr>
                     <th className="px-6 py-4 text-left">Cuota</th>
-                    <th className="px-4 py-4 text-right">Monto Fijo</th>
-                    <th className="px-4 py-4 text-center">Días Atraso</th>
-                    <th className="px-4 py-4 text-right">Mora</th>
-                    <th className="px-4 py-4 text-right">Total</th>
-                    <th className="px-6 py-4 text-center">Estado</th>
+                    <th className="px-4 py-4 text-left">Desglose Cuota</th>
+                    <th className="px-4 py-4 text-center">Días Mora</th>
+                    <th className="px-4 py-4 text-right">Mora Punitoria</th>
+                    <th className="px-4 py-4 text-right">Total Exigible</th>
+                    <th className="px-6 py-4 text-center">Gestión de Pago</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {schedule.length > 0 ? schedule.map((row, idx) => (
-                    <tr key={idx} className={`group hover:bg-slate-50/80 transition-all ${row.status === 'paid' ? 'bg-emerald-50/30' : row.status === 'late' ? 'bg-red-50/20' : ''}`}>
-                      <td className="px-6 py-4">
-                        <span className="font-bold text-slate-700 block"># {row.week}</span>
-                        <span className="text-[11px] font-bold text-blue-600 block mb-1">{row.fecha}</span>
-                      </td>
-                      <td className="px-4 py-4 text-right font-medium text-slate-600">
-                        {formatCurrency(row.cuotaPura)}
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <input 
-                          type="number" 
-                          min="0"
-                          disabled={row.status === 'paid'}
-                          value={row.lateDays}
-                          onChange={(e) => updateLateDays(idx, parseInt(e.target.value) || 0)}
-                          className="w-16 mx-auto bg-slate-100 border-none rounded-lg p-1.5 text-center text-xs focus:ring-2 focus:ring-red-300 outline-none disabled:opacity-30 font-bold"
-                        />
-                      </td>
-                      <td className="px-4 py-4 text-right font-bold text-red-500">
-                        {row.lateInterest > 0 ? `+${formatCurrency(row.lateInterest)}` : '-'}
-                      </td>
-                      <td className="px-4 py-4 text-right font-black text-slate-900">
-                        {formatCurrency(row.totalToPay)}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                           {row.status === 'late' && (
-                                <button 
-                                  onClick={generarMensajeCobranzaConsolidado} 
-                                  className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors" 
-                                  title="Generar mensaje de cobranza consolidado con IA ✨"
-                                >
-                                    <MessageSquare size={18} />
-                                </button>
-                           )}
-                           <button 
-                            onClick={() => togglePaymentStatus(idx)}
-                            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2
-                                ${row.status === 'paid' ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm' : row.status === 'late' ? 'bg-red-50 border-red-200 text-red-500 hover:bg-red-100' : 'bg-white border-slate-200 text-slate-300 hover:border-slate-400'}
-                            `}
-                            title={row.status === 'paid' ? 'Marcar como pendiente' : 'Marcar como cobrada'}
-                            >
-                            <Check size={20} />
-                            </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )) : (
-                    <tr>
-                        <td colSpan="6" className="py-12 text-center text-slate-400 italic font-medium">
-                            Configura los parámetros para ver el cronograma.
+                  {schedule.length > 0 ? schedule.map((row, idx) => {
+                    const saldoCap = row.saldo_capital_cuota !== undefined ? row.saldo_capital_cuota : row.principal;
+                    const saldoComp = row.saldo_interes_compensatorio !== undefined ? row.saldo_interes_compensatorio : row.interest;
+                    const punitorio = row.interes_punitorio_acumulado !== undefined ? row.interes_punitorio_acumulado : (row.lateInterest || 0);
+                    const tieneAbonos = Array.isArray(row.pagos) && row.pagos.length > 0;
+                    
+                    return (
+                      <tr key={idx} className={`group hover:bg-slate-50/80 transition-all ${row.status === 'paid' ? 'bg-emerald-50/30' : row.status === 'late' ? 'bg-red-50/20' : ''}`}>
+                        <td className="px-6 py-4">
+                          <span className="font-bold text-slate-800 block"># {row.week}</span>
+                          <span className="text-[11px] font-bold text-blue-600 block mb-0.5">{row.fecha}</span>
+                          {tieneAbonos && (
+                            <span className="text-[9px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded-full inline-block">
+                              {row.pagos.length} {row.pagos.length === 1 ? 'abono' : 'abonos'}
+                            </span>
+                          )}
                         </td>
+                        <td className="px-4 py-4">
+                          <div className="text-left font-sans">
+                            <span className="font-bold text-slate-800 text-xs block">{formatCurrency(row.cuotaPura)}</span>
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mt-0.5 font-mono">
+                              <span className="text-emerald-700 font-semibold" title="Saldo de amortización de capital puro">
+                                Cap: {formatCurrency(saldoCap)}
+                              </span>
+                              <span className="text-slate-300">•</span>
+                              <span className="text-amber-700 font-semibold" title="Saldo de interés compensatorio pactado">
+                                Int: {formatCurrency(saldoComp)}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <input 
+                            type="number" 
+                            min="0"
+                            disabled={row.status === 'paid'}
+                            value={row.lateDays || 0}
+                            onChange={(e) => updateLateDays(idx, parseInt(e.target.value) || 0)}
+                            className="w-16 mx-auto bg-slate-100 border-none rounded-lg p-1.5 text-center text-xs focus:ring-2 focus:ring-red-300 outline-none disabled:opacity-30 font-bold"
+                          />
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <span className={`font-bold ${punitorio > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                            {punitorio > 0 ? `+${formatCurrency(punitorio)}` : '-'}
+                          </span>
+                          {punitorio > 0 && (
+                            <span className="text-[9px] text-red-500/90 block font-medium">s/capital puro</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <span className="font-black text-slate-900 block text-sm">
+                            {formatCurrency(row.totalToPay)}
+                          </span>
+                          {row.status === 'paid' ? (
+                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full inline-block">
+                              Cancelada
+                            </span>
+                          ) : (saldoCap < (row.capitalOriginal || row.principal) || tieneAbonos) ? (
+                            <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full inline-block">
+                              Abono Parcial
+                            </span>
+                          ) : row.status === 'late' ? (
+                            <span className="text-[9px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-full inline-block">
+                              En Mora (+{row.lateDays}d)
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full inline-block">
+                              Al día
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            {/* Botón Imputar Abono Art. 903 */}
+                            <button 
+                              onClick={() => abrirModalImputacion(idx, row)}
+                              disabled={row.status === 'paid'}
+                              className="px-2.5 py-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 rounded-xl transition-all border border-blue-200 shadow-xs flex items-center gap-1 text-xs font-bold cursor-pointer"
+                              title="Imputar pago o abono conforme Art. 903 CCCN"
+                            >
+                              <Receipt size={14} className="text-blue-600" />
+                              <span className="text-[11px]">Abonar</span>
+                            </button>
+
+                            {/* Botón Mensaje Cobranza IA */}
+                            {row.status === 'late' && (
+                              <button 
+                                onClick={generarMensajeCobranzaConsolidado} 
+                                className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200" 
+                                title="Generar mensaje de cobranza consolidado con IA ✨"
+                              >
+                                <MessageSquare size={16} />
+                              </button>
+                            )}
+
+                            {/* Botón Cobro Rápido Total */}
+                            <button 
+                              onClick={() => togglePaymentStatus(idx)}
+                              className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all border-2 cursor-pointer
+                                ${row.status === 'paid' 
+                                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm' 
+                                  : row.status === 'late' 
+                                    ? 'bg-red-50 border-red-200 text-red-500 hover:bg-red-100' 
+                                    : 'bg-white border-slate-200 text-slate-300 hover:border-slate-400'}
+                              `}
+                              title={row.status === 'paid' ? 'Revertir cobro' : 'Marcar como cobrada al 100% (Art. 903)'}
+                            >
+                              <Check size={18} strokeWidth={row.status === 'paid' ? 3 : 2} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }) : (
+                    <tr>
+                      <td colSpan="6" className="py-12 text-center text-slate-400 italic font-medium">
+                        Configura los parámetros para ver el cronograma.
+                      </td>
                     </tr>
                   )}
                 </tbody>
