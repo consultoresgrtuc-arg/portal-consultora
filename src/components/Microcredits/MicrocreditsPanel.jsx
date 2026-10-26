@@ -27,7 +27,11 @@ import {
   AlertOctagon,
   CalendarDays,
   ExternalLink,
-  Edit3
+  Edit3,
+  Table,
+  FileSpreadsheet,
+  Printer,
+  ShieldCheck
 } from 'lucide-react';
 import { db, auth } from '../../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -35,11 +39,19 @@ import { cleanWhatsAppNumber, openWhatsApp } from '../../utils/whatsapp';
 
 export default function MicrocreditsPanel({ userData }) {
   // --- CONFIGURACIÓN Y ESTADOS ---
+  const todayStr = new Date().toISOString().split('T')[0];
+  const initialFirstDue = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split('T')[0];
+  })();
+
   const defaultParams = {
     capital: 1000000,
     weeks: 12,
     frecuencia: 'semanal',
-    fechaInicio: new Date().toISOString().split('T')[0],
+    fechaOtorgamiento: todayStr,
+    fechaInicio: initialFirstDue,
     tna: 120, 
     moraTna: 180, 
     sellosRate: 1.0, 
@@ -64,6 +76,10 @@ export default function MicrocreditsPanel({ userData }) {
   const [clienteTelefono, setClienteTelefono] = useState('');
   const [showNotification, setShowNotification] = useState(null);
   
+  // Estados para Cuadro de Amortización Francés
+  const [showAmortizationModal, setShowAmortizationModal] = useState(false);
+  const [amortizationTarget, setAmortizationTarget] = useState(null); // null = simulación en curso, objeto = cliente confirmado
+
   // Estados para la IA y Mensajería
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState(null);
@@ -93,6 +109,69 @@ export default function MicrocreditsPanel({ userData }) {
   }, [user]);
 
   // --- UTILIDADES DE FECHAS Y FORMATO ---
+  const parseISODate = (str) => {
+    if (!str) return null;
+    const parts = str.split('-');
+    if (parts.length !== 3) return null;
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  };
+
+  const getFechaOtorgamiento = (p, client) => {
+    if (p?.fechaOtorgamiento) return p.fechaOtorgamiento;
+    if (client?.createdAt) return client.createdAt.split('T')[0];
+    if (client?.fechaCreacion) {
+      const parts = client.fechaCreacion.split('/');
+      if (parts.length === 3) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+    if (p?.fechaInicio) {
+      const freq = p.frecuencia || 'semanal';
+      const days = freq === 'mensual' ? 30 : (freq === 'quincenal' ? 15 : 7);
+      const d = parseISODate(p.fechaInicio);
+      if (d) {
+        d.setDate(d.getDate() - days);
+        return d.toISOString().split('T')[0];
+      }
+    }
+    return new Date().toISOString().split('T')[0];
+  };
+
+  // Motor numérico para calcular tasas anuales efectivas (TEA y CFT EA) considerando fechas reales (XIRR)
+  const solveAnnualRate = (initialAmount, paymentsWithDays) => {
+    if (initialAmount <= 0 || !paymentsWithDays || paymentsWithDays.length === 0) return 0;
+    const totalPayments = paymentsWithDays.reduce((acc, p) => acc + p.amount, 0);
+    if (totalPayments <= initialAmount) return 0;
+
+    const npv = (r) => {
+      let sum = 0;
+      for (const p of paymentsWithDays) {
+        sum += p.amount / Math.pow(1 + r, p.days / 365);
+      }
+      return sum - initialAmount;
+    };
+
+    let low = 0.0;
+    let high = 50.0;
+    while (npv(high) > 0 && high < 500.0) {
+      high *= 2;
+    }
+
+    for (let i = 0; i < 60; i++) {
+      const mid = (low + high) / 2;
+      const val = npv(mid);
+      if (Math.abs(val) < 1e-4) {
+        return mid * 100;
+      }
+      if (val > 0) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    return ((low + high) / 2) * 100;
+  };
+
   const calculateEndDate = (startDateStr, periods, freq) => {
     if (!startDateStr || !periods) return null;
     const [year, month, day] = startDateStr.split('-').map(Number);
@@ -117,6 +196,167 @@ export default function MicrocreditsPanel({ userData }) {
 
   const formatCurrency = (val) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val || 0);
 
+  const formatCurrencyWithDecimals = (val) => new Intl.NumberFormat('es-AR', { 
+    style: 'currency', 
+    currency: 'ARS',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2 
+  }).format(val || 0);
+
+  // Generador de datos del Cuadro de Amortización Francés (precisión financiera exacta)
+  const getAmortizationData = (targetCliente = null) => {
+    const p = targetCliente ? targetCliente.params : params;
+    const s = targetCliente ? targetCliente.schedule : schedule;
+    const client = targetCliente || (clienteId ? cartera.find(c => c.id === clienteId) : null);
+    
+    const capital = parseFloat(p.capital) || 0;
+    const tna = parseFloat(p.tna) || 0;
+    const periods = parseInt(p.weeks) || 0;
+    const freq = p.frecuencia || 'semanal';
+    const daysPerPeriod = freq === 'mensual' ? 30 : (freq === 'quincenal' ? 15 : 7);
+
+    const fechaOtorgamientoStr = getFechaOtorgamiento(p, client);
+    const dOtorgamiento = parseISODate(fechaOtorgamientoStr) || new Date();
+    const dPrimeraCuota = parseISODate(p.fechaInicio) || dOtorgamiento;
+    const diffMs = dPrimeraCuota.getTime() - dOtorgamiento.getTime();
+    const diasPrimeraCuota = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+    const diasEstandar = daysPerPeriod;
+
+    const r = (tna / 100) * (daysPerPeriod / 365);
+    const r1 = (tna / 100) * (diasPrimeraCuota / 365);
+
+    let rows = [];
+    let balance = capital;
+    let totalAmort = 0;
+    let totalInteresCompensatorio = 0;
+    let totalCuotaPura = 0;
+    let totalInteresPunitorio = 0;
+
+    if (s && s.length > 0) {
+      for (let i = 0; i < s.length; i++) {
+        const item = s[i];
+        const saldoInicial = balance;
+        const currentRate = i === 0 ? r1 : r;
+        const interest = typeof item.interest === 'number' && !isNaN(item.interest)
+          ? item.interest 
+          : Math.round(saldoInicial * currentRate * 100) / 100;
+        
+        let principal = 0;
+        let cuota = item.cuotaPura || 0;
+        let saldoFinal = 0;
+
+        if (i === s.length - 1) {
+          principal = saldoInicial;
+          saldoFinal = 0;
+        } else {
+          principal = typeof item.principal === 'number' && !isNaN(item.principal)
+            ? item.principal 
+            : Math.round((cuota - interest) * 100) / 100;
+          saldoFinal = Math.max(0, Math.round((saldoInicial - principal) * 100) / 100);
+        }
+        balance = saldoFinal;
+
+        const lateDays = item.lateDays || 0;
+        const lateInterest = item.lateInterest || 0;
+        const status = item.status || 'pending';
+
+        totalAmort += principal;
+        totalInteresCompensatorio += interest;
+        totalCuotaPura += cuota;
+        totalInteresPunitorio += lateInterest;
+
+        rows.push({
+          cuotaNum: item.week || (i + 1),
+          fecha: item.fecha,
+          saldoInicial,
+          cuota,
+          amortizacion: principal,
+          interesCompensatorio: interest,
+          saldoFinal,
+          status,
+          lateDays,
+          lateInterest,
+          totalExigible: cuota + lateInterest
+        });
+      }
+    }
+
+    const sellosRate = parseFloat(p.sellosRate) || 0;
+    const sellosTax = Math.ceil(totalCuotaPura * (sellosRate / 100));
+    const capitalNetoDesembolsado = Math.max(0, capital - sellosTax);
+
+    // Flujos reales de fondos con fechas exactas para TEA y CFT EA
+    const paymentsWithDays = [];
+    if (s && s.length > 0) {
+      for (let i = 0; i < s.length; i++) {
+        const item = s[i];
+        const cuotaDate = calculateEndDate(p.fechaInicio, i + 1, freq);
+        let daysFromStart = diasPrimeraCuota + i * diasEstandar;
+        if (cuotaDate && dOtorgamiento) {
+          const diff = cuotaDate.getTime() - dOtorgamiento.getTime();
+          daysFromStart = Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
+        }
+        paymentsWithDays.push({
+          amount: item.cuotaPura,
+          days: daysFromStart
+        });
+      }
+    }
+
+    let tea = 0;
+    let cftEa = 0;
+    if (capital > 0 && paymentsWithDays.length > 0) {
+      tea = solveAnnualRate(capital, paymentsWithDays);
+      cftEa = solveAnnualRate(capitalNetoDesembolsado, paymentsWithDays);
+    }
+
+    return {
+      clienteNombre: targetCliente ? targetCliente.nombre : (clienteNombre || 'Simulación Actual'),
+      telefono: targetCliente ? targetCliente.telefono : clienteTelefono,
+      capital,
+      capitalNetoDesembolsado,
+      sellosRate,
+      sellosTax,
+      tna,
+      tea,
+      cftEa,
+      periods,
+      freq,
+      diasPrimeraCuota,
+      diasEstandar,
+      fechaOtorgamientoStr,
+      fechaInicioStr: p.fechaInicio,
+      rows,
+      totales: {
+        capital: totalAmort,
+        interesCompensatorio: totalInteresCompensatorio,
+        cuotaPura: totalCuotaPura,
+        interesPunitorio: totalInteresPunitorio,
+        totalGeneral: totalCuotaPura + totalInteresPunitorio
+      }
+    };
+  };
+
+  const abrirModalAmortizacionActual = () => {
+    setAmortizationTarget(null);
+    setShowAmortizationModal(true);
+  };
+
+  const abrirModalAmortizacionCliente = (c) => {
+    setAmortizationTarget(c);
+    setShowAmortizationModal(true);
+  };
+
+  const copiarAmortizacionParaExcel = (data) => {
+    let tsv = "N°\tFecha de pago\tSaldo inicial\tCuota\tAmort de Capital\tInterés Compensatorio\tSaldo final\tDetalle\n";
+    tsv += `0\t${data.fechaOtorgamientoStr}\t0.00\t-${data.sellosTax.toFixed(2)}\t0.00\t0.00\t${data.capital.toFixed(2)}\tDesembolso Inicial (Retención Sellos DGR ${data.sellosRate}% - Neto Entregado: ${data.capitalNetoDesembolsado.toFixed(2)})\n`;
+    for (const r of data.rows) {
+      tsv += `${r.cuotaNum}\t${r.fecha}\t${r.saldoInicial.toFixed(2)}\t${r.cuota.toFixed(2)}\t${r.amortizacion.toFixed(2)}\t${r.interesCompensatorio.toFixed(2)}\t${r.saldoFinal.toFixed(2)}\t${r.status || 'pendiente'}\n`;
+    }
+    tsv += `TOTALES\t\t\t${data.totales.cuotaPura.toFixed(2)}\t${data.totales.capital.toFixed(2)}\t${data.totales.interesCompensatorio.toFixed(2)}\t0.00\tCFT EA: ${data.cftEa.toFixed(2)}% | TEA: ${data.tea.toFixed(2)}%\n`;
+    navigator.clipboard.writeText(tsv);
+    triggerNotification("Cuadro copiado en formato Excel al portapapeles");
+  };
 
   // --- LÓGICA DE API GEMINI ---
   const callGemini = async (prompt, systemPrompt) => {
@@ -411,15 +651,43 @@ export default function MicrocreditsPanel({ userData }) {
     if (!clienteId) {
       generateSchedule();
     }
-  }, [params.capital, params.weeks, params.tna, params.frecuencia, params.fechaInicio, clienteId]);
+  }, [params.capital, params.weeks, params.tna, params.frecuencia, params.fechaInicio, params.fechaOtorgamiento, clienteId]);
 
   // --- MANEJO DE EVENTOS ---
   const handleParamChange = (e) => {
     if (clienteId) return; 
     let { name, value } = e.target;
     
-    if (name === 'frecuencia' || name === 'fechaInicio') {
-      setParams(prev => ({ ...prev, [name]: value }));
+    if (name === 'fechaInicio') {
+      setParams(prev => ({ ...prev, fechaInicio: value }));
+      return;
+    }
+
+    if (name === 'fechaOtorgamiento') {
+      const baseDate = parseISODate(value) || new Date();
+      const freq = params.frecuencia || 'semanal';
+      const days = freq === 'mensual' ? 30 : (freq === 'quincenal' ? 15 : 7);
+      const nextDate = new Date(baseDate);
+      nextDate.setDate(nextDate.getDate() + days);
+      setParams(prev => ({
+        ...prev,
+        fechaOtorgamiento: value,
+        fechaInicio: nextDate.toISOString().split('T')[0]
+      }));
+      return;
+    }
+
+    if (name === 'frecuencia') {
+      const freq = value;
+      const baseDate = parseISODate(params.fechaOtorgamiento) || new Date();
+      const days = freq === 'mensual' ? 30 : (freq === 'quincenal' ? 15 : 7);
+      const nextDate = new Date(baseDate);
+      nextDate.setDate(nextDate.getDate() + days);
+      setParams(prev => ({
+        ...prev,
+        frecuencia: freq,
+        fechaInicio: nextDate.toISOString().split('T')[0]
+      }));
       return;
     }
 
@@ -551,13 +819,17 @@ export default function MicrocreditsPanel({ userData }) {
     setClienteId(cliente.id);
     setClienteNombre(cliente.nombre);
     setClienteTelefono(cliente.telefono || '');
-    setParams(cliente.params);
+    const clientParams = { ...cliente.params };
+    if (!clientParams.fechaOtorgamiento) {
+      clientParams.fechaOtorgamiento = getFechaOtorgamiento(cliente.params, cliente);
+    }
+    setParams(clientParams);
     setChecklist(cliente.checklist || defaultChecklist);
     setAiAnalysis(null);
     setAiCollectionMsg(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    const { newSchedule, changed } = checkAutoLateDays(cliente.schedule, cliente.params);
+    const { newSchedule, changed } = checkAutoLateDays(cliente.schedule, clientParams);
     setSchedule(newSchedule);
 
     if (changed && user) {
@@ -580,7 +852,14 @@ export default function MicrocreditsPanel({ userData }) {
     setClienteId(null);
     setClienteNombre('');
     setClienteTelefono('');
-    setParams(defaultParams);
+    const today = new Date().toISOString().split('T')[0];
+    const dInit = new Date();
+    dInit.setDate(dInit.getDate() + 7);
+    setParams({
+      ...defaultParams,
+      fechaOtorgamiento: today,
+      fechaInicio: dInit.toISOString().split('T')[0]
+    });
     setChecklist(defaultChecklist);
     setAiAnalysis(null);
     setAiCollectionMsg(null);
@@ -605,34 +884,82 @@ export default function MicrocreditsPanel({ userData }) {
     const totalInterest = Math.max(0, totalPagar - capital);
     const sellosTax = Math.ceil(totalPagar * (sellosRate / 100)); 
     
-    const tnm = tna / 12;
-    const r_weekly = (tna / 100) * (7 / 365);
-    const tem = (Math.pow(1 + r_weekly, 30 / 7) - 1) * 100;
-    const tea = (Math.pow(1 + r_weekly, 365 / 7) - 1) * 100;
+    // Fechas de otorgamiento y 1ra cuota
+    const currentClient = clienteId ? cartera.find(c => c.id === clienteId) : null;
+    const fechaOtorgamientoStr = getFechaOtorgamiento(params, currentClient);
+    const dOtorgamiento = parseISODate(fechaOtorgamientoStr) || new Date();
+    const dPrimeraCuota = parseISODate(params.fechaInicio) || dOtorgamiento;
+
+    const diffMs = dPrimeraCuota.getTime() - dOtorgamiento.getTime();
+    const diasPrimeraCuota = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+    const diasPeriodoEstandar = daysPerPeriod;
+    const tieneDesfasajeInicial = diasPrimeraCuota !== diasPeriodoEstandar;
+
+    // Tasas proporcionales periódicas
+    const tasaPeriodicaRegular = tna * (diasPeriodoEstandar / 365);
+    const tasaPrimeraCuota = tna * (diasPrimeraCuota / 365);
     
+    let freqLabel = 'Tasa Semanal';
+    let freqCode = 'TNS';
+    if (freq === 'mensual') {
+      freqLabel = 'Tasa Mensual';
+      freqCode = 'TNM';
+    } else if (freq === 'quincenal') {
+      freqLabel = 'Tasa Quincenal';
+      freqCode = 'TNQ';
+    }
+
+    // Flujos reales de fondos con fechas exactas
+    const paymentsWithDays = [];
+    if (schedule.length > 0) {
+      for (let i = 0; i < schedule.length; i++) {
+        const row = schedule[i];
+        const cuotaDate = calculateEndDate(params.fechaInicio, i + 1, freq);
+        let daysFromStart = diasPrimeraCuota + i * diasPeriodoEstandar;
+        if (cuotaDate && dOtorgamiento) {
+          const diff = cuotaDate.getTime() - dOtorgamiento.getTime();
+          daysFromStart = Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
+        }
+        paymentsWithDays.push({
+          amount: row.cuotaPura,
+          days: daysFromStart
+        });
+      }
+    }
+
+    let tea = 0;
+    let cftEa = 0;
+    if (capital > 0 && paymentsWithDays.length > 0) {
+      tea = solveAnnualRate(capital, paymentsWithDays);
+      const netCapital = Math.max(1, capital - sellosTax);
+      cftEa = solveAnnualRate(netCapital, paymentsWithDays);
+    }
+
     const tasaDirectaTotal = capital > 0 ? (totalInterest / capital) * 100 : 0;
     const mesesPlazo = ((periods * daysPerPeriod) / 30).toFixed(1);
     const recaudado = schedule.filter(r => r.status === 'paid').reduce((acc, row) => acc + row.totalToPay, 0);
     const saldoRestante = schedule.filter(r => r.status !== 'paid').reduce((acc, row) => acc + row.totalToPay, 0);
 
-    let cftEa = 0;
-    if (schedule.length > 0 && capital > 0) {
-        const cuotaFija = schedule[0].cuotaPura;
-        const netCapital = capital - sellosTax; 
-        let low = 0.0;
-        let high = 1.0;
-        let rate = 0.05;
-        for (let i = 0; i < 40; i++) {
-            let pv = cuotaFija * (1 - Math.pow(1 + rate, -periods)) / rate;
-            if (pv > netCapital) low = rate;
-            else high = rate;
-            rate = (low + high) / 2;
-        }
-        cftEa = (Math.pow(1 + rate, 365 / daysPerPeriod) - 1) * 100;
-    }
-
-    return { totalInterest, totalPagar, tnm, tem, tea, cftEa, tasaDirectaTotal, mesesPlazo, recaudado, saldoRestante, sellosTax };
-  }, [schedule, params]);
+    return { 
+      totalInterest, 
+      totalPagar, 
+      tna,
+      tasaPeriodicaRegular,
+      tasaPrimeraCuota,
+      freqLabel,
+      freqCode,
+      diasPrimeraCuota,
+      diasPeriodoEstandar,
+      tieneDesfasajeInicial,
+      tea, 
+      cftEa, 
+      tasaDirectaTotal, 
+      mesesPlazo, 
+      recaudado, 
+      saldoRestante, 
+      sellosTax 
+    };
+  }, [schedule, params, clienteId, cartera]);
 
   return (
     <div className="fade-in">
@@ -765,6 +1092,271 @@ export default function MicrocreditsPanel({ userData }) {
         </div>
       )}
 
+      {/* MODAL CUADRO DE AMORTIZACIÓN FRANCÉS */}
+      {showAmortizationModal && (() => {
+        const data = getAmortizationData(amortizationTarget);
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-3 sm:p-6 print:p-0 print:bg-white print:fixed print:inset-0">
+            <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 print:shadow-none print:border-none print:max-h-none print:w-full">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-emerald-700 via-emerald-800 to-teal-900 text-white p-5 sm:p-6 flex-shrink-0 flex items-center justify-between relative">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-white/10 rounded-2xl border border-white/20 backdrop-blur-md">
+                    <FileSpreadsheet size={24} className="text-emerald-200" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+                        Cuadro de Amortización Francés
+                      </h3>
+                      <span className="text-[11px] font-bold bg-white/20 px-2.5 py-0.5 rounded-full uppercase tracking-wider text-emerald-100">
+                        {data.freq} • {data.periods} cuotas
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-100/90 font-medium mt-0.5">
+                      {data.clienteNombre} {data.telefono ? `(${data.telefono})` : ''} • TNA: <span className="font-bold text-white">{data.tna}%</span> • TEA: <span className="font-bold text-white">{data.tea.toFixed(2)}%</span> • CFT EA: <span className="font-bold text-emerald-200">{data.cftEa.toFixed(2)}%</span> • 1er Vto: <span className="font-bold text-white">{data.diasPrimeraCuota} días</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 print:hidden">
+                  <button 
+                    onClick={() => copiarAmortizacionParaExcel(data)}
+                    className="bg-white/10 hover:bg-white/20 text-white font-bold p-2.5 rounded-xl transition-all border border-white/20 flex items-center gap-1.5 text-xs"
+                    title="Copiar para pegar directamente en Excel (Ctrl+V)"
+                  >
+                    <Copy size={16} /> <span className="hidden sm:inline">Copiar Excel</span>
+                  </button>
+                  <button 
+                    onClick={() => window.print()}
+                    className="bg-white/10 hover:bg-white/20 text-white font-bold p-2.5 rounded-xl transition-all border border-white/20 flex items-center gap-1.5 text-xs"
+                    title="Imprimir o Exportar PDF"
+                  >
+                    <Printer size={16} /> <span className="hidden sm:inline">Imprimir</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowAmortizationModal(false)}
+                    className="text-white/70 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors ml-1"
+                  >
+                    <Plus className="rotate-45" size={24} />
+                  </button>
+                </div>
+              </div>
+
+              {/* KPIs Resumen y Liquidación Inicial */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 p-4 bg-slate-50 border-b border-slate-100 flex-shrink-0">
+                <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Capital Solicitado</span>
+                  <span className="text-sm sm:text-base font-black text-slate-800 mt-1">{formatCurrencyWithDecimals(data.capital)}</span>
+                  <span className="text-[9px] text-slate-400">Nominal financiado</span>
+                </div>
+
+                <div className="bg-amber-50/70 p-3 rounded-2xl border border-amber-200/70 shadow-sm flex flex-col justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 block">(-) Sellos DGR ({data.sellosRate}%)</span>
+                  <span className="text-sm sm:text-base font-black text-amber-700 mt-1">-{formatCurrencyWithDecimals(data.sellosTax)}</span>
+                  <span className="text-[9px] text-amber-800/80">Retención inicial Tucumán</span>
+                </div>
+
+                <div className="bg-emerald-50/70 p-3 rounded-2xl border border-emerald-200/80 shadow-sm flex flex-col justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 block">(=) Neto Entregado</span>
+                  <span className="text-sm sm:text-base font-black text-emerald-700 mt-1">{formatCurrencyWithDecimals(data.capitalNetoDesembolsado)}</span>
+                  <span className="text-[9px] text-emerald-700/80 font-medium">Base cálculo CFT</span>
+                </div>
+
+                <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 block">Int. Compensatorio</span>
+                  <span className="text-sm sm:text-base font-black text-emerald-600 mt-1">{formatCurrencyWithDecimals(data.totales.interesCompensatorio)}</span>
+                  <span className="text-[9px] text-slate-400">Pactado en cuotas</span>
+                </div>
+
+                <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 block">Total a Pagar</span>
+                  <span className="text-sm sm:text-base font-black text-blue-700 mt-1">{formatCurrencyWithDecimals(data.totales.cuotaPura)}</span>
+                  <span className="text-[9px] text-slate-400">{data.periods} cuotas fijas</span>
+                </div>
+
+                <div className="bg-blue-50/70 p-3 rounded-2xl border border-blue-200/80 shadow-sm flex flex-col justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-800 block">Costo Finan. Total</span>
+                  <span className="text-sm sm:text-base font-black text-blue-700 mt-1">{data.cftEa.toFixed(2)}% <span className="text-xs font-bold text-blue-500">EA</span></span>
+                  <span className="text-[9px] text-blue-600/80">TEA: {data.tea.toFixed(2)}%</span>
+                </div>
+              </div>
+
+              {/* Tabla de Amortización */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin scrollbar-thumb-slate-200">
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-[#689f38] text-white uppercase text-[11px] font-bold tracking-wider">
+                      <tr>
+                        <th className="px-3 py-3 text-center">N°</th>
+                        <th className="px-3 py-3">Fecha de pago</th>
+                        <th className="px-4 py-3 text-right">Saldo inicial</th>
+                        <th className="px-4 py-3 text-right">Cuota</th>
+                        <th className="px-4 py-3 text-right">Amort de Capital</th>
+                        <th className="px-4 py-3 text-right">Interés</th>
+                        <th className="px-4 py-3 text-right">Saldo final</th>
+                        {amortizationTarget && (
+                          <th className="px-3 py-3 text-center">Estado</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-mono">
+                      {/* FILA 0: Momento Cero (t=0) - Otorgamiento, Desembolso y Retención Impuesto de Sellos DGR */}
+                      <tr className="bg-amber-50/50 border-b-2 border-amber-200/60 hover:bg-amber-50/80 transition-colors">
+                        <td className="px-3 py-3 text-center font-sans font-bold text-amber-900">
+                          <span className="bg-amber-200/80 text-amber-950 border border-amber-300 text-[10px] font-black px-2 py-0.5 rounded-full inline-block shadow-xs">
+                            0
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 font-sans font-semibold text-slate-800 whitespace-nowrap">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-slate-900">{data.fechaOtorgamientoStr}</span>
+                            <span className="text-[10px] text-amber-800 font-sans font-semibold flex items-center gap-1">
+                              Desembolso Inicial (t=0)
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium text-slate-400 whitespace-nowrap">
+                          $ 0,00
+                        </td>
+                        <td className="px-4 py-3 text-right font-black text-amber-800 whitespace-nowrap bg-amber-100/40">
+                          <div className="flex flex-col items-end">
+                            <span>-{formatCurrencyWithDecimals(data.sellosTax)}</span>
+                            <span className="text-[9px] font-sans font-bold text-amber-700 uppercase tracking-tighter">
+                              Sellos DGR {data.sellosRate}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-400 whitespace-nowrap">
+                          ---
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-400 whitespace-nowrap">
+                          ---
+                        </td>
+                        <td className="px-4 py-3 text-right font-black text-slate-900 whitespace-nowrap bg-slate-100/50">
+                          {formatCurrencyWithDecimals(data.capital)}
+                        </td>
+                        {amortizationTarget && (
+                          <td className="px-3 py-3 text-center font-sans whitespace-nowrap">
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                              <Check size={10} strokeWidth={3} /> Neto: {formatCurrency(data.capitalNetoDesembolsado)}
+                            </span>
+                          </td>
+                        )}
+                      </tr>
+
+                      {/* Cuotas 1 a N */}
+                      {data.rows.map((r) => {
+                        const isPaid = r.status === 'paid';
+                        const isLate = r.status === 'late' || r.lateDays > 0;
+                        return (
+                          <tr key={r.cuotaNum} className={`hover:bg-slate-50/90 transition-colors ${r.cuotaNum % 2 === 0 ? 'bg-slate-50/40' : 'bg-white'} ${isPaid ? 'bg-emerald-50/30' : isLate ? 'bg-red-50/20' : ''}`}>
+                            <td className="px-3 py-3 text-center font-sans font-bold text-slate-700">
+                              {r.cuotaNum}
+                            </td>
+                            <td className="px-3 py-3 font-sans font-semibold text-slate-700 whitespace-nowrap">
+                              {r.fecha}
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium text-slate-600 whitespace-nowrap">
+                              {formatCurrencyWithDecimals(r.saldoInicial)}
+                            </td>
+                            <td className="px-4 py-3 text-right font-black text-slate-900 whitespace-nowrap bg-slate-100/30">
+                              {formatCurrencyWithDecimals(r.cuota)}
+                            </td>
+                            <td className="px-4 py-3 text-right font-semibold text-emerald-700 whitespace-nowrap">
+                              {formatCurrencyWithDecimals(r.amortizacion)}
+                            </td>
+                            <td className="px-4 py-3 text-right font-semibold text-amber-700 whitespace-nowrap">
+                              {formatCurrencyWithDecimals(r.interesCompensatorio)}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-700 whitespace-nowrap">
+                              {formatCurrencyWithDecimals(r.saldoFinal)}
+                            </td>
+                            {amortizationTarget && (
+                              <td className="px-3 py-3 text-center font-sans whitespace-nowrap">
+                                {isPaid ? (
+                                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                                    <Check size={10} strokeWidth={3} /> Cobrada
+                                  </span>
+                                ) : isLate ? (
+                                  <span className="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                                    <AlertOctagon size={10} /> +{r.lateDays}d ({formatCurrency(r.lateInterest)})
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                    Pendiente
+                                  </span>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-slate-100 font-mono font-black text-slate-800 border-t-2 border-slate-300">
+                      <tr>
+                        <td colSpan={2} className="px-3 py-3.5 text-center font-sans font-black text-xs uppercase tracking-wider text-slate-700">
+                          Totales
+                        </td>
+                        <td className="px-4 py-3.5 text-right text-slate-400 font-normal">
+                          ---
+                        </td>
+                        <td className="px-4 py-3.5 text-right text-blue-700 text-xs sm:text-sm">
+                          {formatCurrencyWithDecimals(data.totales.cuotaPura)}
+                        </td>
+                        <td className="px-4 py-3.5 text-right text-emerald-700 text-xs sm:text-sm">
+                          {formatCurrencyWithDecimals(data.totales.capital)}
+                        </td>
+                        <td className="px-4 py-3.5 text-right text-amber-700 text-xs sm:text-sm">
+                          {formatCurrencyWithDecimals(data.totales.interesCompensatorio)}
+                        </td>
+                        <td className="px-4 py-3.5 text-right text-slate-900 text-xs sm:text-sm">
+                          $ 0,00
+                        </td>
+                        {amortizationTarget && (
+                          <td className="px-3 py-3.5 text-center font-sans text-[11px] text-slate-500 font-bold">
+                            {data.totales.interesPunitorio > 0 ? `Punitorio: ${formatCurrency(data.totales.interesPunitorio)}` : 'Sin mora'}
+                          </td>
+                        )}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Nota técnica explicativa */}
+                <div className="mt-4 bg-emerald-50/70 border border-emerald-200/70 rounded-2xl p-4 text-[11px] text-emerald-950 space-y-2">
+                  <div className="flex items-start gap-2.5">
+                    <Calculator size={18} className="text-emerald-700 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-bold">Regla de Amortización Francesa:</strong> Las cuotas son periódicas y constantes. En cada vencimiento, el interés compensatorio se calcula sobre el saldo deudor remanente, amortizándose progresivamente una mayor porción de capital hasta saldar el préstamo. Los eventuales intereses punitorios por mora se computan de forma separada sobre los días de atraso de cada vencimiento impago sin alterar el interés compensatorio pactado.
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2.5 pt-2 border-t border-emerald-200/60">
+                    <ShieldCheck size={18} className="text-emerald-700 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-bold">Base de Cálculo del Costo Financiero Total (CFT) y Fila 0:</strong> El Costo Financiero Total (CFT EA: <span className="font-bold text-emerald-900">{data.cftEa.toFixed(2)}%</span>) refleja la tasa de rendimiento real del crédito considerando que en la Fecha de Otorgamiento (<span className="font-semibold text-emerald-900">Fila 0</span>) se retiene el Impuesto de Sellos DGR Tucumán ({data.sellosRate}%: <span className="font-bold">-{formatCurrencyWithDecimals(data.sellosTax)}</span>), entregándose efectivamente al cliente un Neto de <span className="font-bold text-emerald-900">{formatCurrencyWithDecimals(data.capitalNetoDesembolsado)}</span> que amortiza el capital solicitado de <span className="font-semibold">{formatCurrencyWithDecimals(data.capital)}</span> a lo largo del cronograma de cuotas pactadas.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex-shrink-0 flex justify-between items-center print:hidden">
+                <span className="text-xs text-slate-400 font-medium">
+                  Gramajo & Romero Consultores • Asesoría Financiera
+                </span>
+                <button 
+                  onClick={() => setShowAmortizationModal(false)}
+                  className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 px-6 rounded-xl text-xs transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
@@ -872,15 +1464,48 @@ export default function MicrocreditsPanel({ userData }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1"><Calendar size={12}/> 1ra Cuota</label>
-                  <input type="date" name="fechaInicio" value={params.fechaInicio || ''} onChange={handleParamChange} disabled={!!clienteId} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none disabled:opacity-60 text-sm font-medium text-slate-700 cursor-pointer" />
+              <div className="pt-4 border-t border-slate-100 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                      <Calendar size={12} className="text-blue-600"/> Otorgamiento
+                    </label>
+                    <input 
+                      type="date" 
+                      name="fechaOtorgamiento" 
+                      value={params.fechaOtorgamiento || getFechaOtorgamiento(params, clienteId ? cartera.find(c => c.id === clienteId) : null)} 
+                      onChange={handleParamChange} 
+                      disabled={!!clienteId} 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none disabled:opacity-60 text-xs font-medium text-slate-700 cursor-pointer" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                      <Calendar size={12} className="text-emerald-600"/> 1ra Cuota
+                    </label>
+                    <input 
+                      type="date" 
+                      name="fechaInicio" 
+                      value={params.fechaInicio || ''} 
+                      onChange={handleParamChange} 
+                      disabled={!!clienteId} 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none disabled:opacity-60 text-xs font-medium text-slate-700 cursor-pointer" 
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Vencimiento</label>
-                  <div className="w-full bg-blue-50 border border-blue-100 rounded-xl p-3 text-blue-700 font-bold opacity-90 text-sm flex items-center h-[46px]">
-                    {formatDateToLocal(calculateEndDate(params.fechaInicio, parseInt(params.weeks) || 0, params.frecuencia || 'semanal'))}
+
+                <div className="grid grid-cols-2 gap-3 items-center">
+                  <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                    <span className="font-semibold block text-slate-600">Primer Vto:</span>
+                    <span className={`font-bold ${stats.tieneDesfasajeInicial ? 'text-amber-600' : 'text-slate-700'}`}>
+                      {stats.diasPrimeraCuota} días {stats.tieneDesfasajeInicial ? `(${stats.diasPrimeraCuota > stats.diasPeriodoEstandar ? `+${stats.diasPrimeraCuota - stats.diasPeriodoEstandar}d gracia` : `${stats.diasPrimeraCuota - stats.diasPeriodoEstandar}d anticipo`})` : '(estándar)'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Vto. Final</span>
+                    <div className="w-full bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-blue-700 font-bold text-xs flex items-center">
+                      {formatDateToLocal(calculateEndDate(params.fechaInicio, parseInt(params.weeks) || 0, params.frecuencia || 'semanal'))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -900,26 +1525,57 @@ export default function MicrocreditsPanel({ userData }) {
 
           {/* TASAS */}
           <section className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
-              <TrendingUp size={16} /> Tasas Proyectadas
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <TrendingUp size={16} className="text-blue-400" /> Tasas Proyectadas
+              </span>
+              {stats.tieneDesfasajeInicial && (
+                <span className="text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-md border border-amber-400/20">
+                  1er Vto: {stats.diasPrimeraCuota}d
+                </span>
+              )}
             </h2>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col">
-                    <span className="text-[11px] text-slate-400 uppercase tracking-wider">Nominal Mensual</span>
-                    <span className="text-lg font-bold">{stats.tnm.toFixed(2)}% <span className="text-xs font-normal text-slate-500">TNM</span></span>
+                  {/* TNA - SIEMPRE VISIBLE */}
+                  <div className="flex flex-col bg-slate-800/40 p-2.5 rounded-xl border border-slate-800">
+                    <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Tasa Nominal Anual</span>
+                    <span className="text-lg font-bold text-white mt-0.5">
+                      {stats.tna.toFixed(2)}% <span className="text-xs font-normal text-slate-400">TNA</span>
+                    </span>
                   </div>
-                  <div className="flex flex-col">
-                    <span className="text-[11px] text-slate-400 uppercase tracking-wider">Efectiva Mensual</span>
-                    <span className="text-lg font-bold text-blue-400">{stats.tem.toFixed(2)}% <span className="text-xs font-normal text-slate-500">TEM</span></span>
+
+                  {/* TASA PROPORCIONAL SEGÚN PLAZO (SEMANAL / QUINCENAL / MENSUAL) */}
+                  <div className="flex flex-col bg-slate-800/40 p-2.5 rounded-xl border border-slate-800">
+                    <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">{stats.freqLabel}</span>
+                    <span className="text-lg font-bold text-emerald-400 mt-0.5">
+                      {stats.tasaPeriodicaRegular.toFixed(2)}% <span className="text-xs font-normal text-slate-400">{stats.freqCode}</span>
+                    </span>
+                    {stats.tieneDesfasajeInicial && (
+                      <span className="text-[10px] text-amber-300/90 mt-1">
+                        1ra Cuota: <strong className="font-bold">{stats.tasaPrimeraCuota.toFixed(2)}%</strong> ({stats.diasPrimeraCuota}d)
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-col">
-                    <span className="text-[11px] text-slate-400 uppercase tracking-wider">Efectiva Anual</span>
-                    <span className="text-lg font-bold text-indigo-400">{stats.tea.toFixed(2)}% <span className="text-xs font-normal text-slate-500">TEA</span></span>
+
+                  {/* TEA - SIEMPRE VISIBLE */}
+                  <div className="flex flex-col bg-slate-800/40 p-2.5 rounded-xl border border-slate-800">
+                    <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Tasa Efectiva Anual</span>
+                    <span className="text-lg font-bold text-indigo-400 mt-0.5">
+                      {stats.tea.toFixed(2)}% <span className="text-xs font-normal text-slate-400">TEA</span>
+                    </span>
+                    {stats.tieneDesfasajeInicial && (
+                      <span className="text-[9px] text-slate-400">Ajustada al 1er vto</span>
+                    )}
                   </div>
-                  <div className="flex flex-col bg-blue-500/10 p-2 -m-2 rounded-lg border border-blue-500/20">
+
+                  {/* CFT - SIEMPRE VISIBLE */}
+                  <div className="flex flex-col bg-blue-500/10 p-2.5 rounded-xl border border-blue-500/30 shadow-inner">
                     <span className="text-[11px] font-bold text-blue-400 uppercase tracking-wider">Costo Finan. Total</span>
-                    <span className="text-xl font-black text-blue-400">{stats.cftEa.toFixed(2)}% <span className="text-xs font-bold opacity-80">EA</span></span>
+                    <span className="text-xl font-black text-blue-300 mt-0.5">
+                      {stats.cftEa.toFixed(2)}% <span className="text-xs font-bold opacity-80 text-blue-400">EA</span>
+                    </span>
+                    <span className="text-[9px] text-blue-300/70">Inc. sellos y fechas</span>
                   </div>
               </div>
             </div>
@@ -951,6 +1607,12 @@ export default function MicrocreditsPanel({ userData }) {
                   <span className="text-2xl font-black text-amber-300">{formatCurrency(stats.saldoRestante)}</span>
                 </div>
               )}
+              <button 
+                onClick={abrirModalAmortizacionActual}
+                className="w-full mt-3 bg-white/10 hover:bg-white/20 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors border border-white/20 shadow-sm"
+              >
+                <FileSpreadsheet size={15} /> Ver Cuadro de Amortización Francés
+              </button>
             </div>
           </section>
         </div>
@@ -978,8 +1640,16 @@ export default function MicrocreditsPanel({ userData }) {
                 )}
               </div>
 
-              {/* Botones de acción IA para cobranzas y recordatorios */}
-              <div className="flex items-center gap-2 w-full sm:w-auto">
+              {/* Botones de acción: Cuadro Francés, Cobranza Mora y Recordatorio */}
+              <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                <button 
+                  onClick={abrirModalAmortizacionActual}
+                  className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-200 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                  title="Ver Cuadro de Amortización Francés detallado"
+                >
+                  <FileSpreadsheet size={15} />
+                  Cuadro Francés
+                </button>
                 {estadoDeuda.tieneMora && (
                   <button 
                     onClick={generarMensajeCobranzaConsolidado}
@@ -1179,6 +1849,7 @@ export default function MicrocreditsPanel({ userData }) {
                               </div>
                             </td>
                             <td className="px-6 py-4 text-right space-x-2">
+                              <button onClick={() => abrirModalAmortizacionCliente(c)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Ver Cuadro de Amortización Francés"><FileSpreadsheet size={18} /></button>
                               <button onClick={() => gestionarCliente(c)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Ver y gestionar"><Eye size={18} /></button>
                               <button onClick={() => eliminarPrestamo(c.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar"><Trash2 size={18} /></button>
                             </td>
