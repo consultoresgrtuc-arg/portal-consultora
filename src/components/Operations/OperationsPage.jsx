@@ -71,7 +71,7 @@ const OperationsPage = () => {
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
 
     return (
-        <div className="p-6 space-y-8 animate-fade-in">
+        <div className="p-2 sm:p-6 space-y-6 sm:space-y-8 animate-fade-in">
             {showModal && (
                 <OperationModal 
                     op={editingOp} 
@@ -88,12 +88,12 @@ const OperationsPage = () => {
                 />
             )}
 
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 sm:gap-6">
                 <div>
-                    <div className="flex items-center gap-3">
-                        <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">Libro de Operaciones</h2>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                        <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-800 tracking-tight">Libro de Operaciones</h2>
                         {isViewingClient ? (
-                            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs">
                                 <Icon name="UserCheck" size={13} />
                                 {activeEntity?.displayName}
                                 {activeEntity?.cuit && <span className="font-mono text-[10px] text-blue-500 font-bold ml-1">({activeEntity.cuit})</span>}
@@ -105,18 +105,18 @@ const OperationsPage = () => {
                             </span>
                         )}
                     </div>
-                    <p className="text-gray-500 font-medium italic mt-1">
+                    <p className="text-gray-500 text-xs sm:text-sm font-medium italic mt-1">
                         {isViewingClient 
                             ? `Gestionando ingresos y egresos asentados para el cliente seleccionado.` 
                             : `Registro detallado de ingresos por honorarios y egresos operativos del estudio.`
                         }
                     </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5 w-full md:w-auto">
                     {isViewingClient && (
                         <button
                             onClick={resetToStudio}
-                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-5 py-3 rounded-2xl font-bold text-xs transition-all shadow-xs active:scale-95 flex items-center gap-2 cursor-pointer"
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-4 py-3 rounded-2xl font-bold text-xs transition-all shadow-xs active:scale-95 flex items-center gap-2 cursor-pointer"
                             title="Volver a ver las operaciones del estudio"
                         >
                             <Icon name="ArrowLeft" size={14}/> Mi Estudio
@@ -124,36 +124,36 @@ const OperationsPage = () => {
                     )}
                     <button 
                         onClick={handleNewOperation} 
-                        className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all transform active:scale-95 flex items-center cursor-pointer"
+                        className="flex-1 md:flex-none justify-center bg-blue-600 text-white px-6 sm:px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all transform active:scale-95 flex items-center cursor-pointer"
                     >
                         <Icon name="PlusCircle" className="w-5 h-5 mr-2"/> Nueva Operación
                     </button>
                 </div>
             </header>
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8">
                 {/* Columna Izquierda: Filtro y Recientes */}
-                <div className="xl:col-span-1 space-y-8">
+                <div className="xl:col-span-1 space-y-6 sm:space-y-8">
                     <DateFilter date={filterDate} setDate={setFilterDate} />
 
-                    <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 relative overflow-hidden group">
+                    <div className="bg-white p-5 sm:p-8 rounded-[32px] shadow-sm border border-gray-100 relative overflow-hidden group">
                         <div className="absolute -right-4 -top-4 text-blue-50/50 group-hover:scale-110 transition-transform">
                             <Icon name="History" size={100} />
                         </div>
-                        <h3 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <h3 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 sm:mb-6 flex items-center gap-2">
                             <Icon name="Clock" size={16} className="text-blue-500"/> Registros Recientes
                         </h3>
                         {recentOperations.length > 0 ? (
-                            <ul className="space-y-4">
+                            <ul className="space-y-3 sm:space-y-4">
                                 {recentOperations.map(op => (
-                                    <li key={op.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-transparent hover:border-gray-100 transition-all">
-                                        <div className="overflow-hidden">
-                                            <p className="font-bold text-gray-800 truncate capitalize">{op.description}</p>
+                                    <li key={op.id} className="flex justify-between items-center gap-2 p-3.5 sm:p-4 bg-gray-50 rounded-2xl border border-transparent hover:border-gray-100 transition-all">
+                                        <div className="overflow-hidden min-w-0">
+                                            <p className="font-bold text-gray-800 truncate capitalize text-sm">{op.description}</p>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
                                                 {op.fechaEmision?.toDate ? op.fechaEmision.toDate().toLocaleDateString('es-AR') : 'S/D'} • {op.type}
                                             </p>
                                         </div>
-                                        <div className={`text-right font-black ${['venta','ingreso'].includes(op.type) ? 'text-emerald-600' : 'text-red-600'}`}>
+                                        <div className={`text-right font-black text-sm sm:text-base whitespace-nowrap ${['venta','ingreso'].includes(op.type) ? 'text-emerald-600' : 'text-red-600'}`}>
                                             {formatCurrency(op.amount)}
                                         </div>
                                     </li>
@@ -167,34 +167,36 @@ const OperationsPage = () => {
                     </div>
                 </div>
 
-                {/* Columna Derecha: Tabla de Operaciones */}
+                {/* Columna Derecha: Tabla / Tarjetas de Operaciones */}
                 <div className="xl:col-span-2">
-                    <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
-                        <div className="p-8 border-b border-gray-50 flex items-center justify-between">
-                            <h3 className="text-lg font-black text-gray-800 tracking-tight">Detalle del Período</h3>
-                            <span className="px-4 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100">
+                    <div className="bg-white rounded-3xl sm:rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="p-5 sm:p-8 border-b border-gray-50 flex items-center justify-between">
+                            <h3 className="text-base sm:text-lg font-black text-gray-800 tracking-tight">Detalle del Período</h3>
+                            <span className="px-3.5 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100">
                                 {operations.length} Registros
                             </span>
                         </div>
-                        <div className="overflow-x-auto">
+
+                        {/* Vista Tabla (PC / Tablet Horizontal) */}
+                        <div className="hidden md:block overflow-x-auto">
                             <table className="min-w-full divide-y divide-gray-50">
                                 <thead className="bg-gray-50/50">
                                     <tr>
-                                        <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha</th>
-                                        <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipo / Descripción</th>
-                                        <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Monto</th>
-                                        <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Acciones</th>
+                                        <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha</th>
+                                        <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipo / Descripción</th>
+                                        <th className="px-6 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Monto</th>
+                                        <th className="px-6 py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-50">
                                     {loading ? (
-                                        <tr><td colSpan="4" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando operaciones...</td></tr>
+                                        <tr><td colSpan="4" className="text-center py-20 text-gray-400 font-bold animate-pulse">Sincronizando operaciones...</td></tr>
                                     ) : operations.length > 0 ? operations.map(op => (
                                         <tr key={op.id} className="hover:bg-gray-50/50 transition-colors group">
-                                            <td className="px-8 py-6 text-sm font-bold text-gray-600">
+                                            <td className="px-6 py-5 text-sm font-bold text-gray-600 whitespace-nowrap">
                                                 {op.fechaEmision?.toDate ? op.fechaEmision.toDate().toLocaleDateString('es-AR') : '-'}
                                             </td>
-                                            <td className="px-8 py-6">
+                                            <td className="px-6 py-5">
                                                 <div className="flex items-center gap-3">
                                                     <div className={`p-2 rounded-xl ${['venta','ingreso'].includes(op.type) ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
                                                         <Icon name={['venta','ingreso'].includes(op.type) ? 'TrendingUp' : 'TrendingDown'} size={14}/>
@@ -212,15 +214,15 @@ const OperationsPage = () => {
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <div className="text-[10px] text-gray-400 font-medium mt-0.5">{op.description}</div>
+                                                        <div className="text-xs text-gray-400 font-medium mt-0.5">{op.description}</div>
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className={`px-8 py-6 text-right font-black text-lg tracking-tight ${['venta','ingreso'].includes(op.type) ? 'text-emerald-600' : 'text-red-600'}`}>
+                                            <td className={`px-6 py-5 text-right font-black text-base lg:text-lg tracking-tight whitespace-nowrap ${['venta','ingreso'].includes(op.type) ? 'text-emerald-600' : 'text-red-600'}`}>
                                                 {formatCurrency(op.amount)}
                                             </td>
-                                            <td className="px-8 py-6 text-center">
-                                                <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <td className="px-6 py-5 text-center">
+                                                <div className="flex justify-center gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                                                     <button onClick={() => handleEdit(op)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Editar">
                                                         <Icon name="Edit" size={18}/>
                                                     </button>
@@ -232,13 +234,52 @@ const OperationsPage = () => {
                                         </tr>
                                     )) : (
                                         <tr>
-                                            <td colSpan="4" className="text-center py-24 text-gray-400 font-bold italic">
+                                            <td colSpan="4" className="text-center py-20 text-gray-400 font-bold italic">
                                                 No hay registros para este período.
                                             </td>
                                         </tr>
                                     )}
                                 </tbody>
                             </table>
+                        </div>
+
+                        {/* Vista Tarjetas (Celular < 768px) */}
+                        <div className="md:hidden divide-y divide-gray-100">
+                            {loading ? (
+                                <div className="text-center py-14 text-gray-400 font-bold animate-pulse text-sm">Sincronizando operaciones...</div>
+                            ) : operations.length > 0 ? operations.map(op => (
+                                <div key={op.id} className="p-4 flex items-center justify-between gap-3">
+                                    <div className="flex items-start gap-3 min-w-0">
+                                        <div className={`p-2.5 rounded-xl shrink-0 mt-0.5 ${['venta','ingreso'].includes(op.type) ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                                            <Icon name={['venta','ingreso'].includes(op.type) ? 'TrendingUp' : 'TrendingDown'} size={16}/>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="text-xs font-black text-gray-900 uppercase">{op.type}</span>
+                                                <span className="text-[10px] font-bold text-gray-400">
+                                                    • {op.fechaEmision?.toDate ? op.fechaEmision.toDate().toLocaleDateString('es-AR') : '-'}
+                                                </span>
+                                            </div>
+                                            <p className="text-sm font-bold text-gray-700 truncate mt-0.5">{op.description}</p>
+                                            <p className={`text-base font-black mt-1 ${['venta','ingreso'].includes(op.type) ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                {formatCurrency(op.amount)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <button onClick={() => handleEdit(op)} className="p-2 text-indigo-600 bg-indigo-50/70 rounded-xl" title="Editar">
+                                            <Icon name="Edit" size={16}/>
+                                        </button>
+                                        <button onClick={() => promptDelete(op.id)} className="p-2 text-red-600 bg-red-50/70 rounded-xl" title="Eliminar">
+                                            <Icon name="Trash2" size={16}/>
+                                        </button>
+                                    </div>
+                                </div>
+                            )) : (
+                                <div className="text-center py-14 text-gray-400 font-bold italic text-sm">
+                                    No hay registros para este período.
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

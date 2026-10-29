@@ -137,22 +137,22 @@ const ChequesPage = ({ navigate }) => {
             </div>
 
             <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
-                <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl w-fit">
+                <div className="flex gap-1.5 p-1 bg-gray-100 rounded-2xl">
                     <button 
                         onClick={() => setActiveTab('activos')} 
-                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'activos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`flex-1 sm:flex-none px-5 sm:px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'activos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                     >
                         Cartera Activa
                     </button>
                     <button 
                         onClick={() => setActiveTab('historial')} 
-                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'historial' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`flex-1 sm:flex-none px-5 sm:px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'historial' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                     >
                         Historial
                     </button>
                 </div>
 
-                <div className="relative min-w-[280px]">
+                <div className="relative w-full md:w-80">
                     <Icon name="Search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
                     <input 
                         type="text"
@@ -164,21 +164,21 @@ const ChequesPage = ({ navigate }) => {
                 </div>
             </div>
 
-            <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
-                <div className="p-8 border-b border-gray-50 flex items-center gap-3">
+            <div className="bg-white rounded-3xl sm:rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-5 sm:p-8 border-b border-gray-50 flex items-center gap-3">
                     <Icon name="Landmark" size={24} className="text-indigo-500"/>
-                    <h3 className="text-lg font-black text-gray-800 tracking-tight">Listado de Valores</h3>
+                    <h3 className="text-base sm:text-lg font-black text-gray-800 tracking-tight">Listado de Valores</h3>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="hidden md:block overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-50">
                         <thead className="bg-gray-50/50">
                             <tr>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Tercero</th>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Banco / N°</th>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Vencimiento</th>
-                                <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Monto</th>
-                                <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Estado</th>
-                                <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Acciones</th>
+                                <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Tercero</th>
+                                <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Banco / N°</th>
+                                <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Vencimiento</th>
+                                <th className="px-6 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Monto</th>
+                                <th className="px-6 py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Estado</th>
+                                <th className="px-6 py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-50">
@@ -186,13 +186,13 @@ const ChequesPage = ({ navigate }) => {
                                 <tr><td colSpan="6" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando caja de valores...</td></tr>
                             ) : chequesFiltrados.length > 0 ? chequesFiltrados.map(c => (
                                 <tr key={c.id} className="hover:bg-gray-50/50 transition-colors group">
-                                    <td className="px-8 py-6">
+                                    <td className="px-6 py-5">
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm font-black text-gray-900">{c.terceroNombre}</span>
                                             {c.terceroId && (
                                                 <button 
                                                     onClick={() => navigate(c.tipo === 'recibido' ? `gestion/deudores/${c.terceroId}` : `gestion/proveedores/${c.terceroId}`)}
-                                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-blue-500 hover:text-blue-700"
+                                                    className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity p-1 text-blue-500 hover:text-blue-700"
                                                     title="Ver Cuenta Corriente"
                                                 >
                                                     <Icon name="ExternalLink" size={14}/>
@@ -203,17 +203,17 @@ const ChequesPage = ({ navigate }) => {
                                             {c.tipo === 'recibido' ? 'Entrante (Cliente)' : 'Saliente (Proveedor)'}
                                         </div>
                                     </td>
-                                    <td className="px-8 py-6">
+                                    <td className="px-6 py-5">
                                         <div className="text-sm font-bold text-gray-700">{c.banco}</div>
                                         <div className="text-[10px] text-gray-400 font-mono mt-0.5">N° {c.numero}</div>
                                     </td>
-                                    <td className="px-8 py-6">
+                                    <td className="px-6 py-5">
                                         <div className="text-sm font-bold text-gray-600">{formatDate(c.fechaVencimiento)}</div>
                                     </td>
-                                    <td className="px-8 py-6 text-right">
+                                    <td className="px-6 py-5 text-right">
                                         <div className="text-lg font-black text-gray-900 tracking-tight">{formatCurrency(c.monto)}</div>
                                     </td>
-                                    <td className="px-8 py-6 text-center">
+                                    <td className="px-6 py-5 text-center">
                                         <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
                                             c.estado === 'En Cartera' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
                                             c.estado === 'Depositado' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' : 
@@ -225,7 +225,7 @@ const ChequesPage = ({ navigate }) => {
                                             {c.estado}
                                         </span>
                                     </td>
-                                    <td className="px-8 py-6 text-center">
+                                    <td className="px-6 py-5 text-center">
                                         <div className="flex items-center justify-center gap-2">
                                             {c.estado === 'En Cartera' && (
                                                 <button 
@@ -268,6 +268,36 @@ const ChequesPage = ({ navigate }) => {
                             )}
                         </tbody>
                     </table>
+                </div>
+
+                {/* Vista Tarjetas (Celular) */}
+                <div className="md:hidden divide-y divide-gray-100">
+                    {loading ? (
+                        <div className="text-center py-14 text-gray-400 font-bold animate-pulse text-sm">Sincronizando caja de valores...</div>
+                    ) : chequesFiltrados.length > 0 ? chequesFiltrados.map(c => (
+                        <div key={c.id} className="p-4 space-y-2.5">
+                            <div className="flex items-start justify-between gap-2">
+                                <div>
+                                    <span className="text-sm font-black text-gray-900 block">{c.terceroNombre}</span>
+                                    <span className="text-xs font-bold text-gray-500">{c.banco} • N° {c.numero}</span>
+                                </div>
+                                <span className="text-base font-black text-gray-900">{formatCurrency(c.monto)}</span>
+                            </div>
+                            <div className="flex items-center justify-between pt-1">
+                                <span className="text-xs font-bold text-gray-500">Vto: {formatDate(c.fechaVencimiento)}</span>
+                                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border ${
+                                    c.estado === 'En Cartera' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                                    c.estado === 'Depositado' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' : 
+                                    c.estado === 'Emitido' ? 'bg-red-50 text-red-600 border-red-100' : 
+                                    'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                }`}>
+                                    {c.estado}
+                                </span>
+                            </div>
+                        </div>
+                    )) : (
+                        <div className="text-center py-14 text-gray-400 font-bold italic text-sm">No se encontraron cheques con los filtros aplicados.</div>
+                    )}
                 </div>
             </div>
         </div>

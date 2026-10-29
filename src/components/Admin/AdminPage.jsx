@@ -147,14 +147,14 @@ const AdminPage = ({ navigate }) => {
             {error && <div className="bg-red-50 border border-red-100 text-red-700 p-4 rounded-2xl font-bold text-sm text-center animate-pulse">{error}</div>}
 
             <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="p-8 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
-                    <h3 className="text-xl font-bold text-gray-800 flex items-center">
+                <div className="p-5 sm:p-8 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
+                    <h3 className="text-lg sm:text-xl font-bold text-gray-800 flex items-center">
                         <Icon name="Users" className="w-6 h-6 mr-3 text-blue-500"/> 
                         Directorio de Usuarios
                     </h3>
                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest bg-white px-3 py-1 rounded-full border border-gray-100">{users.length} Registrados</span>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="hidden md:block overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-100">
                         <thead className="bg-gray-50/50">
                             <tr>
@@ -284,6 +284,71 @@ const AdminPage = ({ navigate }) => {
                             })}
                         </tbody>
                     </table>
+                </div>
+
+                {/* Vista Tarjetas (Celular < 768px) */}
+                <div className="md:hidden divide-y divide-gray-100">
+                    {loading ? (
+                        <div className="text-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div></div>
+                    ) : users.map(u => {
+                        const linkedTercero = tercerosList.find(t => t.id === u.terceroId || t.userId === u.id);
+                        const isBillingActive = u.servicioFacturacion !== false && u.permisos?.facturacion !== false;
+                        return (
+                            <div key={u.id} className="p-4 space-y-3">
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                        <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-black text-xs uppercase shrink-0">
+                                            {(u.nombre || u.email || '?')[0]}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-bold text-gray-800 truncate">{u.nombre || 'Sin Nombre'}</div>
+                                            <div className="text-[10px] text-gray-400 truncate">{u.email}</div>
+                                        </div>
+                                    </div>
+                                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 shrink-0">
+                                        {u.isAdmin ? 'Admin' : 'Cliente'}
+                                    </span>
+                                </div>
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 font-mono bg-gray-50 p-2.5 rounded-xl">
+                                    <span>CUIT: {u.cuit || 'S/D'}</span>
+                                    {!u.isAdmin && (
+                                        <button
+                                            onClick={() => setLinkingUser(u)}
+                                            className="text-[10px] font-sans font-black uppercase text-blue-600 bg-white px-2.5 py-1 rounded-lg border border-blue-100"
+                                        >
+                                            {linkedTercero ? `🔗 ${linkedTercero.nombre}` : 'Vincular Ficha'}
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="flex items-center justify-between gap-2 pt-1">
+                                    <div className="flex items-center gap-2">
+                                        <button 
+                                            onClick={() => toggleBillingService(u)}
+                                            className={`relative inline-flex items-center h-6 rounded-full w-11 transition-all ${isBillingActive ? 'bg-green-500' : 'bg-gray-200'}`}
+                                        >
+                                            <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${isBillingActive ? 'translate-x-6' : 'translate-x-1'}`}/>
+                                        </button>
+                                        <span className="text-[10px] font-black uppercase text-gray-500">Facturación</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <button 
+                                            onClick={() => navigate(`admin/manage/${u.id}`)} 
+                                            className="bg-gray-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider"
+                                        >
+                                            Gestionar
+                                        </button>
+                                        <button 
+                                            onClick={() => setUserToDelete(u)}
+                                            disabled={u.id === userData?.uid}
+                                            className={`p-2 rounded-xl border ${u.id === userData?.uid ? 'bg-gray-50 text-gray-300 border-gray-100' : 'bg-red-50 text-red-600 border-red-100'}`}
+                                        >
+                                            <Icon name="Trash2" className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 

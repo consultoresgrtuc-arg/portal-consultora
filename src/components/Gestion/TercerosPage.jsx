@@ -80,7 +80,7 @@ const TercerosPage = ({ navigate }) => {
     });
 
     return (
-        <div className="p-6 space-y-8 animate-fade-in">
+        <div className="p-2 sm:p-6 space-y-6 sm:space-y-8 animate-fade-in">
             {showModal && <TerceroModal tercero={editingTercero} onClose={() => setShowModal(false)} />}
             {showConfirmDelete && (
                 <ConfirmModal
@@ -90,8 +90,8 @@ const TercerosPage = ({ navigate }) => {
                 />
             )}
             
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                <div className="flex items-center gap-4">
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-6">
+                <div className="flex items-center gap-3 sm:gap-4">
                     <button 
                         onClick={() => navigate('gestion')} 
                         className="p-3 rounded-2xl bg-white shadow-sm border border-gray-100 text-gray-400 hover:text-gray-900 transition-all hover:shadow-md"
@@ -99,13 +99,13 @@ const TercerosPage = ({ navigate }) => {
                         <Icon name="ArrowLeft" size={20}/>
                     </button>
                     <div>
-                        <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">Gestión de Terceros</h2>
-                        <p className="text-gray-500 font-medium italic">Clientes y Proveedores</p>
+                        <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-800 tracking-tight">Gestión de Terceros</h2>
+                        <p className="text-xs sm:text-sm text-gray-500 font-medium italic">Clientes y Proveedores</p>
                     </div>
                 </div>
                 <button 
                     onClick={handleNewTercero} 
-                    className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all transform active:scale-95 flex items-center"
+                    className="w-full sm:w-auto justify-center bg-blue-600 text-white px-6 sm:px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all transform active:scale-95 flex items-center"
                 >
                     <Icon name="PlusCircle" className="w-5 h-5 mr-2"/> Nuevo Registro
                 </button>
@@ -113,12 +113,12 @@ const TercerosPage = ({ navigate }) => {
 
             {/* Barra de Filtros y Búsqueda */}
             <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
-                <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl w-fit">
+                <div className="flex gap-1.5 p-1 bg-gray-100 rounded-2xl overflow-x-auto scrollbar-hide">
                     {['Todos', 'Cliente', 'Proveedor'].map(cat => (
                         <button
                             key={cat}
                             onClick={() => setCategoriaFilter(cat)}
-                            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                            className={`flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
                                 categoriaFilter === cat ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                             }`}
                         >
@@ -127,7 +127,7 @@ const TercerosPage = ({ navigate }) => {
                     ))}
                 </div>
 
-                <div className="relative min-w-[300px]">
+                <div className="relative w-full md:w-80">
                     <Icon name="Search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
                     <input 
                         type="text"
@@ -139,16 +139,16 @@ const TercerosPage = ({ navigate }) => {
                 </div>
             </div>
 
-            <div className="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
-                <div className="overflow-x-auto">
+            <div className="bg-white rounded-3xl sm:rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
+                <div className="hidden md:block overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-50">
                         <thead className="bg-gray-50/50">
                             <tr>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Nombre / Razón Social</th>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Identificación</th>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Categoría</th>
-                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Contacto</th>
-                                <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Acciones</th>
+                                <th className="px-6 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Nombre / Razón Social</th>
+                                <th className="px-6 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Identificación</th>
+                                <th className="px-6 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Categoría</th>
+                                <th className="px-6 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Contacto</th>
+                                <th className="px-6 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-50">
@@ -156,14 +156,14 @@ const TercerosPage = ({ navigate }) => {
                                 <tr><td colSpan="5" className="text-center py-24 text-gray-400 font-bold animate-pulse">Sincronizando base de datos...</td></tr>
                             ) : tercerosFiltrados.length > 0 ? tercerosFiltrados.map(t => (
                                 <tr key={t.id} className="hover:bg-gray-50/50 transition-colors group">
-                                    <td className="px-8 py-6">
+                                    <td className="px-6 py-5">
                                         <div className="text-sm font-black text-gray-900">{t.nombre}</div>
                                         <div className="text-[10px] text-gray-400 font-medium mt-0.5">{t.email || 'Sin email'}</div>
                                     </td>
-                                    <td className="px-8 py-6">
+                                    <td className="px-6 py-5">
                                         <div className="text-xs font-mono font-bold text-gray-600">{t.cuit || 'S/D'}</div>
                                     </td>
-                                    <td className="px-8 py-6">
+                                    <td className="px-6 py-5">
                                         <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
                                             t.tipo === 'Cliente' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
                                             t.tipo === 'Proveedor' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
@@ -172,11 +172,11 @@ const TercerosPage = ({ navigate }) => {
                                             {t.tipo}
                                         </span>
                                     </td>
-                                    <td className="px-8 py-6">
+                                    <td className="px-6 py-5">
                                         <div className="text-sm font-bold text-gray-700">{t.telefono || '-'}</div>
                                     </td>
-                                    <td className="px-8 py-6">
-                                        <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <td className="px-6 py-5">
+                                        <div className="flex justify-center gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                                             <button 
                                                 onClick={() => handleEdit(t)} 
                                                 className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
@@ -203,6 +203,38 @@ const TercerosPage = ({ navigate }) => {
                             )}
                         </tbody>
                     </table>
+                </div>
+
+                {/* Vista Tarjetas (Celular) */}
+                <div className="md:hidden divide-y divide-gray-100">
+                    {loading ? (
+                        <div className="text-center py-14 text-gray-400 font-bold animate-pulse text-sm">Sincronizando base de datos...</div>
+                    ) : tercerosFiltrados.length > 0 ? tercerosFiltrados.map(t => (
+                        <div key={t.id} className="p-4 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-black text-gray-900 truncate">{t.nombre}</span>
+                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase border ${
+                                        t.tipo === 'Cliente' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                                        t.tipo === 'Proveedor' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
+                                        'bg-purple-50 text-purple-600 border-purple-100'
+                                    }`}>
+                                        {t.tipo}
+                                    </span>
+                                </div>
+                                <p className="text-xs font-mono font-bold text-gray-500 mt-1">CUIT: {t.cuit || 'S/D'}</p>
+                                <p className="text-[11px] text-gray-400 truncate mt-0.5">{t.telefono || t.email || 'Sin contacto'}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                <button onClick={() => handleEdit(t)} className="p-2 text-indigo-600 bg-indigo-50 rounded-xl"><Icon name="Edit" size={16}/></button>
+                                <button onClick={() => promptDelete(t.id)} className="p-2 text-red-600 bg-red-50 rounded-xl"><Icon name="Trash2" size={16}/></button>
+                            </div>
+                        </div>
+                    )) : (
+                        <div className="text-center py-14 text-gray-400 font-bold italic text-sm">
+                            No se encontraron registros con los filtros aplicados.
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

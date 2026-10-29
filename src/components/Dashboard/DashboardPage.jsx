@@ -198,12 +198,12 @@ const DashboardPage = ({ navigate, setClientCenterFolder }) => {
         maintainAspectRatio: false,
         plugins: {
             legend: {
-                position: 'right',
+                position: 'bottom',
                 labels: {
                     color: '#64748b',
-                    font: { family: 'Inter', size: 12, weight: '500' },
+                    font: { family: 'Inter', size: 11, weight: '600' },
                     boxWidth: 12,
-                    padding: 20
+                    padding: 16
                 }
             },
             tooltip: {
@@ -216,11 +216,11 @@ const DashboardPage = ({ navigate, setClientCenterFolder }) => {
     };
 
     return (
-        <div className="space-y-8 bg-gray-50/50 min-h-screen pb-12">
+        <div className="space-y-6 sm:space-y-8 bg-gray-50/50 min-h-screen pb-12">
             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <div className="flex items-center gap-3">
-                        <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                        <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">
                             Resumen Operativo
                         </h2>
                         {isViewingClient ? (
@@ -234,7 +234,7 @@ const DashboardPage = ({ navigate, setClientCenterFolder }) => {
                             </span>
                         )}
                     </div>
-                    <p className="text-slate-500 font-medium mt-1">
+                    <p className="text-slate-500 text-xs sm:text-sm font-medium mt-1">
                         {isViewingClient 
                             ? `Métricas financieras e impositivas del cliente ${activeEntity.name} (CUIT: ${activeEntity.cuit}).`
                             : 'Control de honorarios, gastos operativos y métricas de rentabilidad de tu firma contable.'
@@ -244,19 +244,19 @@ const DashboardPage = ({ navigate, setClientCenterFolder }) => {
             </header>
 
             {/* --- SECCIÓN 1: TOTALES POR CATEGORÍA --- */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                 {[
                     { title: 'Ventas', val: metrics.ventas, col: 'text-emerald-600', bg: 'from-emerald-50 to-emerald-100/30', border: 'border-emerald-100', icon: 'TrendingUp' },
                     { title: 'Compras', val: metrics.compras, col: 'text-red-600', bg: 'from-red-50 to-red-100/30', border: 'border-red-100', icon: 'TrendingDown' },
                     { title: 'Otros Ingresos', val: metrics.ingresos, col: 'text-cyan-600', bg: 'from-cyan-50 to-cyan-100/30', border: 'border-cyan-100', icon: 'DollarSign' },
                     { title: 'Otros Gastos', val: metrics.gastos, col: 'text-orange-600', bg: 'from-orange-50 to-orange-100/30', border: 'border-orange-100', icon: 'Wallet' },
                 ].map((card, i) => (
-                    <div key={i} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md hover:scale-[1.01] transition-all duration-300 relative overflow-hidden group">
+                    <div key={i} className="bg-white p-5 sm:p-6 rounded-3xl shadow-sm border border-slate-100 hover:shadow-md hover:scale-[1.01] transition-all duration-300 relative overflow-hidden group">
                         <div className="absolute right-4 top-4 bg-slate-50 p-2.5 rounded-2xl border border-slate-100 text-slate-400 group-hover:text-slate-600 group-hover:bg-slate-100 transition-all duration-300">
                             <Icon name={card.icon} className="w-5 h-5"/>
                         </div>
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{card.title}</h3>
-                        <p className={`text-2xl font-black ${card.col} tracking-tight`}>{formatCurrency(card.val)}</p>
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 sm:mb-3">{card.title}</h3>
+                        <p className={`text-xl sm:text-2xl font-black ${card.col} tracking-tight`}>{formatCurrency(card.val)}</p>
                     </div>
                 ))}
             </div>

@@ -210,6 +210,72 @@ export default function MicrocreditsPanel({ userData }) {
     maximumFractionDigits: 2 
   }).format(val || 0);
 
+  // Obtiene el detalle exacto del valor cobrado en una cuota (total o parcial, incluyendo registros históricos)
+  const getDetalleCobroCuota = (row, currentParams = params) => {
+    if (!row) {
+      return { montoCobrado: 0, punitorioCobrado: 0, compensatorioCobrado: 0, capitalCobrado: 0, ultimoPagoMonto: 0, fechaUltimoPago: null };
+    }
+    const principalOrig = typeof row.capitalOriginal === 'number'
+      ? row.capitalOriginal
+      : (typeof row.principal === 'number' ? row.principal : Math.max(0, (row.cuotaPura || 0) - (row.interest || 0)));
+    const interestOrig = typeof row.interesCompensatorioOriginal === 'number'
+      ? row.interesCompensatorioOriginal
+      : (typeof row.interest === 'number' ? row.interest : 0);
+    const moraDailyRate = ((parseFloat(currentParams?.moraTna) || 0) / 100) / 365;
+    const punitorioPorDias = (row.lateDays > 0 && principalOrig > 0)
+      ? Math.round(principalOrig * moraDailyRate * row.lateDays * 100) / 100
+      : 0;
+
+    if (Array.isArray(row.pagos) && row.pagos.length > 0) {
+      const montoCobrado = Math.round(row.pagos.reduce((acc, p) => acc + (Number(p.montoTotal) || 0), 0) * 100) / 100;
+      const punitorioCobrado = Math.round(row.pagos.reduce((acc, p) => acc + (Number(p.imputacion?.punitorio) || 0), 0) * 100) / 100;
+      const compensatorioCobrado = Math.round(row.pagos.reduce((acc, p) => acc + (Number(p.imputacion?.compensatorio) || 0), 0) * 100) / 100;
+      const capitalCobrado = Math.round(row.pagos.reduce((acc, p) => acc + (Number(p.imputacion?.capital) || 0), 0) * 100) / 100;
+      const ultimoPago = row.pagos[row.pagos.length - 1];
+      return {
+        montoCobrado,
+        punitorioCobrado,
+        compensatorioCobrado,
+        capitalCobrado,
+        ultimoPagoMonto: Number(ultimoPago?.montoTotal) || montoCobrado,
+        fechaUltimoPago: row.fechaUltimoPago || ultimoPago?.fecha || null
+      };
+    }
+
+    if (typeof row.montoCobrado === 'number' && row.montoCobrado > 0) {
+      const punitorioCobrado = Math.max(0, Math.round((row.montoCobrado - (row.cuotaPura || 0)) * 100) / 100);
+      return {
+        montoCobrado: row.montoCobrado,
+        punitorioCobrado,
+        compensatorioCobrado: interestOrig,
+        capitalCobrado: principalOrig,
+        ultimoPagoMonto: row.ultimoPagoMonto || row.montoCobrado,
+        fechaUltimoPago: row.fechaUltimoPago || row.fechaUltimoCalculoMora || null
+      };
+    }
+
+    if (row.status === 'paid') {
+      const montoCobrado = Math.round(((row.cuotaPura || 0) + punitorioPorDias) * 100) / 100;
+      return {
+        montoCobrado,
+        punitorioCobrado: punitorioPorDias,
+        compensatorioCobrado: interestOrig,
+        capitalCobrado: principalOrig,
+        ultimoPagoMonto: montoCobrado,
+        fechaUltimoPago: row.fechaUltimoPago || row.fechaUltimoCalculoMora || null
+      };
+    }
+
+    return {
+      montoCobrado: 0,
+      punitorioCobrado: 0,
+      compensatorioCobrado: 0,
+      capitalCobrado: 0,
+      ultimoPagoMonto: 0,
+      fechaUltimoPago: null
+    };
+  };
+
   // Generador de datos del Cuadro de Amortización Francés (precisión financiera exacta)
   const getAmortizationData = (targetCliente = null) => {
     const p = targetCliente ? targetCliente.params : params;
@@ -281,6 +347,8 @@ export default function MicrocreditsPanel({ userData }) {
         totalCuotaPura += cuota;
         totalInteresPunitorio += lateInterest;
 
+        const detalleCobro = getDetalleCobroCuota(item, p);
+
         rows.push({
           cuotaNum: item.week || (i + 1),
           fecha: item.fecha,
@@ -294,6 +362,8 @@ export default function MicrocreditsPanel({ userData }) {
           status,
           lateDays,
           lateInterest,
+          montoCobrado: detalleCobro.montoCobrado,
+          punitorioCobrado: detalleCobro.punitorioCobrado,
           totalExigible: item.totalToPay !== undefined ? item.totalToPay : (saldoCapitalCuota + saldoCompCuota + lateInterest)
         });
       }
@@ -523,6 +593,8 @@ export default function MicrocreditsPanel({ userData }) {
     };
 
     const isPaid = sim.esCancelacionTotal;
+    const nuevosPagos = [...historialPrevio, nuevoPagoRegistro];
+    const totalCobradoAcumulado = Math.round(nuevosPagos.reduce((acc, p) => acc + (Number(p.montoTotal) || 0), 0) * 100) / 100;
 
     const cuotaActualizada = {
       ...cuota,
@@ -533,7 +605,10 @@ export default function MicrocreditsPanel({ userData }) {
       totalToPay: sim.totalExigibleRemanente,
       status: isPaid ? 'paid' : (cuota.lateDays > 0 ? 'late' : 'pending'),
       fechaUltimoCalculoMora: fechaPagoStr,
-      pagos: [...historialPrevio, nuevoPagoRegistro]
+      pagos: nuevosPagos,
+      montoCobrado: totalCobradoAcumulado,
+      ultimoPagoMonto: sim.montoAbonado,
+      fechaUltimoPago: fechaPagoStr
     };
 
     return { cuotaActualizada, detalle: nuevoPagoRegistro };
@@ -1006,6 +1081,9 @@ export default function MicrocreditsPanel({ userData }) {
       item.totalToPay = Math.round((principalOrig + interestOrig + punitorio) * 100) / 100;
       item.status = item.lateDays > 0 ? 'late' : 'pending';
       item.pagos = [];
+      item.montoCobrado = 0;
+      item.ultimoPagoMonto = 0;
+      item.fechaUltimoPago = null;
       item.fechaUltimoCalculoMora = null;
 
       newSchedule[index] = item;
@@ -1014,6 +1092,7 @@ export default function MicrocreditsPanel({ userData }) {
       const totalExigible = item.totalToPay || item.cuotaPura;
       const { cuotaActualizada } = ejecutarImputacionArt903(item, totalExigible);
       newSchedule[index] = cuotaActualizada;
+      triggerNotification(`Cuota #${item.week} pagada — Valor cobrado: ${formatCurrency(cuotaActualizada.montoCobrado)}`);
     }
 
     setSchedule(newSchedule);
@@ -1113,6 +1192,8 @@ export default function MicrocreditsPanel({ userData }) {
     setAiAnalysis(null);
     setAiCollectionMsg(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    const mainEl = document.querySelector('main');
+    if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
 
     const { newSchedule, changed } = checkAutoLateDays(cliente.schedule, clientParams);
     setSchedule(newSchedule);
@@ -1223,14 +1304,9 @@ export default function MicrocreditsPanel({ userData }) {
     const tasaDirectaTotal = capital > 0 ? (totalInterest / capital) * 100 : 0;
     const mesesPlazo = ((periods * daysPerPeriod) / 30).toFixed(1);
     const recaudado = schedule.reduce((acc, row) => {
-      if (Array.isArray(row.pagos) && row.pagos.length > 0) {
-        return acc + row.pagos.reduce((pAcc, p) => pAcc + (p.montoTotal || 0), 0);
-      }
-      if (row.status === 'paid') {
-        return acc + (row.totalToPay || row.cuotaPura || 0);
-      }
-      return acc;
+      return acc + getDetalleCobroCuota(row, params).montoCobrado;
     }, 0);
+    const cuotasCobradasCount = schedule.filter(r => r.status === 'paid').length;
     const saldoRestante = schedule.filter(r => r.status !== 'paid').reduce((acc, row) => acc + (row.totalToPay || 0), 0);
 
     return { 
@@ -1249,6 +1325,7 @@ export default function MicrocreditsPanel({ userData }) {
       tasaDirectaTotal, 
       mesesPlazo, 
       recaudado, 
+      cuotasCobradasCount,
       saldoRestante, 
       sellosTax 
     };
@@ -1569,7 +1646,7 @@ export default function MicrocreditsPanel({ userData }) {
                               <td className="px-3 py-3 text-center font-sans whitespace-nowrap">
                                 {isPaid ? (
                                   <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                                    <Check size={10} strokeWidth={3} /> Cobrada
+                                    <Check size={10} strokeWidth={3} /> Cobrada ({formatCurrency(r.montoCobrado || r.cuota)})
                                   </span>
                                 ) : isLate ? (
                                   <span className="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
@@ -2098,6 +2175,14 @@ export default function MicrocreditsPanel({ userData }) {
                 <span className="font-bold text-lg">Monto Pagaré:</span>
                 <span className="text-2xl font-black">{formatCurrency(stats.totalPagar)}</span>
               </div>
+              {(clienteId || stats.recaudado > 0) && (
+                <div className="pt-2 border-t border-white/20 flex justify-between items-center bg-emerald-500/20 border border-emerald-300/30 p-3 rounded-xl mt-2 shadow-inner">
+                  <span className="font-bold text-base text-emerald-200 flex items-center gap-1.5">
+                    <Coins size={16} /> Total Cobrado:
+                  </span>
+                  <span className="text-2xl font-black text-emerald-300">{formatCurrency(stats.recaudado)}</span>
+                </div>
+              )}
               {clienteId && (
                 <div className="pt-2 border-t border-white/20 flex justify-between items-center bg-white/10 p-3 rounded-xl mt-2 shadow-inner">
                   <span className="font-bold text-lg text-amber-200">Saldo Restante:</span>
@@ -2209,17 +2294,45 @@ export default function MicrocreditsPanel({ userData }) {
               </div>
             )}
 
-            {/* TABLA DE CRONOGRAMA */}
-            <div className="overflow-x-auto">
+            {/* BANNER DE REGISTRO DE COBROS ACUMULADOS (Si hay pagos registrados) */}
+            {stats.recaudado > 0 && (
+              <div className="bg-emerald-50/80 border-b border-emerald-100 p-3.5 px-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl shadow-xs">
+                    <Coins size={20} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-black uppercase text-emerald-800 tracking-wider">
+                        Registro de Cobros Efectuados
+                      </span>
+                      <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-bold px-2 py-0.5 rounded-md">
+                        {stats.cuotasCobradasCount} de {schedule.length} cuotas canceladas
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-emerald-700 font-medium block mt-0.5">
+                      Cada cuota abonada exhibe debajo su <strong className="font-bold">Valor Cobrado</strong> real (incluyendo mora si correspondiere).
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] uppercase font-bold text-emerald-600 block">Total Cobrado Acumulado</span>
+                  <span className="text-lg font-black text-emerald-800">{formatCurrency(stats.recaudado)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* TABLA DE CRONOGRAMA (PC / Tablet Horizontal >= 1024px) */}
+            <div className="hidden lg:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-widest border-b">
                   <tr>
-                    <th className="px-6 py-4 text-left">Cuota</th>
-                    <th className="px-4 py-4 text-left">Desglose Cuota</th>
-                    <th className="px-4 py-4 text-center">Días Mora</th>
-                    <th className="px-4 py-4 text-right">Mora Punitoria</th>
-                    <th className="px-4 py-4 text-right">Total Exigible</th>
-                    <th className="px-6 py-4 text-center">Gestión de Pago</th>
+                    <th className="px-4 py-3.5 text-left">Cuota</th>
+                    <th className="px-3 py-3.5 text-left">Desglose Cuota</th>
+                    <th className="px-2 py-3.5 text-center">Días Mora</th>
+                    <th className="px-3 py-3.5 text-right">Mora Punitoria</th>
+                    <th className="px-3 py-3.5 text-right">Total Exigible</th>
+                    <th className="px-4 py-3.5 text-center">Gestión de Pago</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -2228,10 +2341,11 @@ export default function MicrocreditsPanel({ userData }) {
                     const saldoComp = row.saldo_interes_compensatorio !== undefined ? row.saldo_interes_compensatorio : row.interest;
                     const punitorio = row.interes_punitorio_acumulado !== undefined ? row.interes_punitorio_acumulado : (row.lateInterest || 0);
                     const tieneAbonos = Array.isArray(row.pagos) && row.pagos.length > 0;
+                    const detalleCobro = getDetalleCobroCuota(row, params);
                     
                     return (
                       <tr key={idx} className={`group hover:bg-slate-50/80 transition-all ${row.status === 'paid' ? 'bg-emerald-50/30' : row.status === 'late' ? 'bg-red-50/20' : ''}`}>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3.5 whitespace-nowrap">
                           <span className="font-bold text-slate-800 block"># {row.week}</span>
                           <span className="text-[11px] font-bold text-blue-600 block mb-0.5">{row.fecha}</span>
                           {tieneAbonos && (
@@ -2240,67 +2354,100 @@ export default function MicrocreditsPanel({ userData }) {
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="px-3 py-3.5">
                           <div className="text-left font-sans">
                             <span className="font-bold text-slate-800 text-xs block">{formatCurrency(row.cuotaPura)}</span>
-                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mt-0.5 font-mono">
-                              <span className="text-emerald-700 font-semibold" title="Saldo de amortización de capital puro">
+                            <div className="flex flex-col 2xl:flex-row 2xl:items-center gap-0.5 2xl:gap-1.5 text-[10px] text-slate-500 mt-0.5 font-mono">
+                              <span className="text-emerald-700 font-semibold whitespace-nowrap" title="Saldo de amortización de capital puro">
                                 Cap: {formatCurrency(saldoCap)}
                               </span>
-                              <span className="text-slate-300">•</span>
-                              <span className="text-amber-700 font-semibold" title="Saldo de interés compensatorio pactado">
+                              <span className="text-slate-300 hidden 2xl:inline">•</span>
+                              <span className="text-amber-700 font-semibold whitespace-nowrap" title="Saldo de interés compensatorio pactado">
                                 Int: {formatCurrency(saldoComp)}
                               </span>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-center">
+                        <td className="px-2 py-3.5 text-center">
                           <input 
                             type="number" 
                             min="0"
                             disabled={row.status === 'paid'}
                             value={row.lateDays || 0}
                             onChange={(e) => updateLateDays(idx, parseInt(e.target.value) || 0)}
-                            className="w-16 mx-auto bg-slate-100 border-none rounded-lg p-1.5 text-center text-xs focus:ring-2 focus:ring-red-300 outline-none disabled:opacity-30 font-bold"
+                            className="w-14 mx-auto bg-slate-100 border-none rounded-lg p-1.5 text-center text-xs focus:ring-2 focus:ring-red-300 outline-none disabled:opacity-30 font-bold"
                           />
                         </td>
-                        <td className="px-4 py-4 text-right">
-                          <span className={`font-bold ${punitorio > 0 ? 'text-red-600' : 'text-slate-400'}`}>
-                            {punitorio > 0 ? `+${formatCurrency(punitorio)}` : '-'}
-                          </span>
-                          {punitorio > 0 && (
-                            <span className="text-[9px] text-red-500/90 block font-medium">s/capital puro</span>
+                        <td className="px-3 py-3.5 text-right">
+                          {punitorio > 0 ? (
+                            <>
+                              <span className="font-bold text-red-600 whitespace-nowrap">
+                                +{formatCurrency(punitorio)}
+                              </span>
+                              <span className="text-[9px] text-red-500/90 block font-medium">s/capital puro</span>
+                            </>
+                          ) : detalleCobro.punitorioCobrado > 0 ? (
+                            <div title="Mora punitoria efectivamente cobrada en esta cuota">
+                              <span className="font-bold text-emerald-700 whitespace-nowrap block text-xs">
+                                +{formatCurrency(detalleCobro.punitorioCobrado)}
+                              </span>
+                              <span className="text-[9px] text-emerald-600 font-semibold block">mora cobrada</span>
+                            </div>
+                          ) : (
+                            <span className="font-bold text-slate-400">-</span>
                           )}
                         </td>
-                        <td className="px-4 py-4 text-right">
-                          <span className="font-black text-slate-900 block text-sm">
+                        <td className="px-3 py-3.5 text-right">
+                          <span className="font-black text-slate-900 block text-sm whitespace-nowrap">
                             {formatCurrency(row.totalToPay)}
                           </span>
                           {row.status === 'paid' ? (
-                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full inline-block">
-                              Cancelada
-                            </span>
+                            <div className="flex flex-col items-end gap-1 mt-0.5">
+                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full inline-block">
+                                Cancelada
+                              </span>
+                              <div className="bg-emerald-50 border border-emerald-300 rounded-lg px-2 py-0.5 text-right shadow-xs whitespace-nowrap">
+                                <span className="text-[8px] font-extrabold uppercase tracking-wider text-emerald-600 flex items-center justify-end gap-1">
+                                  <Coins size={9} /> Cobrado
+                                </span>
+                                <span className="text-[11px] font-black text-emerald-800 font-mono block">
+                                  {formatCurrency(detalleCobro.montoCobrado)}
+                                </span>
+                              </div>
+                            </div>
                           ) : (saldoCap < (row.capitalOriginal || row.principal) || tieneAbonos) ? (
-                            <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full inline-block">
-                              Abono Parcial
-                            </span>
+                            <div className="flex flex-col items-end gap-1 mt-0.5">
+                              <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full inline-block">
+                                Abono Parcial
+                              </span>
+                              {detalleCobro.montoCobrado > 0 && (
+                                <div className="bg-amber-50 border border-amber-300 rounded-lg px-2 py-0.5 text-right shadow-xs whitespace-nowrap">
+                                  <span className="text-[8px] font-extrabold uppercase tracking-wider text-amber-700 flex items-center justify-end gap-1">
+                                    <Coins size={9} /> Abonado
+                                  </span>
+                                  <span className="text-[11px] font-black text-amber-900 font-mono block">
+                                    {formatCurrency(detalleCobro.montoCobrado)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                           ) : row.status === 'late' ? (
-                            <span className="text-[9px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-full inline-block">
+                            <span className="text-[9px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-full inline-block whitespace-nowrap">
                               En Mora (+{row.lateDays}d)
                             </span>
                           ) : (
-                            <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full inline-block">
+                            <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full inline-block whitespace-nowrap">
                               Al día
                             </span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-center">
-                          <div className="flex items-center justify-center gap-2">
+                        <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
                             {/* Botón Imputar Abono Art. 903 */}
                             <button 
                               onClick={() => abrirModalImputacion(idx, row)}
                               disabled={row.status === 'paid'}
-                              className="px-2.5 py-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 rounded-xl transition-all border border-blue-200 shadow-xs flex items-center gap-1 text-xs font-bold cursor-pointer"
+                              className="px-2.5 py-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 rounded-xl transition-all border border-blue-200 shadow-xs flex items-center gap-1 text-xs font-bold cursor-pointer flex-shrink-0"
                               title="Imputar pago o abono conforme Art. 903 CCCN"
                             >
                               <Receipt size={14} className="text-blue-600" />
@@ -2311,7 +2458,7 @@ export default function MicrocreditsPanel({ userData }) {
                             {row.status === 'late' && (
                               <button 
                                 onClick={generarMensajeCobranzaConsolidado} 
-                                className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200" 
+                                className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200 flex-shrink-0" 
                                 title="Generar mensaje de cobranza consolidado con IA ✨"
                               >
                                 <MessageSquare size={16} />
@@ -2321,7 +2468,7 @@ export default function MicrocreditsPanel({ userData }) {
                             {/* Botón Cobro Rápido Total */}
                             <button 
                               onClick={() => togglePaymentStatus(idx)}
-                              className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all border-2 cursor-pointer
+                              className={`w-9 h-9 flex-shrink-0 rounded-xl flex items-center justify-center transition-all border-2 cursor-pointer
                                 ${row.status === 'paid' 
                                   ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm' 
                                   : row.status === 'late' 
@@ -2346,6 +2493,118 @@ export default function MicrocreditsPanel({ userData }) {
                 </tbody>
               </table>
             </div>
+
+            {/* VISTA TARJETAS CRONOGRAMA (Celular y Tablet Vertical < 1024px) */}
+            <div className="lg:hidden divide-y divide-slate-100">
+              {schedule.length > 0 ? schedule.map((row, idx) => {
+                const saldoCap = row.saldo_capital_cuota !== undefined ? row.saldo_capital_cuota : row.principal;
+                const saldoComp = row.saldo_interes_compensatorio !== undefined ? row.saldo_interes_compensatorio : row.interest;
+                const punitorio = row.interes_punitorio_acumulado !== undefined ? row.interes_punitorio_acumulado : (row.lateInterest || 0);
+                const tieneAbonos = Array.isArray(row.pagos) && row.pagos.length > 0;
+                const detalleCobro = getDetalleCobroCuota(row, params);
+
+                return (
+                  <div key={idx} className={`p-4 space-y-3 ${row.status === 'paid' ? 'bg-emerald-50/35' : row.status === 'late' ? 'bg-red-50/25' : ''}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-slate-800 text-sm">Cuota #{row.week}</span>
+                          <span className="text-xs font-bold text-blue-600">{row.fecha}</span>
+                          {tieneAbonos && (
+                            <span className="text-[9px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded-full">
+                              {row.pagos.length} {row.pagos.length === 1 ? 'abono' : 'abonos'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1 font-mono flex flex-wrap items-center gap-x-2">
+                          <span className="font-bold text-slate-700">Cuota: {formatCurrency(row.cuotaPura)}</span>
+                          <span className="text-emerald-700 font-semibold">Cap: {formatCurrency(saldoCap)}</span>
+                          <span className="text-amber-700 font-semibold">Int: {formatCurrency(saldoComp)}</span>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Total Exigible</span>
+                        <span className="font-black text-slate-900 text-base block">{formatCurrency(row.totalToPay)}</span>
+                        {row.status === 'paid' ? (
+                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                            Cancelada
+                          </span>
+                        ) : row.status === 'late' ? (
+                          <span className="text-[9px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                            En Mora (+{row.lateDays}d)
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                            Al día
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Fila de Mora / Valor Cobrado y Controles de Pago */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Días Mora:</label>
+                        <input
+                          type="number"
+                          min="0"
+                          disabled={row.status === 'paid'}
+                          value={row.lateDays || 0}
+                          onChange={(e) => updateLateDays(idx, parseInt(e.target.value) || 0)}
+                          className="w-14 bg-slate-100 border-none rounded-lg p-1 text-center text-xs font-bold outline-none disabled:opacity-40"
+                        />
+                        {punitorio > 0 && (
+                          <span className="text-xs font-bold text-red-600">+{formatCurrency(punitorio)}</span>
+                        )}
+                        {row.status === 'paid' && (
+                          <div className="bg-emerald-50 border border-emerald-300 rounded-lg px-2 py-0.5 text-left">
+                            <span className="text-[8px] font-extrabold uppercase text-emerald-600 flex items-center gap-1">
+                              <Coins size={9} /> Cobrado: <strong className="font-mono text-emerald-800">{formatCurrency(detalleCobro.montoCobrado)}</strong>
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5 ml-auto">
+                        <button
+                          onClick={() => abrirModalImputacion(idx, row)}
+                          disabled={row.status === 'paid'}
+                          className="px-3 py-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 rounded-xl border border-blue-200 flex items-center gap-1 text-xs font-bold cursor-pointer"
+                        >
+                          <Receipt size={14} className="text-blue-600" /> Abonar
+                        </button>
+                        {row.status === 'late' && (
+                          <button
+                            onClick={generarMensajeCobranzaConsolidado}
+                            className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl border border-red-200"
+                            title="Generar mensaje de cobranza con IA"
+                          >
+                            <MessageSquare size={15} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => togglePaymentStatus(idx)}
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all border-2 cursor-pointer ${
+                            row.status === 'paid'
+                              ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
+                              : row.status === 'late'
+                                ? 'bg-red-50 border-red-200 text-red-500'
+                                : 'bg-white border-slate-200 text-slate-400'
+                          }`}
+                        >
+                          <Check size={18} strokeWidth={row.status === 'paid' ? 3 : 2} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }) : (
+                <div className="py-10 text-center text-slate-400 italic text-sm">
+                  Configura los parámetros para ver el cronograma.
+                </div>
+              )}
+            </div>
           </section>
 
           {/* CARTERA ACTIVA */}
@@ -2361,71 +2620,114 @@ export default function MicrocreditsPanel({ userData }) {
               {cartera.length === 0 ? (
                 <div className="py-12 text-center text-slate-400 italic">No hay registros guardados.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b">
-                      <tr>
-                        <th className="px-6 py-4">Cliente</th>
-                        <th className="px-4 py-4">Teléfono</th>
-                        <th className="px-4 py-4">Capital</th>
-                        <th className="px-4 py-4 text-center">Estado / Progreso</th>
-                        <th className="px-6 py-4 text-right">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {cartera.map((c) => {
-                        const lateCount = c.schedule?.filter(s => s.status !== 'paid' && (s.status === 'late' || s.lateDays > 0)).length || 0;
-                        const paidCount = c.schedule?.filter(s => s.status === 'paid').length || 0;
-                        const totalQuotes = c.schedule?.length || c.params?.weeks || 1;
-                        const isFinished = paidCount === totalQuotes && totalQuotes > 0;
-                        
-                        return (
-                          <tr key={c.id} className={`hover:bg-slate-50 transition-colors ${clienteId === c.id ? 'bg-blue-50/50' : ''}`}>
-                            <td className="px-6 py-4">
-                              <span className="font-bold text-slate-800 block">{c.nombre}</span>
-                              <span className="text-[10px] text-slate-400 uppercase font-bold">{c.params?.frecuencia || 'semanal'}</span>
-                            </td>
-                            <td className="px-4 py-4 text-slate-600 text-xs font-mono">
-                              {c.telefono ? (
-                                <span className="flex items-center gap-1 text-slate-700 font-medium">
-                                  <Phone size={12} className="text-emerald-600" /> {c.telefono}
-                                </span>
-                              ) : (
-                                <span className="text-slate-300 italic">Sin registrar</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-4 font-mono font-bold text-slate-600">{formatCurrency(c.params?.capital)}</td>
-                            <td className="px-4 py-4">
-                              <div className="flex flex-col gap-1.5 items-center">
-                                <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                  <div className="h-full bg-blue-500" style={{ width: `${(paidCount / totalQuotes) * 100}%` }} />
-                                </div>
-                                {isFinished ? (
-                                  <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">
-                                    Finalizado
-                                  </span>
-                                ) : lateCount > 0 ? (
-                                  <span className="text-[10px] bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">
-                                    {lateCount} {lateCount === 1 ? 'cuota en mora' : 'cuotas en mora'}
+                <>
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b">
+                        <tr>
+                          <th className="px-6 py-4">Cliente</th>
+                          <th className="px-4 py-4">Teléfono</th>
+                          <th className="px-4 py-4">Capital</th>
+                          <th className="px-4 py-4 text-center">Estado / Progreso</th>
+                          <th className="px-6 py-4 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {cartera.map((c) => {
+                          const lateCount = c.schedule?.filter(s => s.status !== 'paid' && (s.status === 'late' || s.lateDays > 0)).length || 0;
+                          const paidCount = c.schedule?.filter(s => s.status === 'paid').length || 0;
+                          const totalQuotes = c.schedule?.length || c.params?.weeks || 1;
+                          const isFinished = paidCount === totalQuotes && totalQuotes > 0;
+                          
+                          return (
+                            <tr key={c.id} className={`hover:bg-slate-50 transition-colors ${clienteId === c.id ? 'bg-blue-50/50' : ''}`}>
+                              <td className="px-6 py-4">
+                                <span className="font-bold text-slate-800 block">{c.nombre}</span>
+                                <span className="text-[10px] text-slate-400 uppercase font-bold">{c.params?.frecuencia || 'semanal'}</span>
+                              </td>
+                              <td className="px-4 py-4 text-slate-600 text-xs font-mono">
+                                {c.telefono ? (
+                                  <span className="flex items-center gap-1 text-slate-700 font-medium">
+                                    <Phone size={12} className="text-emerald-600" /> {c.telefono}
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full">
-                                    Al día
-                                  </span>
+                                  <span className="text-slate-300 italic">Sin registrar</span>
                                 )}
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 text-right space-x-2">
-                              <button onClick={() => abrirModalAmortizacionCliente(c)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Ver Cuadro de Amortización Francés"><FileSpreadsheet size={18} /></button>
-                              <button onClick={() => gestionarCliente(c)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Ver y gestionar"><Eye size={18} /></button>
-                              <button onClick={() => eliminarPrestamo(c.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar"><Trash2 size={18} /></button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                              </td>
+                              <td className="px-4 py-4 font-mono font-bold text-slate-600">{formatCurrency(c.params?.capital)}</td>
+                              <td className="px-4 py-4">
+                                <div className="flex flex-col gap-1.5 items-center">
+                                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className="h-full bg-blue-500" style={{ width: `${(paidCount / totalQuotes) * 100}%` }} />
+                                  </div>
+                                  {isFinished ? (
+                                    <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">
+                                      Finalizado
+                                    </span>
+                                  ) : lateCount > 0 ? (
+                                    <span className="text-[10px] bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">
+                                      {lateCount} {lateCount === 1 ? 'cuota en mora' : 'cuotas en mora'}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full">
+                                      Al día
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-right space-x-2">
+                                <button onClick={() => abrirModalAmortizacionCliente(c)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Ver Cuadro de Amortización Francés"><FileSpreadsheet size={18} /></button>
+                                <button onClick={() => gestionarCliente(c)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Ver y gestionar"><Eye size={18} /></button>
+                                <button onClick={() => eliminarPrestamo(c.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar"><Trash2 size={18} /></button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Vista Tarjetas Cartera Activa (Celular) */}
+                  <div className="md:hidden divide-y divide-slate-100">
+                    {cartera.map((c) => {
+                      const lateCount = c.schedule?.filter(s => s.status !== 'paid' && (s.status === 'late' || s.lateDays > 0)).length || 0;
+                      const paidCount = c.schedule?.filter(s => s.status === 'paid').length || 0;
+                      const totalQuotes = c.schedule?.length || c.params?.weeks || 1;
+                      const isFinished = paidCount === totalQuotes && totalQuotes > 0;
+
+                      return (
+                        <div key={c.id} className={`p-4 space-y-2.5 ${clienteId === c.id ? 'bg-blue-50/50' : ''}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="font-bold text-slate-800 block text-sm">{c.nombre}</span>
+                              <span className="text-[10px] text-slate-400 uppercase font-bold">{c.params?.frecuencia || 'semanal'} • {paidCount}/{totalQuotes} cuotas</span>
+                            </div>
+                            <span className="font-mono font-black text-slate-800 text-sm">{formatCurrency(c.params?.capital)}</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500" style={{ width: `${(paidCount / totalQuotes) * 100}%` }} />
+                          </div>
+                          <div className="flex items-center justify-between pt-1">
+                            <div>
+                              {isFinished ? (
+                                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Finalizado</span>
+                              ) : lateCount > 0 ? (
+                                <span className="text-[10px] bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">{lateCount} en mora</span>
+                              ) : (
+                                <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full">Al día</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button onClick={() => abrirModalAmortizacionCliente(c)} className="p-2 text-emerald-600 bg-emerald-50 rounded-lg"><FileSpreadsheet size={16} /></button>
+                              <button onClick={() => gestionarCliente(c)} className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 rounded-lg flex items-center gap-1"><Eye size={14} /> Gestionar</button>
+                              <button onClick={() => eliminarPrestamo(c.id)} className="p-2 text-red-500 bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </div>
           </section>

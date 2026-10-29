@@ -10,8 +10,10 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
 
-const CashFlowModal = ({ item, onClose }) => {
+const CashFlowModal = ({ item, initialData = null, targetUserId, targetEntityName, onClose }) => {
     const { user } = useAuth();
+    const currentUid = targetUserId || user?.uid;
+
     const [type, setType] = useState('ingreso');
     const [category, setCategory] = useState('Ventas');
     const [description, setDescription] = useState('');
@@ -29,23 +31,30 @@ const CashFlowModal = ({ item, onClose }) => {
             setAmount(item.amount || '');
             setDate(item.date || new Date().toISOString().split('T')[0]);
             setPeriodicity(item.periodicity || 'once');
+        } else if (initialData) {
+            setType(initialData.type || 'ingreso');
+            setCategory(initialData.category || 'Otros Ingresos');
+            setDescription(initialData.description || '');
+            setAmount(initialData.amount ? String(Math.round(initialData.amount * 100) / 100) : '');
+            setDate(initialData.date || new Date().toISOString().split('T')[0]);
+            setPeriodicity(initialData.periodicity || 'once');
         }
-    }, [item]);
+    }, [item, initialData]);
 
-    // Cambiar la categoría por defecto cuando cambia el tipo
+    // Cambiar la categoría por defecto cuando cambia el tipo (solo si es nuevo y sin initialData)
     useEffect(() => {
-        if (!item) {
+        if (!item && !initialData) {
             if (type === 'ingreso') {
                 setCategory('Ventas');
             } else {
                 setCategory('Proveedores');
             }
         }
-    }, [type, item]);
+    }, [type, item, initialData]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!user) return;
+        if (!currentUid) return;
         setError('');
 
         const numericAmount = parseFloat(amount);
@@ -72,13 +81,12 @@ const CashFlowModal = ({ item, onClose }) => {
             };
 
             if (item && item.id) {
-                // Editar item existente
-                const itemRef = doc(db, 'users', user.uid, 'cashflow_items', item.id);
+                const itemRef = doc(db, 'users', currentUid, 'cashflow_items', item.id);
                 await updateDoc(itemRef, dataPayload);
             } else {
-                // Crear nuevo item
+                dataPayload.status = 'pending';
                 dataPayload.createdAt = serverTimestamp();
-                const colRef = collection(db, 'users', user.uid, 'cashflow_items');
+                const colRef = collection(db, 'users', currentUid, 'cashflow_items');
                 await addDoc(colRef, dataPayload);
             }
             onClose();
@@ -92,7 +100,7 @@ const CashFlowModal = ({ item, onClose }) => {
 
     return (
         <div className="modal-overlay">
-            <div className="backdrop-blur-2xl bg-slate-900/90 border border-slate-800/80 rounded-3xl shadow-2xl p-6 w-full max-w-md mx-4 text-white relative animate-fade-in">
+            <div className="backdrop-blur-2xl bg-slate-900/95 border border-slate-800/80 rounded-3xl shadow-2xl p-6 w-full max-w-md mx-4 text-white relative animate-fade-in">
                 {/* Botón cerrar */}
                 <button 
                     onClick={onClose} 
@@ -106,7 +114,10 @@ const CashFlowModal = ({ item, onClose }) => {
                         <Icon name="FilePlus" className="text-blue-400" />
                         {item ? 'Editar Flujo Previsto' : 'Nuevo Flujo Previsto'}
                     </h3>
-                    <p className="text-slate-400 text-xs mt-1">Carga estimaciones de ingresos o egresos a futuro.</p>
+                    <p className="text-slate-400 text-xs mt-1">
+                        Carga estimaciones de ingresos o egresos a futuro
+                        {targetEntityName ? ` para ${targetEntityName}` : ''}.
+                    </p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -132,7 +143,7 @@ const CashFlowModal = ({ item, onClose }) => {
                     </div>
 
                     {/* Categoría y Periodicidad */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Categoría</label>
                             <select
@@ -144,6 +155,7 @@ const CashFlowModal = ({ item, onClose }) => {
                                     <>
                                         <option value="Ventas" className="bg-slate-900">Ventas Proyectadas</option>
                                         <option value="Cobros" className="bg-slate-900">Cobros a Clientes</option>
+                                        <option value="Inversiones" className="bg-slate-900">Vencimiento Plazo Fijo / Inversión</option>
                                         <option value="Otros Ingresos" className="bg-slate-900">Otros Ingresos</option>
                                     </>
                                 ) : (
@@ -151,7 +163,7 @@ const CashFlowModal = ({ item, onClose }) => {
                                         <option value="Proveedores" className="bg-slate-900">Proveedores</option>
                                         <option value="Salarios" className="bg-slate-900">Salarios y Cargas</option>
                                         <option value="Alquiler" className="bg-slate-900">Alquileres y Servicios</option>
-                                        <option value="Impuestos" className="bg-slate-900">Impuestos (IVA/Otros)</option>
+                                        <option value="Impuestos" className="bg-slate-900">Impuestos (IVA/IIBB/Otros)</option>
                                         <option value="Otros Egresos" className="bg-slate-900">Otros Egresos</option>
                                     </>
                                 )}
@@ -179,30 +191,31 @@ const CashFlowModal = ({ item, onClose }) => {
                             type="text"
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
-                            placeholder="Ej: Pago de alquiler del local"
+                            placeholder="Ej: Pago de alquiler del local / Cobro lote ventas"
                             required
                             className="w-full px-4 py-3 bg-slate-950/40 border border-slate-800 text-white placeholder-slate-600 focus:bg-slate-950/60 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl transition-all outline-none text-xs"
                         />
                     </div>
 
                     {/* Monto y Fecha */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Monto (ARS)</label>
                             <div className="relative">
                                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500 font-bold text-xs">$</span>
                                 <input
                                     type="number"
+                                    step="any"
                                     value={amount}
                                     onChange={(e) => setAmount(e.target.value)}
                                     placeholder="0.00"
                                     required
-                                    className="w-full pl-7 p-3 bg-slate-950/40 border border-slate-800 text-white placeholder-slate-600 focus:bg-slate-950/60 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl transition-all outline-none text-xs"
+                                    className="w-full pl-7 p-3 bg-slate-950/40 border border-slate-800 text-white placeholder-slate-600 focus:bg-slate-950/60 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl transition-all outline-none text-xs font-mono"
                                 />
                             </div>
                         </div>
                         <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Fecha Límite</label>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Fecha de Inicio / Vto.</label>
                             <input
                                 type="date"
                                 value={date}

@@ -24,13 +24,13 @@ const googleProvider = new GoogleAuthProvider();
 // Configurar App Check
 let appCheck;
 if (typeof window !== "undefined") {
-    // Si estamos en localhost, habilitamos el token de depuración para no ser bloqueados por reCAPTCHA
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    // Solo en entorno de desarrollo local habilitamos el token de depuración de App Check
+    if (import.meta.env.DEV && isLocalhost) {
         self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
     }
     
     // Inicializar App Check con reCAPTCHA v3
-    // Nota: Usamos la clave de sitio real recuperada de los respaldos de producción: 6LfC6wQsAAAAAOHfrlMZPGaVHx057A0xGCrnc4C8
     appCheck = initializeAppCheck(app, {
         provider: new ReCaptchaV3Provider(
             import.meta.env.VITE_RECAPTCHA_V3_SITE_KEY || "6LfC6wQsAAAAAOHfrlMZPGaVHx057A0xGCrnc4C8"
@@ -39,8 +39,13 @@ if (typeof window !== "undefined") {
     });
 }
 
-// Conectar a emuladores solo si está configurado explícitamente
-if (import.meta.env.VITE_USE_EMULATOR === 'true') {
+// Conectar a emuladores únicamente en modo desarrollo local (nunca en builds de producción)
+if (
+    import.meta.env.DEV &&
+    import.meta.env.VITE_USE_EMULATOR === 'true' &&
+    typeof window !== "undefined" &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+) {
     console.log("Conectando a Firebase Emulators...");
     connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
     connectFirestoreEmulator(db, '127.0.0.1', 8080);

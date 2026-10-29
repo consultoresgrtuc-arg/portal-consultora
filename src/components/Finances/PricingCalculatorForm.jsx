@@ -7,13 +7,19 @@ import {
   Tooltip as ChartTooltip,
   Legend as ChartLegend
 } from 'chart.js';
+import { db } from '../../firebase';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { useAuth } from '../../context/AuthContext';
 import Icon from '../Common/Icon';
 import { calcularPrecioVenta } from './pricingCalculator';
 
 // Registrar los elementos requeridos de Chart.js para el gráfico circular
 ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
 
-const PricingCalculatorForm = ({ dollarRates = [] }) => {
+const PricingCalculatorForm = ({ dollarRates = [], targetUserId }) => {
+    const { user } = useAuth();
+    const currentUid = targetUserId || user?.uid;
+
     // Inputs del formulario
     const [costo, setCosto] = useState('10000');
     const [iibb, setIibb] = useState('3.5');
@@ -40,17 +46,44 @@ const PricingCalculatorForm = ({ dollarRates = [] }) => {
     const [result, setResult] = useState(null);
     const [error, setError] = useState('');
 
-    // Cargar Historial al montar el componente
+    // Cargar Historial desde Firestore (con respaldo en localStorage)
     useEffect(() => {
-        const stored = localStorage.getItem('gyr_pricing_simulations');
-        if (stored) {
-            try {
-                setSimulaciones(JSON.parse(stored));
-            } catch (err) {
-                console.error("Error al cargar simulaciones:", err);
+        if (!currentUid) {
+            const stored = localStorage.getItem('gyr_pricing_simulations');
+            if (stored) {
+                try {
+                    setSimulaciones(JSON.parse(stored));
+                } catch (err) {
+                    console.error("Error al cargar simulaciones:", err);
+                }
             }
+            return;
         }
-    }, []);
+
+        const q = query(collection(db, 'users', currentUid, 'pricing_simulations'), orderBy('id', 'desc'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            if (!snapshot.empty) {
+                const loaded = snapshot.docs.map(d => ({ docId: d.id, ...d.data() }));
+                setSimulaciones(loaded);
+                localStorage.setItem('gyr_pricing_simulations', JSON.stringify(loaded));
+            } else {
+                const stored = localStorage.getItem('gyr_pricing_simulations');
+                if (stored) {
+                    try {
+                        setSimulaciones(JSON.parse(stored));
+                    } catch (err) {
+                        setSimulaciones([]);
+                    }
+                } else {
+                    setSimulaciones([]);
+                }
+            }
+        }, (err) => {
+            console.error("Error cargando simulaciones de precios:", err);
+        });
+
+        return () => unsubscribe();
+    }, [currentUid]);
 
     // Helper para formatear monedas dinámicamente
     const formatCurrency = (value, currency = 'ARS') => {
@@ -131,14 +164,15 @@ const PricingCalculatorForm = ({ dollarRates = [] }) => {
         }
     }, [costo, iibb, tem, comisiones, inflacion, rentabilidad, iva, descuentoActivo, descuento, monedaEntrada, tipoDolar, currentRateValue]);
 
-    // Guardar simulación en LocalStorage
-    const handleGuardarSimulacion = (e) => {
+    // Guardar simulación en la Nube (Firestore) y LocalStorage
+    const handleGuardarSimulacion = async (e) => {
         e.preventDefault();
         if (!nombreSimulacion.trim()) return;
 
+        const simId = Date.now();
         const nuevaSim = {
-            id: Date.now(),
-            nombre: nombreSimulacion,
+            id: simId,
+            nombre: nombreSimulacion.trim(),
             costo,
             iibb,
             tem,
@@ -156,6 +190,14 @@ const PricingCalculatorForm = ({ dollarRates = [] }) => {
         setSimulaciones(updated);
         localStorage.setItem('gyr_pricing_simulations', JSON.stringify(updated));
         setNombreSimulacion('');
+
+        if (currentUid) {
+            try {
+                await setDoc(doc(db, 'users', currentUid, 'pricing_simulations', String(simId)), nuevaSim);
+            } catch (err) {
+                console.error("Error guardando simulación en Firestore:", err);
+            }
+        }
     };
 
     // Cargar simulación guardada
@@ -174,11 +216,21 @@ const PricingCalculatorForm = ({ dollarRates = [] }) => {
     };
 
     // Eliminar simulación guardada
-    const handleEliminarSimulacion = (id, e) => {
+    const handleEliminarSimulacion = async (id, e) => {
         e.stopPropagation();
+        const target = simulaciones.find(s => s.id === id);
         const updated = simulaciones.filter(s => s.id !== id);
         setSimulaciones(updated);
         localStorage.setItem('gyr_pricing_simulations', JSON.stringify(updated));
+
+        if (currentUid) {
+            try {
+                const docKey = target?.docId || String(id);
+                await deleteDoc(doc(db, 'users', currentUid, 'pricing_simulations', docKey));
+            } catch (err) {
+                console.error("Error eliminando simulación en Firestore:", err);
+            }
+        }
     };
 
     // Exportar a CSV
@@ -526,11 +578,37 @@ const PricingCalculatorForm = ({ dollarRates = [] }) => {
                                 </p>
                             </div>
 
-                            <div className="mt-6 pt-4 border-t border-white/5 flex justify-between items-center text-xs">
-                                <span className="text-slate-400 font-medium">Margen Neto Limpio:</span>
-                                <span className="font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20">
-                                    {displayVal(result.ganancia_neta_obtenida)} ({formatPercentage(result.rentabilidad_real_lograda)})
-                                </span>
+                            <div className="mt-5 pt-4 border-t border-white/5 space-y-2.5 text-xs">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-400 font-medium">Margen Neto sobre Venta:</span>
+                                    <span className="font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20">
+                                        {displayVal(result.ganancia_neta_obtenida)} ({formatPercentage(result.rentabilidad_real_lograda)})
+                                    </span>
+                                </div>
+                                {result.recupero_costo > 0 && (() => {
+                                    const markupPct = ((result.precio_venta_sugerido / result.recupero_costo) - 1) * 100;
+                                    const factorMult = result.precio_venta_sugerido / result.recupero_costo;
+                                    const costosVar = (parseFloat(iibb) + parseFloat(tem) + parseFloat(comisiones) + parseFloat(inflacion)) / 100;
+                                    const descMaxSinPerdida = (1 - costosVar) > 0 ? ((parseFloat(rentabilidad) / 100) / (1 - costosVar)) * 100 : 0;
+                                    return (
+                                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 text-center">
+                                            <div className="bg-black/25 p-2 rounded-xl border border-white/5">
+                                                <span className="text-[9px] text-slate-400 uppercase font-bold block">Recargo s/Costo</span>
+                                                <span className="font-black text-indigo-300 text-xs">+{markupPct.toFixed(1)}%</span>
+                                            </div>
+                                            <div className="bg-black/25 p-2 rounded-xl border border-white/5">
+                                                <span className="text-[9px] text-slate-400 uppercase font-bold block">Multiplicador</span>
+                                                <span className="font-black text-white text-xs">x{factorMult.toFixed(2)}</span>
+                                            </div>
+                                            <div className="bg-black/25 p-2 rounded-xl border border-white/5">
+                                                <span className="text-[9px] text-amber-300/90 uppercase font-bold block" title="Descuento máximo aplicable antes de entrar en pérdida">
+                                                    Dto. Máx Equilibrio
+                                                </span>
+                                                <span className="font-black text-amber-300 text-xs">{descMaxSinPerdida.toFixed(1)}%</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
 

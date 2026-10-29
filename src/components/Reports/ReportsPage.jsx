@@ -35,6 +35,7 @@ ChartJS.register(
 
 const ReportsPage = () => {
     const { userData } = useAuth();
+    const { targetUserId } = useClientSelection();
     const currentYear = new Date().getFullYear();
     const [selectedYear, setSelectedYear] = useState(currentYear);
     const [periodFilter, setPeriodFilter] = useState('anual'); // 'anual', 'q1', 'q2', 'q3', 'q4', 's1', 's2'
@@ -49,14 +50,10 @@ const ReportsPage = () => {
     // Carga de billing_requests para análisis histórico enriquecido de medios de pago
     const [billingRequests, setBillingRequests] = useState([]);
     useEffect(() => {
-        let clientSelection = null;
-        try {
-            clientSelection = useClientSelection();
-        } catch (e) {}
-        const effectiveUid = clientSelection?.targetUserId || userData?.uid;
+        const effectiveUid = targetUserId || userData?.uid;
 
         let q;
-        if (userData?.isAdmin && !clientSelection?.targetUserId) {
+        if (userData?.isAdmin && !targetUserId) {
             q = collection(db, 'billing_requests');
         } else if (effectiveUid) {
             q = query(collection(db, 'billing_requests'), where('userId', '==', effectiveUid));
@@ -70,7 +67,7 @@ const ReportsPage = () => {
             console.warn("Aviso al cargar billing_requests para análisis de medios de pago:", err);
         });
         return () => unsub();
-    }, [userData]);
+    }, [userData, targetUserId]);
 
     const years = Array.from({ length: 10 }, (_, i) => currentYear - i);
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value || 0);

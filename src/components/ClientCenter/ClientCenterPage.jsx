@@ -181,7 +181,7 @@ const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managed
                                     {canDelete(currentFolder) && (
                                         <button 
                                             onClick={() => promptDelete(f.fullPath)} 
-                                            className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                            className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                                         >
                                             <Icon name="Trash2" className="w-4 h-4"/>
                                         </button>
@@ -211,18 +211,18 @@ const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managed
     }
 
     return (
-        <div className="space-y-8 p-6 animate-fade-in">
+        <div className="space-y-6 sm:space-y-8 p-2 sm:p-6 animate-fade-in">
             <header>
-                <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">Centro de Documentación</h2>
-                <p className="text-gray-500 mt-1">Gestiona tus comprobantes y documentos contables de forma segura.</p>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-800 tracking-tight">Centro de Documentación</h2>
+                <p className="text-xs sm:text-sm text-gray-500 mt-1">Gestiona tus comprobantes y documentos contables de forma segura.</p>
             </header>
 
-            <section className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
+            <section className="bg-white p-5 sm:p-8 rounded-3xl shadow-sm border border-gray-100">
+                <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-5 sm:mb-6 flex items-center">
                     <Icon name="UploadCloud" className="w-6 h-6 mr-3 text-blue-500"/>
                     Subir Nuevo Documento
                 </h3>
-                <div className="flex flex-col md:flex-row gap-4 items-end">
+                <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-end">
                     <div className="flex-1 w-full">
                         <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-1 block">Seleccionar Carpeta</label>
                         <select 
@@ -246,7 +246,7 @@ const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managed
                     <button 
                         onClick={handleUpload} 
                         disabled={!file || uploading}
-                        className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 disabled:bg-gray-300 disabled:shadow-none transition-all"
+                        className="w-full md:w-auto px-8 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 disabled:bg-gray-300 disabled:shadow-none transition-all"
                     >
                         {uploading ? 'Subiendo...' : 'Subir'}
                     </button>
