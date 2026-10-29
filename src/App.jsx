@@ -141,77 +141,41 @@ const LoginPage = () => {
         setShowPassword(false);
     };
 
-    const ecosystemHighlights = [
-        { icon: FileText, title: 'Facturación ARCA', desc: 'Comprobantes electrónicos y control tributario' },
-        { icon: Landmark, title: 'Flujo y Valores', desc: 'Proyección multimoneda y cartera de cheques' },
-        { icon: Wallet, title: 'Microcréditos', desc: 'Cronogramas francés/directo y gestión de mora' },
-        { icon: Sparkles, title: 'Auditoría con IA', desc: 'Diagnóstico financiero e impositivo en tiempo real' }
-    ];
-
     return (
         <div className="min-h-screen flex flex-col lg:flex-row bg-slate-950 overflow-x-hidden font-sans">
-            {/* Left side: Video presentation & Value Props (Visible on LG screens and larger) */}
+            {/* Left side: Video presentation (Visible on LG screens and larger) */}
             <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center bg-black p-10 xl:p-14">
                 {/* Background Video */}
                 <video 
                     src="/logo-presentation.mp4" 
-                    className="absolute inset-0 w-full h-full object-cover opacity-55" 
+                    className="absolute inset-0 w-full h-full object-cover opacity-60" 
                     autoPlay 
                     loop 
                     muted 
                     playsInline
                 />
                 {/* Glassmorphism Dark Overlay */}
-                <div className="absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-950/80 to-slate-900/40 backdrop-blur-[2px]"></div>
+                <div className="absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-950/75 to-transparent backdrop-blur-[2px]"></div>
                 
-                {/* Logo, brand text and ecosystem features */}
-                <div className="relative z-10 w-full max-w-xl flex flex-col items-center text-center">
-                    <div className="bg-white/5 border border-white/10 backdrop-blur-xl p-4 rounded-3xl shadow-2xl mb-5 transform hover:scale-105 transition-all duration-500">
+                {/* Logo and brand text */}
+                <div className="relative z-10 w-full max-w-lg flex flex-col items-center text-center">
+                    <div className="bg-white/5 border border-white/10 backdrop-blur-xl p-6 rounded-3xl shadow-2xl mb-6 transform hover:scale-105 transition-all duration-500">
                         <img 
                             src="/logo.jpg" 
                             alt="G&R Consultores" 
-                            className="w-28 h-28 xl:w-32 xl:h-32 object-cover rounded-2xl shadow-inner border border-white/10"
+                            className="w-36 h-36 xl:w-40 xl:h-40 object-cover rounded-2xl shadow-inner border border-white/10"
                         />
                     </div>
-                    <h1 className="text-3xl xl:text-4xl font-extrabold text-white tracking-tight leading-none mb-2.5 drop-shadow-md">
+                    <h1 className="text-4xl font-extrabold text-white tracking-tight leading-none mb-3 drop-shadow-md">
                         G&R Consultores
                     </h1>
-                    <p className="text-blue-400 text-xs xl:text-sm font-bold uppercase tracking-widest mb-4 drop-shadow-sm">
+                    <p className="text-blue-400 text-sm font-bold uppercase tracking-widest mb-6 drop-shadow-sm">
                         Excelencia en Asesoría Contable y Financiera
                     </p>
-                    <div className="h-1 w-16 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full mb-5"></div>
-                    <p className="text-slate-300 text-sm xl:text-base max-w-md leading-relaxed drop-shadow mb-7">
-                        Accede a tu portal corporativo para gestionar operaciones diarias, facturación, flujo de fondos y reportes contables en tiempo real.
+                    <div className="h-1 w-20 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full mb-6"></div>
+                    <p className="text-slate-300 text-base max-w-md leading-relaxed drop-shadow">
+                        Accedé a tu portal para gestionar tus operaciones diarias, facturación, flujo de fondos y reportes contables en tiempo real.
                     </p>
-
-                    {/* 2x2 Ecosystem Highlights */}
-                    <div className="grid grid-cols-2 gap-3 w-full text-left mb-7">
-                        {ecosystemHighlights.map((item, idx) => {
-                            const IconComp = item.icon;
-                            return (
-                                <div key={idx} className="bg-slate-900/60 hover:bg-slate-900/80 border border-white/10 backdrop-blur-md p-3.5 rounded-2xl transition-all duration-300 flex items-start gap-3">
-                                    <div className="p-2 rounded-xl bg-blue-500/15 border border-blue-400/20 text-blue-400 shrink-0 mt-0.5">
-                                        <IconComp size={16} />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className="text-xs font-extrabold text-white tracking-tight">{item.title}</p>
-                                        <p className="text-[11px] text-slate-400 leading-snug mt-0.5">{item.desc}</p>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    {/* Direct Support / Onboarding Link */}
-                    <a
-                        href="https://wa.me/5493815551234?text=Hola%20G%26R%20Consultores%2C%20necesito%20asistencia%20para%20ingresar%20al%20Portal%20Contable."
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold transition-all"
-                    >
-                        <MessageCircle size={14} className="text-emerald-400" />
-                        <span>¿Necesitas alta o soporte técnico? Contactar al Estudio</span>
-                    </a>
                 </div>
             </div>
 
