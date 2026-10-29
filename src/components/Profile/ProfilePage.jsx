@@ -43,7 +43,16 @@ const ProfilePage = () => {
         setSaving(true);
         setMessage(null);
         try {
-            await updateDoc(doc(db, 'users', user.uid), profile);
+            const safeProfilePayload = {
+                nombre: String(profile.nombre || '').trim().slice(0, 120),
+                cuit: String(profile.cuit || '').trim().slice(0, 20),
+                actividad: String(profile.actividad || '').trim().slice(0, 150),
+                categoriaTributaria: ['Monotributo', 'Responsable Inscripto', 'Exento', 'Sociedad'].includes(profile.categoriaTributaria)
+                    ? profile.categoriaTributaria
+                    : 'Monotributo',
+                telefono: String(profile.telefono || '').trim().slice(0, 30)
+            };
+            await updateDoc(doc(db, 'users', user.uid), safeProfilePayload);
             setMessage({ type: 'success', text: 'Perfil actualizado con éxito.' });
         } catch (error) {
             console.error("Perfil update error:", error);

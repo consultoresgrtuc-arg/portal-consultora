@@ -89,21 +89,43 @@ const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managed
     
     const [uploadFolder, setUploadFolder] = useState(isManagedView ? 'documentos_del_contador' : 'comprobantes');
 
+    const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+    const BLOCKED_EXTENSIONS_REGEX = /\.(exe|dll|msi|sh|bash|js|mjs|cjs|php|html|htm|svg|svgz|xml|bat|vbs|cmd|ps1|py|rb|pl|cgi|jar|scr|com)$/i;
+
     const handleUpload = async () => {
         if (!file || !currentUserId) return;
-        setUploading(true);
         setStorageError('');
         setMessage('');
-        const storageRef = ref(storage, `user_documents/${currentUserId}/${uploadFolder}/${file.name}`);
+
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            setStorageError('El archivo supera el tamaño máximo permitido de 10 MB.');
+            return;
+        }
+        if (BLOCKED_EXTENSIONS_REGEX.test(file.name) || (file.type && file.type.startsWith('video/'))) {
+            setStorageError('Tipo de archivo no permitido por políticas de seguridad.');
+            return;
+        }
+
+        const allowedFolderIds = folders
+            .filter(f => isManagedView ? f.acl === 'accountant' : f.acl === 'client')
+            .map(f => f.id);
+        const safeFolder = allowedFolderIds.includes(uploadFolder) ? uploadFolder : allowedFolderIds[0];
+        const safeFileName = String(file.name || 'documento')
+            .replace(/[^a-zA-Z0-9._-]/g, '_')
+            .replace(/\.{2,}/g, '_')
+            .slice(0, 120);
+
+        setUploading(true);
+        const storageRef = ref(storage, `user_documents/${currentUserId}/${safeFolder}/${safeFileName}`);
         try {
             await uploadBytes(storageRef, file);
             setMessage({ type: 'success', text: 'Archivo subido con éxito.' }); 
             
-            if (isManagedView && uploadFolder === 'documentos_del_contador') {
+            if (isManagedView && safeFolder === 'documentos_del_contador') {
                 const notifCollection = collection(db, 'users', currentUserId, 'notifications');
                 await addDoc(notifCollection, {
                     title: "Nuevo Documento del Contador",
-                    body: `Se ha subido el archivo: "${file.name}" a tu carpeta.`,
+                    body: `Se ha subido el archivo: "${safeFileName}" a tu carpeta.`,
                     type: "info",
                     timestamp: Timestamp.now()
                 });
@@ -173,9 +195,11 @@ const ClientCenterPage = ({ isManagedView = false, managedUserId = null, managed
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="font-bold text-gray-800 truncate" title={f.name}>{f.name}</p>
-                                            <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-xs font-black text-blue-600 uppercase tracking-widest hover:underline mt-2 inline-block">
-                                                Descargar
-                                            </a>
+                                            {typeof f.url === 'string' && f.url.startsWith('https://') && (
+                                                <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-xs font-black text-blue-600 uppercase tracking-widest hover:underline mt-2 inline-block">
+                                                    Descargar
+                                                </a>
+                                            )}
                                         </div>
                                     </div>
                                     {canDelete(currentFolder) && (

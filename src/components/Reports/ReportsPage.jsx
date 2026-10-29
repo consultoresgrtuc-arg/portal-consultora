@@ -574,10 +574,20 @@ const ReportsPage = () => {
 
     const handlePrint = () => window.print();
 
+    // Prevención de CSV Formula Injection (OWASP) en celdas de texto
+    const sanitizeCsvCell = (val) => {
+        if (typeof val === 'number') return isNaN(val) ? 0 : val;
+        const str = String(val ?? '').replace(/;/g, ',');
+        if (/^[=+\-@\t\r]/.test(str)) {
+            return `'${str}`;
+        }
+        return str;
+    };
+
     const handleDownloadCSV = () => {
         let csvContent = "\uFEFF";
         const headers = ["Mes", "Ventas", "Otros Ingresos", "Total Ingresos", "Compras", "Otros Gastos", "Total Egresos", "Resultado Neto", "Rentabilidad %"];
-        csvContent += headers.join(";") + "\n";
+        csvContent += headers.map(sanitizeCsvCell).join(";") + "\n";
 
         activeMonthsIndices.forEach(index => {
             const monthData = monthlyBreakdown[index];
@@ -595,7 +605,7 @@ const ReportsPage = () => {
                 totalEgresos,
                 result,
                 `${rentab}%`
-            ].join(";") + "\n";
+            ].map(sanitizeCsvCell).join(";") + "\n";
         });
         
         csvContent += [
@@ -608,7 +618,7 @@ const ReportsPage = () => {
             periodMetrics.totalSalidas,
             periodMetrics.cashFlow,
             `${periodMetrics.profitability.toFixed(1)}%`
-        ].join(";") + "\n";
+        ].map(sanitizeCsvCell).join(";") + "\n";
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
