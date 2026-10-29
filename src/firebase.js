@@ -3,7 +3,7 @@ import { getAuth, connectAuthEmulator, GoogleAuthProvider } from "firebase/auth"
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage, connectStorageEmulator } from "firebase/storage";
 import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
-import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
+import { initializeAppCheck, ReCaptchaV3Provider, getToken } from "firebase/app-check";
 
 const firebaseConfig = {
     apiKey: "AIzaSyAK3yU78pfmNFAVBojOC7takuDg2NS3i6M",
@@ -53,5 +53,31 @@ if (
     connectFunctionsEmulator(functions, "127.0.0.1", 5001);
 }
 
-export { app, auth, db, storage, functions, googleProvider, appCheck };
+// Helper para construir cabeceras seguras (Firebase Auth ID Token + Firebase App Check Token)
+const getSecurityHeaders = async () => {
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+        if (auth.currentUser) {
+            const idToken = await auth.currentUser.getIdToken();
+            if (idToken) {
+                headers['Authorization'] = `Bearer ${idToken}`;
+            }
+        }
+    } catch (err) {
+        console.warn("No se pudo obtener ID Token de Auth:", err.message);
+    }
+    try {
+        if (appCheck) {
+            const appCheckTokenResponse = await getToken(appCheck, false);
+            if (appCheckTokenResponse?.token) {
+                headers['X-Firebase-AppCheck'] = appCheckTokenResponse.token;
+            }
+        }
+    } catch (err) {
+        console.warn("No se pudo obtener token de App Check:", err.message);
+    }
+    return headers;
+};
+
+export { app, auth, db, storage, functions, googleProvider, appCheck, getSecurityHeaders };
 

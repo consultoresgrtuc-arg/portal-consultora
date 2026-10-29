@@ -36,7 +36,7 @@ import {
   Scale,
   Coins
 } from 'lucide-react';
-import { db, auth } from '../../firebase';
+import { db, auth, getSecurityHeaders } from '../../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { cleanWhatsAppNumber, openWhatsApp } from '../../utils/whatsapp';
 
@@ -458,9 +458,10 @@ export default function MicrocreditsPanel({ userData }) {
     let delay = 1000;
     for (let i = 0; i < 3; i++) {
       try {
+        const headers = await getSecurityHeaders();
         const response = await fetch(apiUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             systemInstruction: { parts: [{ text: systemPrompt }] }

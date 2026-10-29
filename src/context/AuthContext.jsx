@@ -50,68 +50,88 @@ export const AuthProvider = ({ children }) => {
                 }
 
                 const userDocRef = doc(db, "users", firebaseUser.uid);
-                const unsubProfile = onSnapshot(userDocRef, (docSnap) => {
-                    const isAdminEmail = firebaseUser.email?.toLowerCase().includes('admin');
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        // Asegurar que el email de Google/Auth siempre esté presente en el documento de perfil
-                        if (!data.email && firebaseUser.email) {
-                            setDoc(userDocRef, { email: firebaseUser.email }, { merge: true });
-                            data.email = firebaseUser.email;
-                        }
-                        if (isAdminEmail && (!data.isAdmin || !data.permisos?.microcreditos)) {
-                            const updated = {
+                let unsubProfile = () => {};
+
+                // Obtener el Custom Claim criptográfico (isAdmin) del token de Firebase Auth
+                firebaseUser.getIdTokenResult().then((tokenResult) => {
+                    const hasAdminClaim = Boolean(tokenResult?.claims?.isAdmin);
+                    // En desarrollo local con emulador se permite exclusivamente el usuario de prueba local
+                    const isLocalEmulatorAdmin = Boolean(
+                        import.meta.env.DEV &&
+                        import.meta.env.VITE_USE_EMULATOR === 'true' &&
+                        firebaseUser.email?.toLowerCase() === 'admin@test.com'
+                    );
+                    const isVerifiedAdmin = hasAdminClaim || isLocalEmulatorAdmin;
+
+                    unsubProfile = onSnapshot(userDocRef, (docSnap) => {
+                        if (docSnap.exists()) {
+                            const data = docSnap.data();
+                            if (!data.email && firebaseUser.email) {
+                                setDoc(userDocRef, { email: firebaseUser.email }, { merge: true });
+                                data.email = firebaseUser.email;
+                            }
+                            if (isVerifiedAdmin && (!data.isAdmin || !data.permisos?.microcreditos)) {
+                                const updated = {
+                                    uid: firebaseUser.uid,
+                                    id: firebaseUser.uid,
+                                    ...data,
+                                    isAdmin: true,
+                                    permisos: {
+                                        ...(data.permisos || {}),
+                                        microcreditos: true,
+                                        dashboard: true,
+                                        operaciones: true,
+                                        gestion: true,
+                                        finanzas: true,
+                                        reportes: true,
+                                        cliente: true,
+                                        perfil: true,
+                                        facturacion: true
+                                    }
+                                };
+                                setDoc(userDocRef, updated, { merge: true });
+                                setUserData(updated);
+                            } else {
+                                setUserData({
+                                    uid: firebaseUser.uid,
+                                    id: firebaseUser.uid,
+                                    ...data,
+                                    isAdmin: Boolean(data.isAdmin && isVerifiedAdmin)
+                                });
+                            }
+                        } else {
+                            // Perfil inicial seguro: nunca se auto-asigna isAdmin en producción salvo claim verificado
+                            const newUserProfile = {
                                 uid: firebaseUser.uid,
                                 id: firebaseUser.uid,
-                                ...data,
-                                isAdmin: true,
+                                email: firebaseUser.email,
+                                nombre: firebaseUser.displayName || (isLocalEmulatorAdmin ? 'Admin Consultora' : ''),
+                                cuit: '',
+                                actividad: '',
+                                categoriaTributaria: 'Monotributo',
+                                telefono: firebaseUser.phoneNumber || '',
+                                isAdmin: isVerifiedAdmin,
+                                servicioFacturacion: true,
                                 permisos: {
-                                    ...(data.permisos || {}),
-                                    microcreditos: true,
                                     dashboard: true,
                                     operaciones: true,
-                                    gestion: true,
+                                    gestion: isVerifiedAdmin,
                                     finanzas: true,
                                     reportes: true,
                                     cliente: true,
                                     perfil: true,
+                                    microcreditos: isVerifiedAdmin,
                                     facturacion: true
-                                }
+                                },
+                                incomeGoal: 500000,
+                                expenseBudget: 200000
                             };
-                            setDoc(userDocRef, updated, { merge: true });
-                            setUserData(updated);
-                        } else {
-                            setUserData({ uid: firebaseUser.uid, id: firebaseUser.uid, ...data });
+                            setDoc(userDocRef, newUserProfile);
+                            setUserData(newUserProfile);
                         }
-                    } else {
-                        const newUserProfile = {
-                            uid: firebaseUser.uid,
-                            id: firebaseUser.uid,
-                            email: firebaseUser.email,
-                            nombre: firebaseUser.displayName || (isAdminEmail ? 'Admin Test' : ''),
-                            cuit: '',
-                            actividad: '',
-                            categoriaTributaria: 'Monotributo',
-                            telefono: firebaseUser.phoneNumber || '',
-                            isAdmin: isAdminEmail,
-                            servicioFacturacion: true,
-                            permisos: {
-                                dashboard: true,
-                                operaciones: true,
-                                gestion: true,
-                                finanzas: true,
-                                reportes: true,
-                                cliente: true,
-                                perfil: true,
-                                microcreditos: true,
-                                facturacion: true
-                            },
-                            incomeGoal: 500000,
-                            expenseBudget: 200000
-                        };
-                        setDoc(userDocRef, newUserProfile);
-                        setUserData(newUserProfile);
-                    }
+                        setLoading(false);
+                    });
+                }).catch(() => {
                     setLoading(false);
                 });
                 return () => unsubProfile();

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../firebase';
+import { db, getSecurityHeaders } from '../../firebase';
 import { 
   collection, 
   query, 
@@ -63,9 +63,10 @@ const AIAnalyzer = () => {
         };
 
         try {
+            const headers = await getSecurityHeaders();
             const response = await fetch(apiUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify(payload)
             });
 
