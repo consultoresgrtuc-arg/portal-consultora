@@ -92,29 +92,69 @@ const AIAnalyzer = () => {
         }
     };
 
+    const quickPrompts = [
+        { label: '📊 Resumen ejecutivo', text: 'Realiza un resumen ejecutivo de los ingresos, egresos y saldo neto registrado.' },
+        { label: '🔍 Mayores gastos', text: 'Identifica cuáles fueron los mayores gastos y compras registrados y su impacto.' },
+        { label: '💡 Liquidez y ahorro', text: 'Dame 3 recomendaciones concretas para optimizar el flujo de caja y reducir costos.' },
+        { label: '📈 Margen y rentabilidad', text: 'Evalúa la relación entre ingresos y egresos y diagnostica la rentabilidad actual.' }
+    ];
+
     return (
-        <div className="mt-8 bg-white p-8 rounded-[32px] shadow-sm border border-blue-100/70">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-black text-gray-900 tracking-tight flex items-center">
-                    <Icon name="Sparkles" className="w-6 h-6 mr-2.5 text-blue-600" />
-                    Análisis Financiero con IA
-                </h3>
-                {isViewingClient ? (
-                    <span className="text-xs font-bold px-3 py-1 bg-blue-50 text-blue-700 rounded-full border border-blue-100">
-                        Auditando a: {activeEntity?.displayName}
-                    </span>
-                ) : (
-                    <span className="text-xs font-bold px-3 py-1 bg-slate-100 text-slate-700 rounded-full">
-                        Estudio Propio (GyR)
-                    </span>
-                )}
+        <div className="w-full bg-white p-6 sm:p-8 rounded-[32px] shadow-sm border border-blue-100/70 flex flex-col justify-between">
+            <div>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h3 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight flex items-center">
+                        <Icon name="Sparkles" className="w-5 h-5 sm:w-6 sm:h-6 mr-2.5 text-blue-600" />
+                        Análisis Financiero con IA
+                    </h3>
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
+                            {operations.length} ops. en contexto
+                        </span>
+                        {isViewingClient ? (
+                            <span className="text-xs font-bold px-3 py-1 bg-blue-50 text-blue-700 rounded-full border border-blue-100">
+                                Auditando a: {activeEntity?.name || activeEntity?.displayName}
+                            </span>
+                        ) : (
+                            <span className="text-xs font-bold px-3 py-1 bg-slate-100 text-slate-700 rounded-full">
+                                Estudio Propio (GyR)
+                            </span>
+                        )}
+                    </div>
+                </div>
+
+                <p className="text-xs text-slate-400 font-medium mb-3">
+                    Selecciona una consulta rápida o escribe tu pregunta personalizada sobre las operaciones registradas:
+                </p>
+
+                {/* Chips de consulta rápida */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                    {quickPrompts.map((chip, idx) => (
+                        <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                                setPrompt(chip.text);
+                                setError('');
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                                prompt === chip.text
+                                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                    : 'bg-slate-50 hover:bg-blue-50/60 text-slate-700 hover:text-blue-700 border-slate-200/80'
+                            }`}
+                        >
+                            {chip.label}
+                        </button>
+                    ))}
+                </div>
             </div>
+
             <div className="space-y-4">
                 <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     placeholder={isViewingClient 
-                        ? `Ej: ¿Cuáles son las mayores compras de ${activeEntity?.displayName}? o ¿Qué resumen de ventas tiene este mes?`
+                        ? `Ej: ¿Cuáles son las mayores compras de ${activeEntity?.name || activeEntity?.displayName}? o ¿Qué resumen de ventas tiene este mes?`
                         : "Ej: ¿Cuál fue el mayor egreso operativo del estudio este mes? o Resume la rentabilidad actual."
                     }
                     className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none text-sm font-medium text-gray-800 transition-all resize-none"
@@ -125,18 +165,18 @@ const AIAnalyzer = () => {
                     disabled={loading}
                     className="w-full py-3.5 px-6 bg-gradient-to-r from-blue-700 to-sky-700 text-white rounded-2xl hover:from-blue-800 hover:to-sky-800 disabled:opacity-50 transition-all shadow-md shadow-blue-500/20 font-black text-xs uppercase tracking-widest cursor-pointer"
                 >
-                    {loading ? 'Analizando operaciones...' : `Analizar Finanzas de ${isViewingClient ? activeEntity?.displayName : 'Mi Estudio'}`}
+                    {loading ? 'Analizando operaciones...' : `Analizar Finanzas de ${isViewingClient ? (activeEntity?.name || activeEntity?.displayName) : 'Mi Estudio'}`}
                 </button>
                 {error && <p className="text-sm text-red-600 text-center font-medium">{error}</p>}
                 {loading && (
                     <div className="text-center text-gray-500">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto mb-2"></div>
-                        <p>El asistente está pensando...</p>
+                        <p className="text-xs font-semibold">El asistente está procesando las operaciones...</p>
                     </div>
                 )}
                 {result && (
                     <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100 shadow-inner">
-                        <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">{result}</p>
+                        <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{result}</p>
                     </div>
                 )}
             </div>
