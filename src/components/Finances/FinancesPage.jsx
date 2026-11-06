@@ -631,7 +631,7 @@ const FinancesPage = () => {
             )}
 
             {/* HEADER */}
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 p-5 sm:p-6 bg-white border-b border-slate-100 no-print rounded-3xl shadow-sm mx-4 sm:mx-6 mt-4">
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 p-5 sm:p-6 bg-white border-b border-slate-100 no-print rounded-3xl shadow-sm mx-2 sm:mx-4 lg:mx-0 mt-2">
                 <div>
                     <div className="flex items-center gap-2.5 flex-wrap">
                         <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">
@@ -670,22 +670,22 @@ const FinancesPage = () => {
             </header>
 
             {/* --- TABS --- */}
-            <div className="flex border-b border-slate-200 px-4 sm:px-6 no-print overflow-x-auto scrollbar-hide whitespace-nowrap">
+            <div className="flex border-b border-slate-200 px-2 sm:px-4 lg:px-1 no-print overflow-x-auto scrollbar-hide whitespace-nowrap">
                 <button 
                     onClick={() => setActivePageTab('summary')}
-                    className={`pb-3.5 px-4 sm:px-6 font-bold text-xs sm:text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${activePageTab === 'summary' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                    className={`pb-3.5 px-4 sm:px-6 font-bold text-xs sm:text-sm md:text-base border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${activePageTab === 'summary' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                 >
                     <Icon name="Target" size={16} /> Resumen y Mercado
                 </button>
                 <button 
                     onClick={() => setActivePageTab('cashflow')}
-                    className={`pb-3.5 px-4 sm:px-6 font-bold text-xs sm:text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${activePageTab === 'cashflow' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                    className={`pb-3.5 px-4 sm:px-6 font-bold text-xs sm:text-sm md:text-base border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${activePageTab === 'cashflow' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                 >
                     <Icon name="TrendingUp" size={16} /> Flujo de Fondos Proyectado
                 </button>
                 <button 
                     onClick={() => setActivePageTab('calculators')}
-                    className={`pb-3.5 px-4 sm:px-6 font-bold text-xs sm:text-sm border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${activePageTab === 'calculators' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                    className={`pb-3.5 px-4 sm:px-6 font-bold text-xs sm:text-sm md:text-base border-b-2 transition-all cursor-pointer flex items-center gap-2 shrink-0 ${activePageTab === 'calculators' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                 >
                     <Icon name="PieChart" size={16} /> Calculadoras
                 </button>
@@ -693,7 +693,7 @@ const FinancesPage = () => {
 
             {/* --- PESTAÑA 1: RESUMEN Y MERCADO --- */}
             {activePageTab === 'summary' && (
-                <div className="px-4 sm:px-6 space-y-6 sm:space-y-8">
+                <div className="px-2 sm:px-4 lg:px-0 space-y-6 sm:space-y-8">
                     {/* KPIs Ejecutivos del Período */}
                     <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {/* Resultado Neto */}
@@ -968,7 +968,7 @@ const FinancesPage = () => {
 
             {/* --- PESTAÑA 2: FLUJO DE FONDOS PROYECTADO (CASH FLOW) --- */}
             {activePageTab === 'cashflow' && (
-                <div className="px-4 sm:px-6 space-y-6 sm:space-y-8">
+                <div className="px-2 sm:px-4 lg:px-0 space-y-6 sm:space-y-8">
                     {/* --- BANNER DE ALERTA DE LIQUIDEZ --- */}
                     {liquidityWarning.hasAlert && (
                         <div className={`p-5 rounded-3xl border shadow-md flex items-start gap-4 ${liquidityWarning.isNegative ? 'bg-red-500/10 border-red-500/25 text-red-700' : 'bg-orange-500/10 border-orange-500/25 text-orange-700'}`}>
@@ -1405,19 +1405,19 @@ const FinancesPage = () => {
 
             {/* --- PESTAÑA 3: CALCULADORAS Y SIMULADORES --- */}
             {activePageTab === 'calculators' && (
-                <div className="px-4 sm:px-6 space-y-6">
-                    <div className="flex bg-slate-100 p-1 rounded-2xl mb-4 self-start no-print max-w-sm">
+                <div className="px-2 sm:px-4 lg:px-0 space-y-6">
+                    <div className="flex bg-slate-100 p-1.5 rounded-2xl mb-4 self-start no-print max-w-md">
                         <button 
                             onClick={() => setCalculatorTab('deposit')}
-                            className={`flex-1 px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${calculatorTab === 'deposit' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                            className={`flex-1 px-4 md:px-5 py-2 md:py-2.5 text-xs md:text-sm font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${calculatorTab === 'deposit' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                         >
-                            <Icon name="PieChart" size={14} /> Plazo Fijo / Tasa Real
+                            <Icon name="PieChart" size={16} /> Plazo Fijo / Tasa Real
                         </button>
                         <button 
                             onClick={() => setCalculatorTab('pricing')}
-                            className={`flex-1 px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${calculatorTab === 'pricing' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                            className={`flex-1 px-4 md:px-5 py-2 md:py-2.5 text-xs md:text-sm font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${calculatorTab === 'pricing' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                         >
-                            <Icon name="BarChart3" size={14} /> Calculadora Precios
+                            <Icon name="BarChart3" size={16} /> Calculadora Precios
                         </button>
                     </div>
                     <div className="w-full">

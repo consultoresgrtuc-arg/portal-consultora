@@ -423,8 +423,8 @@ const AppLayout = ({ children, currentRoute, navigate }) => {
                     </div>
                 )}
                 
-                <main className="flex-1 overflow-y-auto bg-gray-50 p-3 sm:p-4 md:p-6 pb-20 lg:pb-6 relative custom-scrollbar">
-                    <div className="fade-in max-w-7xl mx-auto">
+                <main className="flex-1 overflow-y-auto bg-gray-50 p-3 sm:p-4 md:p-5 lg:p-6 pb-20 lg:pb-6 relative custom-scrollbar">
+                    <div className="fade-in w-full max-w-[1800px] mx-auto">
                         {children}
                     </div>
                 </main>

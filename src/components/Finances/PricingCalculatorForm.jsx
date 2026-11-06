@@ -378,22 +378,24 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
     const chartOptions = {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '66%',
+        cutout: '64%',
         plugins: {
             legend: {
                 position: 'bottom',
                 labels: {
-                    color: '#475569',
+                    color: '#334155',
                     usePointStyle: true,
                     pointStyle: 'circle',
-                    font: { family: 'Inter', size: 11, weight: '600' },
-                    padding: 14
+                    font: { family: 'Inter', size: 12, weight: '600' },
+                    padding: 16
                 }
             },
             tooltip: {
                 backgroundColor: '#0f172a',
                 padding: 12,
                 cornerRadius: 10,
+                titleFont: { family: 'Inter', size: 13, weight: '700' },
+                bodyFont: { family: 'Inter', size: 12 },
                 callbacks: {
                     label: (context) => {
                         const val = context.raw || 0;
@@ -469,44 +471,44 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
     ] : [];
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 md:space-y-7">
             {/* CABECERA Y CONTROLES DE MONEDA / EXPORTACIÓN */}
-            <div className="bg-white p-5 sm:p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4 no-print">
-                <div className="flex items-start sm:items-center gap-3.5">
-                    <div className="bg-indigo-50 p-3 rounded-2xl border border-indigo-100 text-indigo-600 shrink-0">
-                        <Icon name="Calculator" className="w-6 h-6" />
+            <div className="bg-white p-5 sm:p-6 md:p-7 rounded-3xl shadow-sm border border-slate-100 flex flex-col xl:flex-row xl:items-center justify-between gap-4 no-print">
+                <div className="flex items-start sm:items-center gap-3.5 md:gap-4">
+                    <div className="bg-indigo-50 p-3 md:p-3.5 rounded-2xl border border-indigo-100 text-indigo-600 shrink-0">
+                        <Icon name="Calculator" className="w-6 h-6 md:w-7 md:h-7" />
                     </div>
                     <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="text-lg sm:text-xl font-black text-slate-800 tracking-tight">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                            <h3 className="text-lg sm:text-xl md:text-2xl font-black text-slate-800 tracking-tight">
                                 Calculadora Financiera de Precios y Costos
                             </h3>
-                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            <span className="px-2.5 md:px-3 py-0.5 md:py-1 rounded-full text-[10px] md:text-xs font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
                                 Costeo + Reposición
                             </span>
                         </div>
-                        <p className="text-xs text-slate-400 font-medium mt-0.5">
+                        <p className="text-xs md:text-sm text-slate-500 font-medium mt-1">
                             Determina precios exactos contemplando costo de reposición inflacionario, pasarelas de cobro, presión impositiva y punto de equilibrio.
                         </p>
                     </div>
                 </div>
 
                 {/* Controles de Divisa y Acciones Rápidas */}
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5 md:gap-3">
                     {/* Moneda Costo */}
-                    <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-slate-200">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase px-2">Costo en:</span>
+                    <div className="flex items-center bg-slate-50 p-1 md:p-1.5 rounded-xl border border-slate-200">
+                        <span className="text-[10px] md:text-xs font-bold text-slate-500 uppercase px-2">Costo en:</span>
                         <button
                             type="button"
                             onClick={() => setMonedaEntrada('ARS')}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${monedaEntrada === 'ARS' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                            className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all cursor-pointer ${monedaEntrada === 'ARS' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                         >
                             ARS
                         </button>
                         <button
                             type="button"
                             onClick={() => setMonedaEntrada('USD')}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${monedaEntrada === 'USD' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                            className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all cursor-pointer ${monedaEntrada === 'USD' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                         >
                             USD
                         </button>
@@ -517,7 +519,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                         <select
                             value={tipoDolar}
                             onChange={e => setTipoDolar(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-3 py-2 text-xs font-bold outline-none cursor-pointer focus:border-indigo-500"
+                            className="bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-3 md:px-4 py-2 md:py-2.5 text-xs md:text-sm font-bold outline-none cursor-pointer focus:border-indigo-500"
                             title="Cotización para conversión ARS / USD"
                         >
                             {dollarRates.map(rate => (
@@ -529,19 +531,19 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                     )}
 
                     {/* Moneda Visualización */}
-                    <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-slate-200">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase px-2">Ver en:</span>
+                    <div className="flex items-center bg-slate-50 p-1 md:p-1.5 rounded-xl border border-slate-200">
+                        <span className="text-[10px] md:text-xs font-bold text-slate-500 uppercase px-2">Ver en:</span>
                         <button
                             type="button"
                             onClick={() => setMonedaSalida('ARS')}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${monedaSalida === 'ARS' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                            className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all cursor-pointer ${monedaSalida === 'ARS' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                         >
                             ARS
                         </button>
                         <button
                             type="button"
                             onClick={() => setMonedaSalida('USD')}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${monedaSalida === 'USD' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                            className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all cursor-pointer ${monedaSalida === 'USD' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                         >
                             USD
                         </button>
@@ -551,140 +553,140 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                         type="button"
                         onClick={handleExportarCSV}
                         disabled={!result}
-                        className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                        className="px-3.5 md:px-4 py-2 md:py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs md:text-sm font-bold transition-colors cursor-pointer flex items-center gap-1.5"
                         title="Exportar planilla de costos en CSV"
                     >
-                        <Icon name="Download" size={14} /> CSV
+                        <Icon name="Download" size={16} /> CSV
                     </button>
 
                     <button
                         type="button"
                         onClick={() => window.print()}
-                        className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors cursor-pointer"
+                        className="p-2 md:p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors cursor-pointer"
                         title="Imprimir Ficha de Costos y Precios"
                     >
-                        <Icon name="Printer" size={16} />
+                        <Icon name="Printer" size={18} />
                     </button>
                 </div>
             </div>
 
             {/* ALERTA DE ERROR MATEMÁTICO (ej. suma de porcentajes >= 100%) */}
             {error && (
-                <div className="bg-rose-50 border border-rose-200 rounded-3xl p-5 text-rose-800 flex items-start gap-3.5 shadow-sm">
+                <div className="bg-rose-50 border border-rose-200 rounded-3xl p-5 md:p-6 text-rose-800 flex items-start gap-3.5 shadow-sm">
                     <div className="p-2.5 bg-white rounded-2xl text-rose-600 shadow-xs shrink-0">
                         <Icon name="ShieldAlert" className="w-6 h-6" />
                     </div>
                     <div>
-                        <p className="font-extrabold uppercase tracking-wider text-xs">Inconsistencia en Parámetros Financieros</p>
-                        <p className="text-xs sm:text-sm font-medium mt-1 leading-relaxed">{error}</p>
+                        <p className="font-extrabold uppercase tracking-wider text-xs md:text-sm">Inconsistencia en Parámetros Financieros</p>
+                        <p className="text-xs sm:text-sm md:text-base font-medium mt-1 leading-relaxed">{error}</p>
                     </div>
                 </div>
             )}
 
-            {/* BANDA DE 4 KPIs EJECUTIVOS (Concordante con Resumen de Finanzas) */}
+            {/* BANDA DE 4 KPIs EJECUTIVOS */}
             {result && (
-                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
                     {/* KPI 1: Precio de Venta Final Sugerido */}
-                    <div className="bg-gradient-to-br from-indigo-950 via-blue-950 to-slate-900 p-5 rounded-3xl shadow-md text-white flex flex-col justify-between relative overflow-hidden">
+                    <div className="bg-gradient-to-br from-indigo-950 via-blue-950 to-slate-900 p-5 md:p-6 rounded-3xl shadow-md text-white flex flex-col justify-between relative overflow-hidden">
                         <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-200">
+                            <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-indigo-200">
                                 {result.pago_iva > 0 ? 'Precio Final Sugerido (c/IVA)' : 'Precio de Venta Sugerido'}
                             </span>
                             <button
                                 type="button"
                                 onClick={() => handleCopyValue(result.precio_venta_sugerido, 'final')}
-                                className="text-[10px] font-bold bg-white/10 hover:bg-white/20 text-indigo-100 px-2 py-0.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                                className="text-[10px] md:text-xs font-bold bg-white/10 hover:bg-white/20 text-indigo-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                                 title="Copiar precio sugerido"
                             >
-                                <Icon name={copiedLabel === 'final' ? 'Check' : 'Copy'} size={11} />
+                                <Icon name={copiedLabel === 'final' ? 'Check' : 'Copy'} size={12} />
                                 {copiedLabel === 'final' ? 'Copiado' : 'Copiar'}
                             </button>
                         </div>
-                        <p className="text-2xl sm:text-3xl font-black tracking-tight mt-2 font-mono">
+                        <p className="text-2xl sm:text-3xl xl:text-4xl font-black tracking-tight mt-2.5 font-mono">
                             {displayVal(result.precio_venta_sugerido)}
                         </p>
-                        <div className="text-[11px] text-indigo-200/90 font-medium mt-1.5 flex items-center justify-between flex-wrap gap-1">
+                        <div className="text-[11px] md:text-xs lg:text-sm text-indigo-200/90 font-medium mt-2 flex items-center justify-between flex-wrap gap-1">
                             <span>Neto s/IVA: <strong className="text-white font-mono">{displayVal(result.precio_neto)}</strong></span>
                             {result.pago_iva > 0 && (
-                                <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-md">IVA {iva}%</span>
+                                <span className="text-[10px] md:text-xs bg-white/10 px-2 py-0.5 rounded-md font-bold">IVA {iva}%</span>
                             )}
                         </div>
                     </div>
 
                     {/* KPI 2: Ganancia Neta Limpia y Retornos (ROS y ROI) */}
-                    <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Ganancia Neta Unitaria</span>
-                            <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-500">Ganancia Neta Unitaria</span>
+                            <span className="text-[10px] md:text-xs font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                                 ROS {formatPercentage(result.rentabilidad_real_lograda)}
                             </span>
                         </div>
-                        <p className="text-2xl font-black text-emerald-600 mt-2 font-mono">
+                        <p className="text-2xl sm:text-3xl xl:text-4xl font-black text-emerald-600 mt-2.5 font-mono">
                             +{displayVal(result.ganancia_neta_obtenida)}
                         </p>
-                        <p className="text-[11px] text-slate-400 font-medium mt-1">
-                            Retorno s/Costo (ROI): <strong className="text-slate-700">+{formatPercentage(result.roi_sobre_costo)}</strong>
+                        <p className="text-[11px] md:text-xs lg:text-sm text-slate-500 font-medium mt-2">
+                            Retorno s/Costo (ROI): <strong className="text-slate-800">+{formatPercentage(result.roi_sobre_costo)}</strong>
                         </p>
                     </div>
 
                     {/* KPI 3: Precio de Equilibrio y Descuento Máximo */}
-                    <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Precio Mínimo Equilibrio</span>
-                            <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200" title="Descuento máximo antes de perder capital de reposición">
+                    <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-500">Precio Mínimo Equilibrio</span>
+                            <span className="text-[10px] md:text-xs font-black px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200" title="Descuento máximo antes de perder capital de reposición">
                                 Dto. Máx {(result.descuento_maximo_equilibrio * 100).toFixed(1)}%
                             </span>
                         </div>
-                        <p className="text-2xl font-black text-slate-800 mt-2 font-mono">
+                        <p className="text-2xl sm:text-3xl xl:text-4xl font-black text-slate-800 mt-2.5 font-mono">
                             {displayVal(result.precio_equilibrio_final)}
                         </p>
-                        <p className="text-[11px] text-slate-400 font-medium mt-1">
+                        <p className="text-[11px] md:text-xs lg:text-sm text-slate-500 font-medium mt-2">
                             Cubre costo + reposición ({displayVal(result.costo_reposicion_total)}) e impuestos
                         </p>
                     </div>
 
                     {/* KPI 4: Markup Comercial y Factor Multiplicador */}
-                    <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Recargo s/Costo (Markup)</span>
-                            <Icon name="Award" size={16} className="text-indigo-500" />
+                    <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-500">Recargo s/Costo (Markup)</span>
+                            <Icon name="Award" size={18} className="text-indigo-500" />
                         </div>
-                        <p className="text-2xl font-black text-indigo-600 mt-2 font-mono">
-                            +{(result.markup_neto * 100).toFixed(1)}% <span className="text-xs font-bold text-slate-400 font-sans">neto</span>
+                        <p className="text-2xl sm:text-3xl xl:text-4xl font-black text-indigo-600 mt-2.5 font-mono">
+                            +{(result.markup_neto * 100).toFixed(1)}% <span className="text-xs md:text-sm font-bold text-slate-400 font-sans">neto</span>
                         </p>
-                        <p className="text-[11px] text-slate-400 font-medium mt-1">
-                            Factor Neto: <strong className="text-slate-700">x{result.multiplicador_neto.toFixed(2)}</strong> • Final: <strong className="text-slate-700">x{result.multiplicador_final.toFixed(2)}</strong>
+                        <p className="text-[11px] md:text-xs lg:text-sm text-slate-500 font-medium mt-2">
+                            Factor Neto: <strong className="text-slate-800">x{result.multiplicador_neto.toFixed(2)}</strong> • Final: <strong className="text-slate-800">x{result.multiplicador_final.toFixed(2)}</strong>
                         </p>
                     </div>
                 </section>
             )}
 
             {/* CUERPO PRINCIPAL: PARÁMETROS (7 COL) + COMPOSICIÓN Y DESGLOSE (5 COL) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-7 items-start">
                 {/* COLUMNA IZQUIERDA: FORMULARIO ESTRUCTURADO DE COSTOS E IMPUESTOS */}
-                <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-7 no-print">
+                <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-7 md:space-y-8 no-print">
                     {/* 1. Estructura de Costos y Reposición */}
-                    <div className="space-y-4">
+                    <div className="space-y-4 md:space-y-5">
                         <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 pb-3">
-                            <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                                <Icon name="Package" size={16} className="text-blue-600" />
+                            <h4 className="text-sm md:text-base lg:text-lg font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                <Icon name="Package" size={18} className="text-blue-600" />
                                 1. Costos Directos y Reposición por Inflación
                             </h4>
                             {result && (
-                                <span className="text-[11px] font-bold text-slate-500">
+                                <span className="text-xs md:text-sm font-bold text-slate-500">
                                     Costo Reposición: <strong className="text-slate-800 font-mono">{displayVal(result.costo_reposicion_total)}</strong>
                                 </span>
                             )}
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
                             {/* Costo de Adquisición */}
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-blue-500 transition-all">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-blue-500 transition-all">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Costo de Adquisición / Producción ({monedaEntrada})
                                 </label>
                                 <div className="flex items-center">
-                                    <span className="text-blue-600 font-black mr-1.5 text-sm">{monedaEntrada === 'ARS' ? '$' : 'U$S'}</span>
+                                    <span className="text-blue-600 font-black mr-2 text-sm md:text-lg">{monedaEntrada === 'ARS' ? '$' : 'U$S'}</span>
                                     <input
                                         type="number"
                                         min="0"
@@ -692,19 +694,19 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                         value={costo}
                                         onChange={e => setCosto(e.target.value)}
                                         onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base outline-none font-mono"
+                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
                                         placeholder="10000"
                                     />
                                 </div>
                             </div>
 
                             {/* Costos Adicionales Fijos por Unidad */}
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-blue-500 transition-all">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-blue-500 transition-all">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Flete, Packaging o Adicionales ({monedaEntrada})
                                 </label>
                                 <div className="flex items-center">
-                                    <span className="text-slate-400 font-black mr-1.5 text-sm">{monedaEntrada === 'ARS' ? '$' : 'U$S'}</span>
+                                    <span className="text-slate-400 font-black mr-2 text-sm md:text-lg">{monedaEntrada === 'ARS' ? '$' : 'U$S'}</span>
                                     <input
                                         type="number"
                                         min="0"
@@ -712,7 +714,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                         value={costosAdicionales}
                                         onChange={e => setCostosAdicionales(e.target.value)}
                                         onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base outline-none font-mono"
+                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
                                         placeholder="0"
                                     />
                                 </div>
@@ -720,9 +722,9 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                         </div>
 
                         {/* Inflación y Ciclo de Reposición */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-amber-500 transition-all">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5 pt-1">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-amber-500 transition-all">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Inflación Mensual Est.
                                 </label>
                                 <div className="flex items-center">
@@ -733,14 +735,14 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                         value={inflacion}
                                         onChange={e => setInflacion(e.target.value)}
                                         onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base outline-none font-mono"
+                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
                                     />
-                                    <span className="text-amber-600 font-black text-sm">%</span>
+                                    <span className="text-amber-600 font-black text-sm md:text-lg">%</span>
                                 </div>
                             </div>
 
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-amber-500 transition-all">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-amber-500 transition-all">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Ciclo Reposición / Cobro
                                 </label>
                                 <div className="flex items-center">
@@ -751,21 +753,21 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                         value={diasReposicion}
                                         onChange={e => setDiasReposicion(e.target.value)}
                                         onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base outline-none font-mono"
+                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
                                     />
-                                    <span className="text-slate-400 font-bold text-xs">días</span>
+                                    <span className="text-slate-400 font-bold text-xs md:text-sm">días</span>
                                 </div>
                             </div>
 
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Base Resguardo Inflación
                                 </label>
-                                <div className="grid grid-cols-2 gap-1 bg-white p-1 rounded-xl border border-slate-200">
+                                <div className="grid grid-cols-2 gap-1.5 bg-white p-1 rounded-xl border border-slate-200">
                                     <button
                                         type="button"
                                         onClick={() => setModoInflacion('costo')}
-                                        className={`py-1 px-2 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${modoInflacion === 'costo' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                                        className={`py-1.5 px-2 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoInflacion === 'costo' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                                         title="Indexa el costo de reposición del producto según los días de rotación"
                                     >
                                         s/Costo
@@ -773,7 +775,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                     <button
                                         type="button"
                                         onClick={() => setModoInflacion('precio')}
-                                        className={`py-1 px-2 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${modoInflacion === 'precio' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                                        className={`py-1.5 px-2 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoInflacion === 'precio' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                                         title="Calcula el resguardo como porcentaje sobre el precio de venta neto"
                                     >
                                         s/Precio
@@ -784,34 +786,34 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                     </div>
 
                     {/* 2. Estrategia de Rentabilidad y Lote */}
-                    <div className="space-y-4">
+                    <div className="space-y-4 md:space-y-5">
                         <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 pb-3">
-                            <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                                <Icon name="Target" size={16} className="text-emerald-600" />
+                            <h4 className="text-sm md:text-base lg:text-lg font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                <Icon name="Target" size={18} className="text-emerald-600" />
                                 2. Objetivo de Rentabilidad y Volumen
                             </h4>
-                            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+                            <div className="flex items-center bg-slate-100 p-1 md:p-1.5 rounded-xl">
                                 <button
                                     type="button"
                                     onClick={() => setModoRentabilidad('margen_venta')}
-                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${modoRentabilidad === 'margen_venta' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                                    className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoRentabilidad === 'margen_venta' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                                 >
                                     Margen s/Venta (ROS)
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setModoRentabilidad('markup_costo')}
-                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${modoRentabilidad === 'markup_costo' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                                    className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoRentabilidad === 'markup_costo' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                                 >
                                     Retorno s/Costo (ROI)
                                 </button>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
                             {/* Rentabilidad Esperada */}
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 transition-all">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 transition-all">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     {modoRentabilidad === 'margen_venta' ? 'Margen Neto s/Venta Deseado' : 'Retorno Limpio s/Costo Deseado'}
                                 </label>
                                 <div className="flex items-center">
@@ -822,17 +824,17 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                         value={rentabilidad}
                                         onChange={e => setRentabilidad(e.target.value)}
                                         onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base outline-none font-mono"
+                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
                                     />
-                                    <span className="text-emerald-600 font-black text-sm">%</span>
+                                    <span className="text-emerald-600 font-black text-sm md:text-lg">%</span>
                                 </div>
-                                <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-slate-200/60">
+                                <div className="flex flex-wrap gap-1.5 md:gap-2 mt-2.5 pt-2.5 border-t border-slate-200/60">
                                     {[10, 15, 20, 30, 50].map(pct => (
                                         <button
                                             key={pct}
                                             type="button"
                                             onClick={() => setRentabilidad(String(pct))}
-                                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-colors cursor-pointer ${Number(rentabilidad) === pct ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+                                            className={`text-[10px] md:text-xs font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${Number(rentabilidad) === pct ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
                                         >
                                             {pct}%
                                         </button>
@@ -841,9 +843,9 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                             </div>
 
                             {/* Cantidad de Unidades / Lote */}
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-indigo-500 transition-all flex flex-col justify-between">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-indigo-500 transition-all flex flex-col justify-between">
                                 <div>
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                                    <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                         Cantidad / Lote a Cotizar (Unidades)
                                     </label>
                                     <div className="flex items-center">
@@ -854,13 +856,13 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                             value={cantidadUnidades}
                                             onChange={e => setCantidadUnidades(e.target.value)}
                                             onFocus={e => e.target.select()}
-                                            className="w-full bg-transparent border-none text-slate-800 font-black text-base outline-none font-mono"
+                                            className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
                                         />
-                                        <span className="text-slate-400 font-bold text-xs">unid.</span>
+                                        <span className="text-slate-400 font-bold text-xs md:text-sm">unid.</span>
                                     </div>
                                 </div>
                                 {result && (
-                                    <p className="text-[11px] text-slate-500 font-medium mt-2 pt-2 border-t border-slate-200/60">
+                                    <p className="text-[11px] md:text-xs lg:text-sm text-slate-500 font-medium mt-2.5 pt-2.5 border-t border-slate-200/60">
                                         Utilidad del lote ({result.cantidad_unidades} u.): <strong className="text-emerald-600 font-mono">+{displayVal(result.lote.ganancia_neta_lote)}</strong>
                                     </p>
                                 )}
@@ -869,18 +871,18 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                     </div>
 
                     {/* 3. Carga Impositiva y Comisiones de Plataforma */}
-                    <div className="space-y-4">
+                    <div className="space-y-4 md:space-y-5">
                         <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 pb-3">
-                            <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                                <Icon name="Scale" size={16} className="text-orange-500" />
+                            <h4 className="text-sm md:text-base lg:text-lg font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                <Icon name="Scale" size={18} className="text-orange-500" />
                                 3. Impuestos y Comisiones de Pasarela
                             </h4>
-                            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
-                                <span className="text-[10px] font-bold text-slate-400 px-2">Comisión aplica s/:</span>
+                            <div className="flex items-center bg-slate-100 p-1 md:p-1.5 rounded-xl">
+                                <span className="text-[10px] md:text-xs font-bold text-slate-500 px-2">Comisión aplica s/:</span>
                                 <button
                                     type="button"
                                     onClick={() => setBaseComision('bruto')}
-                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${baseComision === 'bruto' ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                                    className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${baseComision === 'bruto' ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                                     title="Plataformas como Mercado Libre, Mercado Pago y tarjetas cobran su % sobre el Precio Final con IVA incluido"
                                 >
                                     Total c/IVA (Real)
@@ -888,7 +890,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                 <button
                                     type="button"
                                     onClick={() => setBaseComision('neto')}
-                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${baseComision === 'neto' ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                                    className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${baseComision === 'neto' ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                                     title="Calcula la comisión únicamente sobre el Precio Neto sin IVA"
                                 >
                                     Neto s/IVA
@@ -896,16 +898,16 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 md:gap-4">
                             {/* Alícuota IVA */}
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-indigo-500 transition-all">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-indigo-500 transition-all">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Alícuota IVA
                                 </label>
                                 <select
                                     value={iva}
                                     onChange={e => setIva(e.target.value)}
-                                    className="w-full bg-transparent border-none text-slate-800 font-black text-sm outline-none cursor-pointer"
+                                    className="w-full bg-transparent border-none text-slate-800 font-black text-sm md:text-base lg:text-lg outline-none cursor-pointer"
                                 >
                                     <option value="0">0% (Exento/Mono)</option>
                                     <option value="10.5">10.5% (Reducido)</option>
@@ -915,8 +917,8 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                             </div>
 
                             {/* Comisión Plataforma / Tarjeta */}
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-violet-500 transition-all">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-violet-500 transition-all">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Comisión Venta
                                 </label>
                                 <div className="flex items-center">
@@ -927,15 +929,15 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                         value={comisiones}
                                         onChange={e => setComisiones(e.target.value)}
                                         onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base outline-none font-mono"
+                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
                                     />
-                                    <span className="text-violet-600 font-black text-sm">%</span>
+                                    <span className="text-violet-600 font-black text-sm md:text-lg">%</span>
                                 </div>
                             </div>
 
                             {/* Ingresos Brutos IIBB */}
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-orange-500 transition-all">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-orange-500 transition-all">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Ingresos Brutos
                                 </label>
                                 <div className="flex items-center">
@@ -946,15 +948,15 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                         value={iibb}
                                         onChange={e => setIibb(e.target.value)}
                                         onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base outline-none font-mono"
+                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
                                     />
-                                    <span className="text-orange-600 font-black text-sm">%</span>
+                                    <span className="text-orange-600 font-black text-sm md:text-lg">%</span>
                                 </div>
                             </div>
 
                             {/* Tasa Municipal TEM */}
-                            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-orange-500 transition-all">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-orange-500 transition-all">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Tasa Municipal
                                 </label>
                                 <div className="flex items-center">
@@ -965,16 +967,16 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                         value={tem}
                                         onChange={e => setTem(e.target.value)}
                                         onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base outline-none font-mono"
+                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
                                     />
-                                    <span className="text-orange-600 font-black text-sm">%</span>
+                                    <span className="text-orange-600 font-black text-sm md:text-lg">%</span>
                                 </div>
                             </div>
                         </div>
 
                         {result && baseComision === 'bruto' && Number(iva) > 0 && Number(comisiones) > 0 && (
-                            <div className="bg-violet-50/70 border border-violet-200/80 rounded-2xl px-4 py-2.5 text-[11px] text-violet-800 flex items-center gap-2">
-                                <Icon name="Info" size={14} className="text-violet-600 shrink-0" />
+                            <div className="bg-violet-50/70 border border-violet-200/80 rounded-2xl px-4 py-3 text-xs md:text-sm text-violet-800 flex items-center gap-2.5">
+                                <Icon name="Info" size={16} className="text-violet-600 shrink-0" />
                                 <span>
                                     Al cobrarse el <strong>{comisiones}%</strong> sobre el precio final con IVA ({iva}%), el costo real de comisión equivale al <strong>{(result.comision_efectiva_neto * 100).toFixed(2)}%</strong> de tu Precio Neto.
                                 </span>
@@ -987,11 +989,11 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                 {result && (
                     <div className="lg:col-span-5 space-y-6">
                         {/* Tarjeta Gráfico + Cuadro de Composición */}
-                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-6">
-                            <div className="flex items-center justify-between">
+                        <div className="bg-white p-6 sm:p-7 rounded-3xl shadow-sm border border-slate-100 space-y-6">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <div>
-                                    <h4 className="text-base font-black text-slate-800 tracking-tight">Estructura del Precio Final</h4>
-                                    <p className="text-xs text-slate-400 font-medium">Distribución de cada peso cobrado al cliente</p>
+                                    <h4 className="text-base md:text-lg lg:text-xl font-black text-slate-800 tracking-tight">Estructura del Precio Final</h4>
+                                    <p className="text-xs md:text-sm text-slate-500 font-medium">Distribución de cada peso cobrado al cliente</p>
                                 </div>
                                 {onScheduleInCashFlow && (
                                     <button
@@ -1004,35 +1006,35 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                             date: new Date().toISOString().split('T')[0],
                                             periodicity: 'once'
                                         })}
-                                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1.5 no-print"
+                                        className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs md:text-sm font-bold transition-colors cursor-pointer flex items-center gap-1.5 no-print"
                                         title="Agendar el ingreso proyectado en el Flujo de Fondos"
                                     >
-                                        <Icon name="Calendar" size={13} /> Agendar en Cash Flow
+                                        <Icon name="Calendar" size={15} /> Agendar en Cash Flow
                                     </button>
                                 )}
                             </div>
 
-                            <div className="h-[220px] w-full relative">
+                            <div className="h-[220px] md:h-[260px] w-full relative">
                                 <Doughnut data={chartData} options={chartOptions} />
                             </div>
 
                             {/* Lista de Rubros con Barras de Participación */}
-                            <div className="space-y-3 pt-2 border-t border-slate-100">
+                            <div className="space-y-3.5 md:space-y-4 pt-3 border-t border-slate-100">
                                 {breakdownRows.map((row, idx) => (
-                                    <div key={idx} className="space-y-1">
-                                        <div className="flex items-center justify-between text-xs gap-2">
+                                    <div key={idx} className="space-y-1.5">
+                                        <div className="flex items-center justify-between text-xs md:text-sm gap-2">
                                             <div className="min-w-0">
-                                                <span className="font-bold text-slate-700 block truncate">{row.label}</span>
-                                                <span className="text-[10px] text-slate-400 block truncate">{row.sub}</span>
+                                                <span className="font-bold text-slate-800 block truncate">{row.label}</span>
+                                                <span className="text-[10px] md:text-xs text-slate-500 block truncate">{row.sub}</span>
                                             </div>
                                             <div className="text-right shrink-0">
-                                                <span className="font-black text-slate-800 font-mono block">{displayVal(row.amount)}</span>
-                                                <span className="text-[10px] font-bold text-slate-400">
+                                                <span className="font-black text-slate-800 font-mono text-xs md:text-sm lg:text-base block">{displayVal(row.amount)}</span>
+                                                <span className="text-[10px] md:text-xs font-bold text-slate-400">
                                                     {row.pctTotal.toFixed(1)}% del total
                                                 </span>
                                             </div>
                                         </div>
-                                        <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                                             <div
                                                 className={`h-full rounded-full ${row.color}`}
                                                 style={{ width: `${Math.min(100, Math.max(2, row.pctTotal))}%` }}
@@ -1046,16 +1048,16 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                             {result.cantidad_unidades > 1 && (
                                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 grid grid-cols-3 gap-2 text-center">
                                     <div>
-                                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Costo Lote ({result.cantidad_unidades}u)</span>
-                                        <span className="text-xs font-black text-slate-700 font-mono">{displayVal(result.lote.costo_total_lote)}</span>
+                                        <span className="text-[9px] md:text-xs font-bold text-slate-400 uppercase block">Costo Lote ({result.cantidad_unidades}u)</span>
+                                        <span className="text-xs md:text-sm font-black text-slate-700 font-mono">{displayVal(result.lote.costo_total_lote)}</span>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Facturación Lote</span>
-                                        <span className="text-xs font-black text-indigo-700 font-mono">{displayVal(result.lote.facturacion_final_lote)}</span>
+                                        <span className="text-[9px] md:text-xs font-bold text-slate-400 uppercase block">Facturación Lote</span>
+                                        <span className="text-xs md:text-sm font-black text-indigo-700 font-mono">{displayVal(result.lote.facturacion_final_lote)}</span>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Ganancia Lote</span>
-                                        <span className="text-xs font-black text-emerald-600 font-mono">+{displayVal(result.lote.ganancia_neta_lote)}</span>
+                                        <span className="text-[9px] md:text-xs font-bold text-slate-400 uppercase block">Ganancia Lote</span>
+                                        <span className="text-xs md:text-sm font-black text-emerald-600 font-mono">+{displayVal(result.lote.ganancia_neta_lote)}</span>
                                     </div>
                                 </div>
                             )}
@@ -1074,26 +1076,26 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                 id="toggle-discount-sim"
                                 checked={descuentoActivo}
                                 onChange={e => setDescuentoActivo(e.target.checked)}
-                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer no-print"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 md:w-5 md:h-5 cursor-pointer no-print"
                             />
                             <div>
-                                <label htmlFor="toggle-discount-sim" className="text-base font-black text-slate-800 cursor-pointer flex items-center gap-2">
+                                <label htmlFor="toggle-discount-sim" className="text-base md:text-lg font-black text-slate-800 cursor-pointer flex items-center gap-2">
                                     Simulador de Descuentos Comerciales y Punto de Equilibrio
                                 </label>
-                                <p className="text-xs text-slate-400 font-medium">
+                                <p className="text-xs md:text-sm text-slate-500 font-medium">
                                     Evalúa el impacto real de una promoción manteniendo intacto el costo de reposición inflacionario.
                                 </p>
                             </div>
                         </div>
 
                         {descuentoActivo && (
-                            <div className="flex flex-wrap items-center gap-2 no-print">
+                            <div className="flex flex-wrap items-center gap-2 md:gap-2.5 no-print">
                                 {[5, 10, 15, 20].map(d => (
                                     <button
                                         key={d}
                                         type="button"
                                         onClick={() => setDescuento(String(d))}
-                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${Number(descuento) === d ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                        className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-xs md:text-sm font-bold transition-colors cursor-pointer ${Number(descuento) === d ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                                     >
                                         -{d}%
                                     </button>
@@ -1101,12 +1103,12 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                 <button
                                     type="button"
                                     onClick={() => setDescuento((result.descuento_maximo_equilibrio * 100).toFixed(2))}
-                                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+                                    className="px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-xs md:text-sm font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
                                     title="Aplicar el descuento máximo donde la Ganancia Neta es $0.00"
                                 >
                                     Máx Equilibrio ({(result.descuento_maximo_equilibrio * 100).toFixed(1)}%)
                                 </button>
-                                <div className="flex items-center bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
+                                <div className="flex items-center bg-slate-50 px-3 py-1 md:py-1.5 rounded-xl border border-slate-200">
                                     <input
                                         type="number"
                                         min="0"
@@ -1115,54 +1117,54 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                         value={descuento}
                                         onChange={e => setDescuento(e.target.value)}
                                         onFocus={e => e.target.select()}
-                                        className="w-14 bg-transparent border-none text-slate-800 font-black text-sm text-right outline-none font-mono mr-1"
+                                        className="w-14 md:w-16 bg-transparent border-none text-slate-800 font-black text-sm md:text-base text-right outline-none font-mono mr-1"
                                     />
-                                    <span className="text-indigo-600 font-black text-xs">%</span>
+                                    <span className="text-indigo-600 font-black text-xs md:text-sm">%</span>
                                 </div>
                             </div>
                         )}
                     </div>
 
                     {descuentoActivo && result.simulacion_descuento && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Precio Final Promocional</span>
-                                <span className="text-xl font-black text-slate-800 font-mono mt-1 block">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
+                            <div className="p-4 md:p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                                <span className="text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest block">Precio Final Promocional</span>
+                                <span className="text-xl md:text-2xl lg:text-3xl font-black text-slate-800 font-mono mt-1.5 block">
                                     {displayVal(result.simulacion_descuento.precio_con_descuento)}
                                 </span>
-                                <span className="text-[11px] text-slate-500 font-medium mt-1 block">
+                                <span className="text-[11px] md:text-xs lg:text-sm text-slate-500 font-medium mt-1.5 block">
                                     Ahorro cliente: <strong className="text-indigo-600 font-mono">-{displayVal(result.simulacion_descuento.ahorro_cliente)}</strong>
                                 </span>
                             </div>
 
-                            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Nueva Ganancia Neta Unitaria</span>
-                                <span className={`text-xl font-black font-mono mt-1 block ${result.simulacion_descuento.nueva_ganancia_neta < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                            <div className="p-4 md:p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                                <span className="text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest block">Nueva Ganancia Neta Unitaria</span>
+                                <span className={`text-xl md:text-2xl lg:text-3xl font-black font-mono mt-1.5 block ${result.simulacion_descuento.nueva_ganancia_neta < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                                     {result.simulacion_descuento.nueva_ganancia_neta >= 0 ? '+' : ''}{displayVal(result.simulacion_descuento.nueva_ganancia_neta)}
                                 </span>
-                                <span className="text-[11px] text-slate-500 font-medium mt-1 block">
+                                <span className="text-[11px] md:text-xs lg:text-sm text-slate-500 font-medium mt-1.5 block">
                                     {result.cantidad_unidades > 1
                                         ? `Total Lote: ${displayVal(result.simulacion_descuento.nueva_ganancia_lote)}`
                                         : `Impuestos + Comis.: ${displayVal(result.simulacion_descuento.pago_iibb_desc + result.simulacion_descuento.pago_tem_desc + result.simulacion_descuento.pago_comisiones_desc)}`}
                                 </span>
                             </div>
 
-                            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Nuevo Margen s/Venta (ROS)</span>
-                                <span className={`text-xl font-black font-mono mt-1 block ${result.simulacion_descuento.nueva_rentabilidad_real < 0 ? 'text-rose-600' : result.simulacion_descuento.nueva_rentabilidad_real < result.rentabilidad_real_lograda * 0.5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                            <div className="p-4 md:p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                                <span className="text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest block">Nuevo Margen s/Venta (ROS)</span>
+                                <span className={`text-xl md:text-2xl lg:text-3xl font-black font-mono mt-1.5 block ${result.simulacion_descuento.nueva_rentabilidad_real < 0 ? 'text-rose-600' : result.simulacion_descuento.nueva_rentabilidad_real < result.rentabilidad_real_lograda * 0.5 ? 'text-amber-600' : 'text-emerald-600'}`}>
                                     {formatPercentage(result.simulacion_descuento.nueva_rentabilidad_real)}
                                 </span>
-                                <span className="text-[11px] text-slate-500 font-medium mt-1 block">
+                                <span className="text-[11px] md:text-xs lg:text-sm text-slate-500 font-medium mt-1.5 block">
                                     Antes del dto.: {formatPercentage(result.rentabilidad_real_lograda)}
                                 </span>
                             </div>
 
-                            <div className={`p-4 rounded-2xl border ${result.simulacion_descuento.nueva_ganancia_neta < 0 ? 'bg-rose-50/70 border-rose-200' : 'bg-slate-50 border-slate-100'}`}>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Nuevo Retorno s/Costo (ROI)</span>
-                                <span className={`text-xl font-black font-mono mt-1 block ${result.simulacion_descuento.nuevo_roi_sobre_costo < 0 ? 'text-rose-600' : 'text-indigo-600'}`}>
+                            <div className={`p-4 md:p-5 rounded-2xl border ${result.simulacion_descuento.nueva_ganancia_neta < 0 ? 'bg-rose-50/70 border-rose-200' : 'bg-slate-50 border-slate-100'}`}>
+                                <span className="text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest block">Nuevo Retorno s/Costo (ROI)</span>
+                                <span className={`text-xl md:text-2xl lg:text-3xl font-black font-mono mt-1.5 block ${result.simulacion_descuento.nuevo_roi_sobre_costo < 0 ? 'text-rose-600' : 'text-indigo-600'}`}>
                                     {formatPercentage(result.simulacion_descuento.nuevo_roi_sobre_costo)}
                                 </span>
-                                <span className="text-[11px] font-bold mt-1 block">
+                                <span className="text-[11px] md:text-xs lg:text-sm font-bold mt-1.5 block">
                                     {result.simulacion_descuento.nueva_ganancia_neta < 0 ? (
                                         <span className="text-rose-600">¡Descapitalización! Supera dto. equilibrio</span>
                                     ) : Math.abs(result.simulacion_descuento.nueva_ganancia_neta) < 0.05 ? (
@@ -1178,49 +1180,49 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
             )}
 
             {/* ESCENARIOS Y SIMULACIONES GUARDADAS (Nube + Local) */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4 no-print">
+            <div className="bg-white p-6 sm:p-7 rounded-3xl shadow-sm border border-slate-100 space-y-4 no-print">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                            <Icon name="Archive" size={16} className="text-indigo-600" />
+                        <h4 className="text-sm md:text-base lg:text-lg font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                            <Icon name="Archive" size={18} className="text-indigo-600" />
                             Escenarios y Listas de Precios Guardadas ({simulaciones.length})
                         </h4>
-                        <p className="text-xs text-slate-400 font-medium">
+                        <p className="text-xs md:text-sm text-slate-500 font-medium">
                             Guarda configuraciones por producto o línea para recargarlas con un clic.
                         </p>
                     </div>
 
-                    <form onSubmit={handleGuardarSimulacion} className="flex items-center gap-2 w-full sm:w-auto">
+                    <form onSubmit={handleGuardarSimulacion} className="flex items-center gap-2.5 w-full sm:w-auto">
                         <input
                             type="text"
                             value={nombreSimulacion}
                             onChange={e => setNombreSimulacion(e.target.value)}
                             placeholder="Nombre del producto o escenario..."
-                            className="flex-1 sm:w-64 px-3.5 py-2 bg-slate-50 border border-slate-200 focus:bg-white focus:border-indigo-500 rounded-xl text-xs font-bold text-slate-800 outline-none transition-all"
+                            className="flex-1 sm:w-72 px-3.5 md:px-4 py-2 md:py-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-indigo-500 rounded-xl text-xs md:text-sm font-bold text-slate-800 outline-none transition-all"
                         />
                         <button
                             type="submit"
                             disabled={!nombreSimulacion.trim()}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1.5 shrink-0"
+                            className="px-4 md:px-5 py-2 md:py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs md:text-sm font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1.5 shrink-0"
                         >
-                            <Icon name="Save" size={14} /> Guardar
+                            <Icon name="Save" size={15} /> Guardar
                         </button>
                     </form>
                 </div>
 
                 {simulaciones.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-2">
                         {simulaciones.map(sim => (
                             <div
                                 key={sim.id}
                                 onClick={() => handleCargarSimulacion(sim)}
-                                className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 hover:bg-indigo-50/50 border border-slate-200/80 hover:border-indigo-200 cursor-pointer transition-all group"
+                                className="flex items-center justify-between p-3.5 md:p-4 rounded-2xl bg-slate-50 hover:bg-indigo-50/50 border border-slate-200/80 hover:border-indigo-200 cursor-pointer transition-all group"
                             >
                                 <div className="min-w-0 pr-2">
-                                    <p className="text-xs font-black text-slate-800 group-hover:text-indigo-700 truncate">
+                                    <p className="text-xs md:text-sm font-black text-slate-800 group-hover:text-indigo-700 truncate">
                                         {sim.nombre}
                                     </p>
-                                    <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                                    <p className="text-[10px] md:text-xs font-bold text-slate-500 mt-0.5">
                                         Costo: {formatCurrency(parseFloat(sim.costo), sim.monedaEntrada)} • Obj: {sim.rentabilidad}% • IVA: {sim.iva || 0}%
                                     </p>
                                 </div>
@@ -1230,7 +1232,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                     className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
                                     title="Eliminar escenario"
                                 >
-                                    <Icon name="Trash2" size={14} />
+                                    <Icon name="Trash2" size={16} />
                                 </button>
                             </div>
                         ))}
