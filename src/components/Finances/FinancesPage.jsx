@@ -1430,6 +1430,7 @@ const FinancesPage = () => {
                             <PricingCalculatorForm
                                 dollarRates={dollarRates}
                                 targetUserId={currentUid}
+                                onScheduleInCashFlow={handleScheduleFromDepositCalculator}
                             />
                         )}
                     </div>

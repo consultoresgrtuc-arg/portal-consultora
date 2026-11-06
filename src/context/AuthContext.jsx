@@ -55,11 +55,13 @@ export const AuthProvider = ({ children }) => {
                 // Obtener el Custom Claim criptográfico (isAdmin) del token de Firebase Auth
                 firebaseUser.getIdTokenResult().then((tokenResult) => {
                     const hasAdminClaim = Boolean(tokenResult?.claims?.isAdmin);
-                    // En desarrollo local con emulador se permite exclusivamente el usuario de prueba local
+                    // En desarrollo local con emulador se permite exclusivamente el usuario configurado en entorno local
+                    const localAdminEmail = import.meta.env.VITE_EMULATOR_ADMIN_EMAIL?.toLowerCase();
                     const isLocalEmulatorAdmin = Boolean(
                         import.meta.env.DEV &&
                         import.meta.env.VITE_USE_EMULATOR === 'true' &&
-                        firebaseUser.email?.toLowerCase() === 'admin@test.com'
+                        localAdminEmail &&
+                        firebaseUser.email?.toLowerCase() === localAdminEmail
                     );
                     const isVerifiedAdmin = hasAdminClaim || isLocalEmulatorAdmin;
 

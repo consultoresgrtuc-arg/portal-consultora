@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Clonar repositorio
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Traemos todo el historial para poder movernos entre ramas
           fetch-depth: 0 

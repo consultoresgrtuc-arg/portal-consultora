@@ -61,7 +61,16 @@ import {
   Link,
   Link2,
   Unlink,
-  CheckCircle2
+  CheckCircle2,
+  Save,
+  Calculator,
+  Percent,
+  Tag,
+  Copy,
+  RefreshCw,
+  Info,
+  Package,
+  Scale
 } from 'lucide-react';
 
 const Icons = {
@@ -70,6 +79,15 @@ const Icons = {
   Link2,
   Unlink,
   CheckCircle2,
+  Save,
+  Calculator,
+  Percent,
+  Tag,
+  Copy,
+  RefreshCw,
+  Info,
+  Package,
+  Scale,
   ClipboardList,
   Landmark,
   CreditCard,
