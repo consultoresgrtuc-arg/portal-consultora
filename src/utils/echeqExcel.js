@@ -287,6 +287,19 @@ const escapeXml = (str) => {
         .replace(/'/g, '&apos;');
 };
 
+/**
+ * Neutraliza ataques de Formula Injection en Excel/CSV prefijando con comilla simple
+ * cualquier texto que comience con =, +, -, @, tabulación o retorno de carro.
+ */
+export const sanitizeExcelCell = (val) => {
+    if (val === null || val === undefined) return '';
+    const str = String(val).trim();
+    if (/^[=+\-@\t\r]/.test(str)) {
+        return `'${str}`;
+    }
+    return str;
+};
+
 const colNumberToLetter = (colNum) => {
     let temp, letter = '';
     while (colNum > 0) {
@@ -352,15 +365,15 @@ export const exportEcheqPlantillaExcel = async (chequeRows = [], customFilename 
     const plantillaAoa = [
         PLANTILLA_HEADERS,
         ...chequeRows.map(r => [
-            String(r.tipoDocumento || 'CUIT').trim().toUpperCase(),
+            sanitizeExcelCell(String(r.tipoDocumento || 'CUIT').trim().toUpperCase()),
             sanitizeNroDocumento(r.nroDocumento),
             formatMontoConComa(r.monto),
             isoToDdMmYyyy(r.fechaPago),
-            String(r.motivoPago || 'Varios').trim().slice(0, 100),
-            String(r.referenciaPago || '').trim().slice(0, 100),
-            String(r.valorReferenciaPago || '').trim().slice(0, 50),
-            String(r.mail || '').trim().slice(0, 150),
-            String(r.clausula || 'A la orden').trim()
+            sanitizeExcelCell(String(r.motivoPago || 'Varios').trim().slice(0, 100)),
+            sanitizeExcelCell(String(r.referenciaPago || '').trim().slice(0, 100)),
+            sanitizeExcelCell(String(r.valorReferenciaPago || '').trim().slice(0, 50)),
+            sanitizeExcelCell(String(r.mail || '').trim().slice(0, 150)),
+            sanitizeExcelCell(String(r.clausula || 'A la orden').trim())
         ])
     ];
 
@@ -506,7 +519,15 @@ const extractRowsFromAoa = (aoa) => {
  * Lee un archivo .xlsx o .csv y devuelve las filas listas para validar/cargar
  */
 export const parseEcheqExcelOrCsvFile = async (file) => {
+    if (!file) throw new Error('Archivo no proporcionado.');
+    const MAX_IMPORT_BYTES = 5 * 1024 * 1024; // 5 MB
+    if (file.size > MAX_IMPORT_BYTES) {
+        throw new Error('El archivo supera el tamaño máximo permitido de 5 MB.');
+    }
     const fileName = (file?.name || '').toLowerCase();
+    if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.csv') && !fileName.endsWith('.txt')) {
+        throw new Error('Formato no permitido. Solo se aceptan archivos .xlsx o .csv.');
+    }
 
     if (fileName.endsWith('.csv') || fileName.endsWith('.txt')) {
         const text = await file.text();
