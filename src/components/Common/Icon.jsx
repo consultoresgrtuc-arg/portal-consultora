@@ -70,7 +70,11 @@ import {
   RefreshCw,
   Info,
   Package,
-  Scale
+  Scale,
+  Upload,
+  FileSpreadsheet,
+  HelpCircle,
+  Eye
 } from 'lucide-react';
 
 const Icons = {
@@ -88,6 +92,10 @@ const Icons = {
   Info,
   Package,
   Scale,
+  Upload,
+  FileSpreadsheet,
+  HelpCircle,
+  Eye,
   ClipboardList,
   Landmark,
   CreditCard,
