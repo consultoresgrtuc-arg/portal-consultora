@@ -30,7 +30,6 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
     const [iibb, setIibb] = useState('3.5');
     const [tem, setTem] = useState('0.9');
     const [comisiones, setComisiones] = useState('15');
-    const [baseComision, setBaseComision] = useState('bruto'); // 'bruto' (sobre Total c/IVA) | 'neto' (sobre Neto s/IVA)
     const [iva, setIva] = useState('21'); // '0' | '10.5' | '21' | '27'
 
     // Parámetros de Rentabilidad y Volumen
@@ -157,7 +156,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                     alicuota_iibb: numIibb,
                     alicuota_tem: numTem,
                     comisiones_venta: numComisiones,
-                    base_comision: baseComision,
+                    base_comision: 'bruto',
                     inflacion_estimada: numInflacion,
                     dias_reposicion: numDiasReposicion,
                     modo_inflacion: modoInflacion,
@@ -183,7 +182,6 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
         iibb,
         tem,
         comisiones,
-        baseComision,
         inflacion,
         diasReposicion,
         modoInflacion,
@@ -225,7 +223,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
             iibb,
             tem,
             comisiones,
-            baseComision,
+            baseComision: 'bruto',
             inflacion,
             diasReposicion,
             modoInflacion,
@@ -259,7 +257,6 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
         setIibb(sim.iibb ?? '3.5');
         setTem(sim.tem ?? '0.9');
         setComisiones(sim.comisiones ?? '15');
-        setBaseComision(sim.baseComision || 'bruto');
         setInflacion(sim.inflacion ?? '2.1');
         setDiasReposicion(sim.diasReposicion ?? '30');
         setModoInflacion(sim.modoInflacion || 'costo');
@@ -308,9 +305,9 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
         csvContent += `Costo Total Unitario (Recupero),${result.recupero_costo.toFixed(2)},${getVal(result.recupero_costo)},${pctNeto(result.recupero_costo)},${pctFinal(result.recupero_costo)}\r\n`;
         csvContent += `Resguardo Inflacionario (${inflacion}% mensual / ${diasReposicion}d),${result.cobertura_inflacion.toFixed(2)},${getVal(result.cobertura_inflacion)},${pctNeto(result.cobertura_inflacion)},${pctFinal(result.cobertura_inflacion)}\r\n`;
         csvContent += `Costo de Reposición Total,${result.costo_reposicion_total.toFixed(2)},${getVal(result.costo_reposicion_total)},${pctNeto(result.costo_reposicion_total)},${pctFinal(result.costo_reposicion_total)}\r\n`;
-        csvContent += `Impuesto IIBB (${iibb}%),${result.pago_iibb.toFixed(2)},${getVal(result.pago_iibb)},${pctNeto(result.pago_iibb)},${pctFinal(result.pago_iibb)}\r\n`;
-        csvContent += `Tasa Municipal TEM (${tem}%),${result.pago_tem.toFixed(2)},${getVal(result.pago_tem)},${pctNeto(result.pago_tem)},${pctFinal(result.pago_tem)}\r\n`;
-        csvContent += `Comisiones Venta (${comisiones}% s/${baseComision}),${result.pago_comisiones.toFixed(2)},${getVal(result.pago_comisiones)},${pctNeto(result.pago_comisiones)},${pctFinal(result.pago_comisiones)}\r\n`;
+        csvContent += `Impuesto IIBB (${iibb}% s/${Number(iva) > 0 ? 'Precio sin IVA' : 'Monto Total Venta'}),${result.pago_iibb.toFixed(2)},${getVal(result.pago_iibb)},${pctNeto(result.pago_iibb)},${pctFinal(result.pago_iibb)}\r\n`;
+        csvContent += `Tasa Municipal TEM (${tem}% s/${Number(iva) > 0 ? 'Precio sin IVA' : 'Monto Total Venta'}),${result.pago_tem.toFixed(2)},${getVal(result.pago_tem)},${pctNeto(result.pago_tem)},${pctFinal(result.pago_tem)}\r\n`;
+        csvContent += `Costo por Cobro y Cuotas (${comisiones}% s/${Number(iva) > 0 ? 'Precio con IVA' : 'Precio Final'}),${result.pago_comisiones.toFixed(2)},${getVal(result.pago_comisiones)},${pctNeto(result.pago_comisiones)},${pctFinal(result.pago_comisiones)}\r\n`;
         csvContent += `Ganancia Neta Limpia,${result.ganancia_neta_obtenida.toFixed(2)},${getVal(result.ganancia_neta_obtenida)},${pctNeto(result.ganancia_neta_obtenida)},${pctFinal(result.ganancia_neta_obtenida)}\r\n`;
         csvContent += `Precio Neto (Base Imponible),${result.precio_neto.toFixed(2)},${getVal(result.precio_neto)},100.00%,${pctFinal(result.precio_neto)}\r\n`;
         csvContent += `IVA Débito Fiscal (${iva}%),${result.pago_iva.toFixed(2)},${getVal(result.pago_iva)},${iva}%,${pctFinal(result.pago_iva)}\r\n`;
@@ -338,7 +335,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
     const getChartData = () => {
         if (!result) return null;
 
-        const labels = ['Costo Unitario', 'Resguardo Inflación', 'IIBB + Tasa Mun.', 'Comisiones'];
+        const labels = ['Costo Unitario', 'Resguardo Inflación', 'IIBB + TEM', 'Costo Cobro/Cuotas'];
         const data = [
             result.recupero_costo,
             result.cobertura_inflacion,
@@ -431,10 +428,10 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
             badge: 'bg-amber-50 text-amber-700 border-amber-200'
         },
         {
-            label: `Comisiones Comerciales (${comisiones}%)`,
-            sub: baseComision === 'bruto' && Number(iva) > 0
-                ? `Calculado s/Total c/IVA (${(result.comision_efectiva_neto * 100).toFixed(2)}% ef. s/Neto)`
-                : 'Calculado sobre Precio Neto sin IVA',
+            label: `Costo por Cobro y Cuotas (${comisiones}%)`,
+            sub: Number(iva) > 0
+                ? `Pasarela + cuotas s/Precio CON IVA (${(result.comision_efectiva_neto * 100).toFixed(2)}% ef. s/Neto)`
+                : 'Pasarela + cuotas calculado sobre Precio Final de Venta',
             amount: result.pago_comisiones,
             pctNeto: result.precio_neto > 0 ? (result.pago_comisiones / result.precio_neto) * 100 : 0,
             pctTotal: result.precio_venta_sugerido > 0 ? (result.pago_comisiones / result.precio_venta_sugerido) * 100 : 0,
@@ -443,7 +440,9 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
         },
         {
             label: `Impuestos Locales (IIBB ${iibb}% + TEM ${tem}%)`,
-            sub: 'Liquidados sobre Base Imponible (Precio Neto)',
+            sub: Number(iva) > 0
+                ? 'Resp. Inscripto: calculados sobre Precio SIN IVA'
+                : 'Monotributo: calculados sobre Monto Total de la Venta',
             amount: result.pago_iibb + result.pago_tem,
             pctNeto: result.precio_neto > 0 ? ((result.pago_iibb + result.pago_tem) / result.precio_neto) * 100 : 0,
             pctTotal: result.precio_venta_sugerido > 0 ? ((result.pago_iibb + result.pago_tem) / result.precio_venta_sugerido) * 100 : 0,
@@ -617,7 +616,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                     <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between">
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-500">Ganancia Neta Unitaria</span>
-                            <span className="text-[10px] md:text-xs font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="text-[10px] md:text-xs font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200" title="Incidencia de la ganancia limpia sobre el precio de venta neto">
                                 ROS {formatPercentage(result.rentabilidad_real_lograda)}
                             </span>
                         </div>
@@ -625,7 +624,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                             +{displayVal(result.ganancia_neta_obtenida)}
                         </p>
                         <p className="text-[11px] md:text-xs lg:text-sm text-slate-500 font-medium mt-2">
-                            Retorno s/Costo (ROI): <strong className="text-slate-800">+{formatPercentage(result.roi_sobre_costo)}</strong>
+                            Retorno s/Reposición: <strong className="text-slate-800">+{formatPercentage(result.roi_sobre_reposicion)}</strong> • s/Costo: <strong className="text-slate-800">+{formatPercentage(result.roi_sobre_costo)}</strong>
                         </p>
                     </div>
 
@@ -797,13 +796,15 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                     type="button"
                                     onClick={() => setModoRentabilidad('margen_venta')}
                                     className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoRentabilidad === 'margen_venta' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                                    title="Calcula el margen sobre el valor del producto (sin inflar la ganancia cuando suben las comisiones de pasarela)"
                                 >
-                                    Margen s/Venta (ROS)
+                                    Margen Comercial
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setModoRentabilidad('markup_costo')}
                                     className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoRentabilidad === 'markup_costo' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                                    title="Aplica el porcentaje directamente sobre el Costo de Reposición"
                                 >
                                     Retorno s/Costo (ROI)
                                 </button>
@@ -814,7 +815,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                             {/* Rentabilidad Esperada */}
                             <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 transition-all">
                                 <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                                    {modoRentabilidad === 'margen_venta' ? 'Margen Neto s/Venta Deseado' : 'Retorno Limpio s/Costo Deseado'}
+                                    {modoRentabilidad === 'margen_venta' ? 'Margen Limpio Deseado (s/Producto)' : 'Retorno Limpio s/Costo Deseado'}
                                 </label>
                                 <div className="flex items-center">
                                     <input
@@ -870,116 +871,146 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                         </div>
                     </div>
 
-                    {/* 3. Carga Impositiva y Comisiones de Plataforma */}
+                    {/* 3. Carga Impositiva y Costos de Cobro / Pasarela */}
                     <div className="space-y-4 md:space-y-5">
                         <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 pb-3">
                             <h4 className="text-sm md:text-base lg:text-lg font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                                 <Icon name="Scale" size={18} className="text-orange-500" />
-                                3. Impuestos y Comisiones de Pasarela
+                                3. Impuestos y Costos de Cobro / Pasarela
                             </h4>
-                            <div className="flex items-center bg-slate-100 p-1 md:p-1.5 rounded-xl">
-                                <span className="text-[10px] md:text-xs font-bold text-slate-500 px-2">Comisión aplica s/:</span>
-                                <button
-                                    type="button"
-                                    onClick={() => setBaseComision('bruto')}
-                                    className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${baseComision === 'bruto' ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
-                                    title="Plataformas como Mercado Libre, Mercado Pago y tarjetas cobran su % sobre el Precio Final con IVA incluido"
-                                >
-                                    Total c/IVA (Real)
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setBaseComision('neto')}
-                                    className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${baseComision === 'neto' ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
-                                    title="Calcula la comisión únicamente sobre el Precio Neto sin IVA"
-                                >
-                                    Neto s/IVA
-                                </button>
-                            </div>
+                            <span className={`px-3 py-1 rounded-xl text-[10px] md:text-xs font-extrabold border ${Number(iva) > 0 ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                {Number(iva) > 0
+                                    ? `Responsable Inscripto (IVA ${iva}%)`
+                                    : 'Monotributista / Exento (0% IVA)'}
+                            </span>
                         </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 md:gap-4">
-                            {/* Alícuota IVA */}
-                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-indigo-500 transition-all">
-                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                                    Alícuota IVA
-                                </label>
-                                <select
-                                    value={iva}
-                                    onChange={e => setIva(e.target.value)}
-                                    className="w-full bg-transparent border-none text-slate-800 font-black text-sm md:text-base lg:text-lg outline-none cursor-pointer"
-                                >
-                                    <option value="0">0% (Exento/Mono)</option>
-                                    <option value="10.5">10.5% (Reducido)</option>
-                                    <option value="21">21% (General)</option>
-                                    <option value="27">27% (Incrementado)</option>
-                                </select>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
+                            {/* Condición / Alícuota IVA */}
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-indigo-500 transition-all flex flex-col justify-between">
+                                <div>
+                                    <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                                        Condición / Alícuota IVA
+                                    </label>
+                                    <select
+                                        value={iva}
+                                        onChange={e => setIva(e.target.value)}
+                                        className="w-full bg-transparent border-none text-slate-800 font-black text-sm md:text-base lg:text-lg outline-none cursor-pointer pr-6"
+                                    >
+                                        <option value="0">0% (Monotributo / Exento)</option>
+                                        <option value="10.5">10.5% (RI - Reducido)</option>
+                                        <option value="21">21% (RI - General)</option>
+                                        <option value="27">27% (RI - Incrementado)</option>
+                                    </select>
+                                </div>
+                                <p className="text-[11px] md:text-xs text-slate-500 font-medium mt-2.5 pt-2 border-t border-slate-200/60">
+                                    {Number(iva) > 0 ? (
+                                        <>IVA Débito Fiscal: <strong className="text-indigo-700 font-mono">{result ? displayVal(result.pago_iva) : '$0,00'}</strong></>
+                                    ) : (
+                                        <span className="text-emerald-700 font-bold">Sin IVA discriminado (Precio Final único)</span>
+                                    )}
+                                </p>
                             </div>
 
-                            {/* Comisión Plataforma / Tarjeta */}
-                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-violet-500 transition-all">
-                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                                    Comisión Venta
-                                </label>
-                                <div className="flex items-center">
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.5"
-                                        value={comisiones}
-                                        onChange={e => setComisiones(e.target.value)}
-                                        onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
-                                    />
-                                    <span className="text-violet-600 font-black text-sm md:text-lg">%</span>
+                            {/* Costo por Cobro y Cuotas (Pasarela) */}
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-violet-500 transition-all flex flex-col justify-between">
+                                <div>
+                                    <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5" title="Método utilizado para cobrar + costo financiero por ofrecer cuotas en la pasarela">
+                                        Costo por Cobro y Cuotas (Pasarela)
+                                    </label>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.5"
+                                            value={comisiones}
+                                            onChange={e => setComisiones(e.target.value)}
+                                            onFocus={e => e.target.select()}
+                                            className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
+                                        />
+                                        <span className="text-violet-600 font-black text-sm md:text-lg">%</span>
+                                    </div>
                                 </div>
+                                <p className="text-[11px] md:text-xs text-slate-500 font-medium mt-2.5 pt-2 border-t border-slate-200/60">
+                                    {Number(iva) > 0 ? (
+                                        <>Calculado <strong>s/Precio con IVA</strong>: <strong className="text-violet-700 font-mono">{result ? displayVal(result.pago_comisiones) : '$0,00'}</strong></>
+                                    ) : (
+                                        <>Calculado <strong>s/Precio Final</strong>: <strong className="text-violet-700 font-mono">{result ? displayVal(result.pago_comisiones) : '$0,00'}</strong></>
+                                    )}
+                                </p>
                             </div>
 
                             {/* Ingresos Brutos IIBB */}
-                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-orange-500 transition-all">
-                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                                    Ingresos Brutos
-                                </label>
-                                <div className="flex items-center">
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.1"
-                                        value={iibb}
-                                        onChange={e => setIibb(e.target.value)}
-                                        onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
-                                    />
-                                    <span className="text-orange-600 font-black text-sm md:text-lg">%</span>
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-orange-500 transition-all flex flex-col justify-between">
+                                <div>
+                                    <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                                        Ingresos Brutos (IIBB)
+                                    </label>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.1"
+                                            value={iibb}
+                                            onChange={e => setIibb(e.target.value)}
+                                            onFocus={e => e.target.select()}
+                                            className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
+                                        />
+                                        <span className="text-orange-600 font-black text-sm md:text-lg">%</span>
+                                    </div>
                                 </div>
+                                <p className="text-[11px] md:text-xs text-slate-500 font-medium mt-2.5 pt-2 border-t border-slate-200/60">
+                                    {Number(iva) > 0 ? (
+                                        <>Calculado <strong>s/Precio sin IVA</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_iibb) : '$0,00'}</strong></>
+                                    ) : (
+                                        <>Calculado <strong>s/Total de la Venta</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_iibb) : '$0,00'}</strong></>
+                                    )}
+                                </p>
                             </div>
 
                             {/* Tasa Municipal TEM */}
-                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-orange-500 transition-all">
-                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                                    Tasa Municipal
-                                </label>
-                                <div className="flex items-center">
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.1"
-                                        value={tem}
-                                        onChange={e => setTem(e.target.value)}
-                                        onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
-                                    />
-                                    <span className="text-orange-600 font-black text-sm md:text-lg">%</span>
+                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-orange-500 transition-all flex flex-col justify-between">
+                                <div>
+                                    <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                                        Tasa Municipal (TEM)
+                                    </label>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.1"
+                                            value={tem}
+                                            onChange={e => setTem(e.target.value)}
+                                            onFocus={e => e.target.select()}
+                                            className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
+                                        />
+                                        <span className="text-orange-600 font-black text-sm md:text-lg">%</span>
+                                    </div>
                                 </div>
+                                <p className="text-[11px] md:text-xs text-slate-500 font-medium mt-2.5 pt-2 border-t border-slate-200/60">
+                                    {Number(iva) > 0 ? (
+                                        <>Calculado <strong>s/Precio sin IVA</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_tem) : '$0,00'}</strong></>
+                                    ) : (
+                                        <>Calculado <strong>s/Total de la Venta</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_tem) : '$0,00'}</strong></>
+                                    )}
+                                </p>
                             </div>
                         </div>
 
-                        {result && baseComision === 'bruto' && Number(iva) > 0 && Number(comisiones) > 0 && (
-                            <div className="bg-violet-50/70 border border-violet-200/80 rounded-2xl px-4 py-3 text-xs md:text-sm text-violet-800 flex items-center gap-2.5">
-                                <Icon name="Info" size={16} className="text-violet-600 shrink-0" />
-                                <span>
-                                    Al cobrarse el <strong>{comisiones}%</strong> sobre el precio final con IVA ({iva}%), el costo real de comisión equivale al <strong>{(result.comision_efectiva_neto * 100).toFixed(2)}%</strong> de tu Precio Neto.
-                                </span>
+                        {result && (
+                            <div className="bg-violet-50/70 border border-violet-200/80 rounded-2xl px-4 py-3 text-xs md:text-sm text-violet-900 flex items-start gap-2.5">
+                                <Icon name="Info" size={17} className="text-violet-600 shrink-0 mt-0.5" />
+                                <div>
+                                    {Number(iva) > 0 ? (
+                                        <span>
+                                            <strong>Criterio Contable Responsable Inscripto (IVA {iva}%):</strong> El <strong>Costo por Cobro y Cuotas ({comisiones}%)</strong> se aplica sobre el <strong>Precio con IVA ({displayVal(result.precio_venta_sugerido)})</strong>, representando un <strong>{(result.comision_efectiva_neto * 100).toFixed(2)}%</strong> efectivo sobre el Precio sin IVA. En cambio, <strong>Ingresos Brutos ({iibb}%) y TEM ({tem}%)</strong> se liquidan exclusivamente sobre el <strong>Precio sin IVA ({displayVal(result.precio_neto)})</strong>.
+                                        </span>
+                                    ) : (
+                                        <span>
+                                            <strong>Criterio Contable Monotributista / Exento (0% IVA):</strong> Tanto el <strong>Costo por Cobro y Cuotas ({comisiones}%)</strong> como <strong>Ingresos Brutos ({iibb}%) y TEM ({tem}%)</strong> se calculan directamente sobre el <strong>Monto Total de la Venta / Precio Final ({displayVal(result.precio_venta_sugerido)})</strong>.
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>
