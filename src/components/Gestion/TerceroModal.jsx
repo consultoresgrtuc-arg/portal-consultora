@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import { addDoc, collection, doc, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import Icon from '../Common/Icon';
 
-const TerceroModal = ({ tercero, onClose }) => {
+const TerceroModal = ({ tercero, targetUid, onClose }) => {
     const { user } = useAuth();
+    const { targetUserId } = useClientSelection();
+    const effectiveUid = targetUid || targetUserId || user?.uid;
     const [formData, setFormData] = useState({
         nombre: tercero?.nombre || '',
         cuit: tercero?.cuit || '',
@@ -20,7 +23,7 @@ const TerceroModal = ({ tercero, onClose }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!user || isSubmitting) return;
+        if (!effectiveUid || isSubmitting) return;
 
         setIsSubmitting(true);
         setError('');
@@ -33,9 +36,9 @@ const TerceroModal = ({ tercero, onClose }) => {
 
         try {
             if (tercero) { // Editando
-                await updateDoc(doc(db, 'users', user.uid, 'terceros', tercero.id), dataToSave);
+                await updateDoc(doc(db, 'users', effectiveUid, 'terceros', tercero.id), dataToSave);
             } else { // Creando
-                await addDoc(collection(db, 'users', user.uid, 'terceros'), dataToSave);
+                await addDoc(collection(db, 'users', effectiveUid, 'terceros'), dataToSave);
             }
             onClose();
         } catch (error) {

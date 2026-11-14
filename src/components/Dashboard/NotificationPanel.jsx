@@ -11,7 +11,13 @@ const NotificationPanel = ({ navigate, setClientCenterFolder }) => {
         if (!user) return;
         try {
             await deleteDoc(doc(db, 'users', user.uid, 'notifications', notif.id));
-            if (notif.title === "Nuevo Documento del Contador" || notif.type === "info") {
+            if (notif.targetRoute) {
+                if (navigate) navigate(notif.targetRoute);
+            } else if (notif.title?.includes('Cierre Mensual')) {
+                if (navigate) navigate('reports');
+            } else if (notif.title?.includes('Cheque')) {
+                if (navigate) navigate('gestion/cheques');
+            } else if (notif.title === "Nuevo Documento del Contador" || notif.type === "info") {
                 if (setClientCenterFolder) setClientCenterFolder('documentos_del_contador');
                 if (navigate) navigate('client-center');
             }

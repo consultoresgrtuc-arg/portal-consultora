@@ -4,7 +4,6 @@ import {
   collection, 
   query, 
   where, 
-  orderBy, 
   onSnapshot, 
   doc, 
   deleteDoc,
@@ -12,12 +11,15 @@ import {
   Timestamp 
 } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import Icon from '../Common/Icon';
 import FacturaVentaModal from './Modals/FacturaVentaModal';
 import PagoRecibidoModal from './Modals/PagoRecibidoModal';
 
 const CuentaCorrienteClientePage = ({ navigate, terceroId }) => {
     const { user } = useAuth();
+    const { targetUserId } = useClientSelection();
+    const currentUid = targetUserId || user?.uid;
     const [terceroData, setTerceroData] = useState(null);
     const [movimientos, setMovimientos] = useState([]);
     const [loadingTercero, setLoadingTercero] = useState(true);
@@ -27,16 +29,16 @@ const CuentaCorrienteClientePage = ({ navigate, terceroId }) => {
     const [movimientoAEditar, setMovimientoAEditar] = useState(null); 
     const [copiedText, setCopiedText] = useState(false);
 
-    const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+    const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(Number(value) || 0);
     const formatDate = (timestamp) => {
         if (!timestamp || !timestamp.toDate) return 'Fecha inválida';
         return timestamp.toDate().toLocaleDateString('es-AR');
     };
 
     useEffect(() => {
-        if (!user || !terceroId) return;
+        if (!currentUid || !terceroId) return;
         setLoadingTercero(true);
-        const docRef = doc(db, 'users', user.uid, 'terceros', terceroId);
+        const docRef = doc(db, 'users', currentUid, 'terceros', terceroId);
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists()) {
                 setTerceroData({ id: docSnap.id, ...docSnap.data() });
@@ -50,59 +52,73 @@ const CuentaCorrienteClientePage = ({ navigate, terceroId }) => {
             setLoadingTercero(false);
         });
         return () => unsubscribe();
-    }, [user, terceroId]);
+    }, [currentUid, terceroId]);
 
     useEffect(() => {
-        if (!user || !terceroId) return;
+        if (!currentUid || !terceroId) return;
         setLoadingMov(true);
 
+        // Consultas sin orderBy compuesto: ordenamos cronológicamente en memoria para evitar failed-precondition
         const qFacturas = query(
-            collection(db, 'users', user.uid, 'facturasVenta'),
-            where("terceroId", "==", terceroId),
-            orderBy("fechaEmision", "asc")
+            collection(db, 'users', currentUid, 'facturasVenta'),
+            where("terceroId", "==", terceroId)
         );
         const qPagos = query(
-            collection(db, 'users', user.uid, 'pagosRecibidos'),
-            where("terceroId", "==", terceroId),
-            orderBy("fechaPago", "asc")
+            collection(db, 'users', currentUid, 'pagosRecibidos'),
+            where("terceroId", "==", terceroId)
         );
 
-        const unsubFacturas = onSnapshot(qFacturas, (facturasSnap) => {
-            const facturas = facturasSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'factura', fecha: d.data().fechaEmision }));
-            
-            const unsubPagos = onSnapshot(qPagos, (pagosSnap) => {
-                const pagos = pagosSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'pago', fecha: d.data().fechaPago }));
-                
-                const movsCombinados = [...facturas, ...pagos].sort((a, b) => a.fecha.toMillis() - b.fecha.toMillis());
-                
-                let saldoAcumulado = 0;
-                const movsConSaldo = movsCombinados.map(mov => {
-                    if (mov.tipoMovimiento === 'factura') {
-                        saldoAcumulado += mov.montoTotal;
-                    } else if (mov.tipoMovimiento === 'pago') {
-                        saldoAcumulado -= mov.montoPagado;
-                    }
-                    return { ...mov, saldoAcumulado };
-                });
+        let latestFacturas = [];
+        let latestPagos = [];
+        let loadedF = false;
+        let loadedP = false;
 
-                setMovimientos(movsConSaldo);
-                setLoadingMov(false);
-            }, (err) => {
-                console.error(err);
-                setLoadingMov(false);
+        const recomputeMovimientos = () => {
+            if (!loadedF || !loadedP) return;
+            const movsCombinados = [...latestFacturas, ...latestPagos].sort(
+                (a, b) => (a.fecha?.toMillis?.() || 0) - (b.fecha?.toMillis?.() || 0)
+            );
+
+            let saldoAcumulado = 0;
+            const movsConSaldo = movsCombinados.map(mov => {
+                if (mov.tipoMovimiento === 'factura') {
+                    saldoAcumulado += Number(mov.montoTotal) || 0;
+                } else if (mov.tipoMovimiento === 'pago') {
+                    saldoAcumulado -= Number(mov.montoPagado) || 0;
+                }
+                return { ...mov, saldoAcumulado };
             });
-            
-            return () => unsubPagos();
+
+            setMovimientos(movsConSaldo);
+            setLoadingMov(false);
+        };
+
+        const unsubFacturas = onSnapshot(qFacturas, (facturasSnap) => {
+            latestFacturas = facturasSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'factura', fecha: d.data().fechaEmision }));
+            loadedF = true;
+            recomputeMovimientos();
         }, (err) => {
             console.error(err);
             setLoadingMov(false);
         });
 
-        return () => unsubFacturas();
-    }, [user, terceroId]);
+        const unsubPagos = onSnapshot(qPagos, (pagosSnap) => {
+            latestPagos = pagosSnap.docs.map(d => ({ ...d.data(), id: d.id, tipoMovimiento: 'pago', fecha: d.data().fechaPago }));
+            loadedP = true;
+            recomputeMovimientos();
+        }, (err) => {
+            console.error(err);
+            setLoadingMov(false);
+        });
+
+        return () => {
+            unsubFacturas();
+            unsubPagos();
+        };
+    }, [currentUid, terceroId]);
 
     const handleDeleteMovimiento = async (mov) => {
-        if (isDeleting) return;
+        if (isDeleting || !currentUid) return;
         if (!window.confirm(`¿Seguro que deseas eliminar este registro?`)) return;
 
         setIsDeleting(true);
@@ -112,7 +128,7 @@ const CuentaCorrienteClientePage = ({ navigate, terceroId }) => {
             // 1. Eliminar operación vinculada si existía
             if (mov.operationId) {
                 try {
-                    await deleteDoc(doc(db, 'users', user.uid, 'operations', mov.operationId));
+                    await deleteDoc(doc(db, 'users', currentUid, 'operations', mov.operationId));
                 } catch (opErr) {
                     console.warn("No se pudo eliminar la operación asociada:", opErr);
                 }
@@ -121,10 +137,10 @@ const CuentaCorrienteClientePage = ({ navigate, terceroId }) => {
             // 2. Si era un pago con cheque, eliminar cheques generados por este pago
             if (mov.tipoMovimiento === 'pago') {
                 try {
-                    const qCheques = query(collection(db, 'users', user.uid, 'cheques'), where("pagoId", "==", mov.id));
+                    const qCheques = query(collection(db, 'users', currentUid, 'cheques'), where("pagoId", "==", mov.id));
                     const chequesSnap = await getDocs(qCheques);
                     for (const chqDoc of chequesSnap.docs) {
-                        await deleteDoc(doc(db, 'users', user.uid, 'cheques', chqDoc.id));
+                        await deleteDoc(doc(db, 'users', currentUid, 'cheques', chqDoc.id));
                     }
                 } catch (chqErr) {
                     console.warn("No se pudieron eliminar cheques asociados:", chqErr);
@@ -132,7 +148,7 @@ const CuentaCorrienteClientePage = ({ navigate, terceroId }) => {
             }
 
             // 3. Eliminar el movimiento principal
-            await deleteDoc(doc(db, 'users', user.uid, collectionName, mov.id));
+            await deleteDoc(doc(db, 'users', currentUid, collectionName, mov.id));
         } catch (err) {
             console.error(err);
             setError("Error al eliminar.");
@@ -339,7 +355,8 @@ const CuentaCorrienteClientePage = ({ navigate, terceroId }) => {
                 onClose={handleCloseModals}
                 clienteId={terceroId}
                 clienteNombre={terceroData?.nombre}
-                movimiento={movimientoAEditar} 
+                movimiento={movimientoAEditar}
+                targetUid={currentUid}
             />
 
             <PagoRecibidoModal
@@ -348,6 +365,7 @@ const CuentaCorrienteClientePage = ({ navigate, terceroId }) => {
                 clienteId={terceroId}
                 clienteNombre={terceroData?.nombre}
                 movimiento={movimientoAEditar}
+                targetUid={currentUid}
             />
         </div>
     );

@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../../../firebase';
 import { addDoc, collection, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../../../context/AuthContext';
+import { useClientSelection } from '../../../context/ClientSelectionContext';
 import Icon from '../../Common/Icon';
 
-const FacturaCompraModal = ({ isOpen, onClose, proveedorId, proveedorNombre, movimiento }) => {
+const FacturaCompraModal = ({ isOpen, onClose, proveedorId, proveedorNombre, movimiento, targetUid }) => {
     const { user } = useAuth();
+    const { targetUserId } = useClientSelection();
+    const effectiveUid = targetUid || targetUserId || user?.uid;
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [message, setMessage] = useState('');
     const isEditMode = movimiento && movimiento.id;
@@ -40,6 +43,10 @@ const FacturaCompraModal = ({ isOpen, onClose, proveedorId, proveedorNombre, mov
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!effectiveUid) {
+            setMessage('Error: Entidad contable no identificada.');
+            return;
+        }
         if (formData.montoTotal <= 0) {
             setMessage('Error: El monto total debe ser mayor a cero.');
             return;
@@ -64,9 +71,9 @@ const FacturaCompraModal = ({ isOpen, onClose, proveedorId, proveedorNombre, mov
 
         try {
             if (isEditMode) {
-                await updateDoc(doc(db, 'users', user.uid, 'facturasCompra', movimiento.id), dataToSave);
+                await updateDoc(doc(db, 'users', effectiveUid, 'facturasCompra', movimiento.id), dataToSave);
             } else {
-                await addDoc(collection(db, 'users', user.uid, 'facturasCompra'), dataToSave);
+                await addDoc(collection(db, 'users', effectiveUid, 'facturasCompra'), dataToSave);
             }
             onClose();
         } catch (err) {

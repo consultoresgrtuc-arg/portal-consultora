@@ -2,16 +2,16 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebase';
 import { 
   collection, 
-  query, 
-  where, 
-  orderBy, 
   getDocs 
 } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import Icon from '../Common/Icon';
 
 const ProveedoresPage = ({ navigate }) => {
     const { user } = useAuth();
+    const { targetUserId } = useClientSelection();
+    const currentUid = targetUserId || user?.uid;
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [saldosData, setSaldosData] = useState({ proveedores: [], totalPagar: 0 });
@@ -19,19 +19,16 @@ const ProveedoresPage = ({ navigate }) => {
     const [soloConSaldo, setSoloConSaldo] = useState(false);
 
     useEffect(() => {
-        if (!user) return;
+        if (!currentUid) return;
 
         const fetchSaldosProveedores = async () => {
             setLoading(true);
             setError('');
             try {
-                const qTerceros = query(
-                    collection(db, 'users', user.uid, 'terceros'),
-                    where("tipo", "in", ["Proveedor", "Ambos"]),
-                    orderBy("nombre", "asc")
-                );
-                const qFacturas = collection(db, 'users', user.uid, 'facturasCompra'); 
-                const qPagos = collection(db, 'users', user.uid, 'pagosRealizados');
+                // Consulta sin índice compuesto: filtramos tipo y ordenamos en memoria para evitar failed-precondition
+                const qTerceros = collection(db, 'users', currentUid, 'terceros');
+                const qFacturas = collection(db, 'users', currentUid, 'facturasCompra'); 
+                const qPagos = collection(db, 'users', currentUid, 'pagosRealizados');
 
                 const [tercerosSnap, facturasSnap, pagosSnap] = await Promise.all([
                     getDocs(qTerceros),
@@ -39,16 +36,19 @@ const ProveedoresPage = ({ navigate }) => {
                     getDocs(qPagos)
                 ]);
 
-                const terceros = tercerosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const terceros = tercerosSnap.docs
+                    .map(d => ({ id: d.id, ...d.data() }))
+                    .filter(t => ['Proveedor', 'Ambos'].includes(t.tipo))
+                    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
                 const facturas = facturasSnap.docs.map(d => d.data());
                 const pagos = pagosSnap.docs.map(d => d.data());
 
                 const saldosPorProveedor = {};
                 facturas.forEach(f => {
-                    saldosPorProveedor[f.terceroId] = (saldosPorProveedor[f.terceroId] || 0) + f.montoTotal;
+                    saldosPorProveedor[f.terceroId] = (saldosPorProveedor[f.terceroId] || 0) + (Number(f.montoTotal) || 0);
                 });
                 pagos.forEach(p => {
-                    saldosPorProveedor[p.terceroId] = (saldosPorProveedor[p.terceroId] || 0) - p.montoPagado;
+                    saldosPorProveedor[p.terceroId] = (saldosPorProveedor[p.terceroId] || 0) - (Number(p.montoPagado) || 0);
                 });
 
                 const proveedores = terceros
@@ -70,7 +70,7 @@ const ProveedoresPage = ({ navigate }) => {
         };
 
         fetchSaldosProveedores();
-    }, [user]);
+    }, [currentUid]);
 
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
 

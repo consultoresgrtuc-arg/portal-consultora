@@ -22,231 +22,23 @@ import ConfirmModal from '../Common/ConfirmModal';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { openWhatsApp, cleanWhatsAppNumber } from '../../utils/whatsapp';
-
-const WEBHOOK_URL = "https://us-central1-gyrconsultores-82422.cloudfunctions.net/whatsappWebhook";
-
-/** Modal de configuración de conexión WhatsApp — componente separado para respetar reglas de hooks */
-const WhatsAppConnectionModal = ({ onClose }) => {
-    const [expandedOption, setExpandedOption] = useState(null);
-    const [copied, setCopied] = useState(false);
-
-    const copyWebhook = () => {
-        navigator.clipboard.writeText(WEBHOOK_URL);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-
-    const StepItem = ({ step, title, desc, extra, link, links, color = 'blue' }) => (
-        <li className="flex gap-3 items-start">
-            <span className={`shrink-0 w-6 h-6 rounded-full bg-${color}-600 text-white text-[10px] font-black flex items-center justify-center mt-0.5`}>{step}</span>
-            <div className="space-y-1 flex-1">
-                <p className="text-xs font-bold text-gray-800">{title}</p>
-                <p className="text-[11px] text-gray-500 leading-relaxed">{desc}</p>
-                {extra && (
-                    <div className="mt-1 flex items-center gap-2">
-                        <code className={`text-[10px] bg-white border border-${color}-200 text-${color}-700 px-2 py-1 rounded-lg font-mono break-all flex-1`}>{extra}</code>
-                        <button onClick={copyWebhook} className={`shrink-0 text-${color}-600 hover:text-${color}-800 transition-colors`} title="Copiar URL">
-                            <Icon name={copied ? "Check" : "Copy"} size={13}/>
-                        </button>
-                    </div>
-                )}
-                {link && (
-                    <a href={link.url} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 text-[11px] text-${color}-600 font-bold hover:underline mt-0.5`}>
-                        <Icon name="ExternalLink" size={12}/> {link.label}
-                    </a>
-                )}
-                {links && (
-                    <div className="flex gap-3 mt-1">
-                        {links.map(l => (
-                            <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 text-[11px] text-${color}-600 font-bold hover:underline`}>
-                                <Icon name="ExternalLink" size={12}/> {l.label}
-                            </a>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </li>
-    );
-
-    return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-            <div className="bg-white rounded-[32px] shadow-2xl max-w-xl w-full p-8 max-h-[90vh] overflow-y-auto">
-                {/* Header */}
-                <div className="flex justify-between items-start mb-6">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 bg-emerald-100 text-emerald-600 rounded-2xl">
-                            <Icon name="MessageCircle" size={28}/>
-                        </div>
-                        <div>
-                            <h3 className="text-xl font-black text-gray-900">Conexión de WhatsApp</h3>
-                            <p className="text-xs text-gray-500 font-medium">Recepción y clasificación automática de comprobantes</p>
-                        </div>
-                    </div>
-                    <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl">
-                        <Icon name="X" size={20}/>
-                    </button>
-                </div>
-
-                <div className="space-y-5">
-                    {/* Cómo funciona */}
-                    <div className="bg-emerald-50/60 p-5 rounded-2xl border border-emerald-100 space-y-2">
-                        <h4 className="text-xs font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-                            <Icon name="CheckCircle" size={14}/> ¿Cómo funciona la vinculación?
-                        </h4>
-                        <p className="text-xs text-emerald-800 leading-relaxed font-medium">
-                            ¡Es 100% automática! Los comprobantes que llegan a tu número de WhatsApp Business son reenviados a nuestro Webhook. La IA detecta el emisor, receptor, monto y CUIT; si el remitente o el CUIT coincide con algún cliente del estudio, <strong>se asocia automáticamente</strong>.
-                        </p>
-                    </div>
-
-                    {/* URL del Webhook */}
-                    <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block px-1">
-                            URL de tu Webhook Cloud Functions (Listo para usar)
-                        </label>
-                        <div className="flex items-center gap-2">
-                            <input type="text" readOnly value={WEBHOOK_URL}
-                                className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 select-all outline-none"
-                            />
-                            <button onClick={copyWebhook}
-                                className={`px-4 py-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${copied ? 'bg-emerald-500 text-white' : 'bg-gray-800 hover:bg-black text-white'}`}
-                            >
-                                <Icon name={copied ? "Check" : "Copy"} size={14}/>
-                                {copied ? '¡Copiado!' : 'Copiar'}
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Opciones como acordeones */}
-                    <div className="space-y-3">
-                        <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-1">
-                            Elegí tu método de conexión
-                        </h4>
-
-                        {/* Opción 1 – Evolution API */}
-                        <div className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
-                            expandedOption === 1 ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-gray-50 hover:border-blue-200 hover:bg-blue-50/20'
-                        }`}>
-                            <button onClick={() => setExpandedOption(expandedOption === 1 ? null : 1)}
-                                className="w-full p-4 flex items-center gap-3 text-left">
-                                <div className="p-2 bg-blue-100 text-blue-700 rounded-xl shrink-0"><Icon name="Smartphone" size={16}/></div>
-                                <div className="flex-1">
-                                    <p className="font-black text-gray-800 text-xs">Opción 1: Evolution API / Baileys</p>
-                                    <p className="text-[11px] text-gray-500">Recomendada · Escaneo QR único, sin perder tu app</p>
-                                </div>
-                                <div className={`text-blue-500 transition-transform duration-200 ${expandedOption === 1 ? 'rotate-180' : ''}`}>
-                                    <Icon name="ChevronDown" size={18}/>
-                                </div>
-                            </button>
-                            {expandedOption === 1 && (
-                                <div className="px-4 pb-5 space-y-4">
-                                    <p className="text-[11px] text-gray-600 leading-relaxed">
-                                        Evolution API es un servidor que conecta tu WhatsApp Business a cualquier webhook. Se instala en un VPS propio o en la nube y solo necesitás escanear el QR una sola vez.
-                                    </p>
-                                    <ol className="space-y-3">
-                                        <StepItem step={1} color="blue"
-                                            title="Instalá Evolution API en tu servidor"
-                                            desc="Necesitás un VPS (DigitalOcean, Hetzner, etc.) con Docker. Seguí la guía oficial:"
-                                            link={{ label: "Ver documentación oficial de Evolution API →", url: "https://doc.evolution-api.com/v2/pt/get-started/introduction" }}
-                                        />
-                                        <StepItem step={2} color="blue"
-                                            title="Creá una instancia de WhatsApp"
-                                            desc="Desde el panel de Evolution API (o vía API REST), creás una nueva instancia, escaneás el QR con tu celular y tu número queda vinculado."
-                                        />
-                                        <StepItem step={3} color="blue"
-                                            title="Configurá el Webhook en la instancia"
-                                            desc="En la configuración de la instancia, ingresá esta URL en el campo Webhook URL y activá los eventos: MESSAGES_UPSERT y MESSAGES_UPDATE."
-                                            extra={WEBHOOK_URL}
-                                        />
-                                        <StepItem step={4} color="blue"
-                                            title="¡Listo! La conexión es automática"
-                                            desc="Desde ese momento, cada foto o PDF que recibas en WhatsApp se procesará con la IA y aparecerá en esta bandeja."
-                                        />
-                                    </ol>
-                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                                        <p className="text-[11px] text-amber-800 font-medium">
-                                            💡 <strong>Sin servidor propio:</strong> Podés usar{' '}
-                                            <a href="https://app.evolution-api.com" target="_blank" rel="noopener noreferrer" className="underline font-bold">Evolution API Cloud</a>{' '}
-                                            (versión gestionada) o un hosting con Docker preconfigurado.
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Opción 2 – Make / n8n / Zapier */}
-                        <div className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
-                            expandedOption === 2 ? 'border-indigo-300 bg-indigo-50/40' : 'border-gray-200 bg-gray-50 hover:border-indigo-200 hover:bg-indigo-50/20'
-                        }`}>
-                            <button onClick={() => setExpandedOption(expandedOption === 2 ? null : 2)}
-                                className="w-full p-4 flex items-center gap-3 text-left">
-                                <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl shrink-0"><Icon name="Layers" size={16}/></div>
-                                <div className="flex-1">
-                                    <p className="font-black text-gray-800 text-xs">Opción 2: Make / n8n / Zapier</p>
-                                    <p className="text-[11px] text-gray-500">Sin servidor · Conectás tu WhatsApp vía automatización</p>
-                                </div>
-                                <div className={`text-indigo-500 transition-transform duration-200 ${expandedOption === 2 ? 'rotate-180' : ''}`}>
-                                    <Icon name="ChevronDown" size={18}/>
-                                </div>
-                            </button>
-                            {expandedOption === 2 && (
-                                <div className="px-4 pb-5 space-y-4">
-                                    <p className="text-[11px] text-gray-600 leading-relaxed">
-                                        Si ya tenés WhatsApp Business conectado a Make, n8n o Zapier, solo necesitás agregar un paso HTTP POST que reenvíe el mensaje a nuestro webhook.
-                                    </p>
-                                    <ol className="space-y-3">
-                                        <StepItem step={1} color="indigo"
-                                            title="Abrí tu plataforma de automatización"
-                                            desc="Creá un nuevo Escenario (Make), Workflow (n8n) o Zap (Zapier) con el trigger: 'Mensaje entrante de WhatsApp'."
-                                            links={[
-                                                { label: "Ir a Make →", url: "https://www.make.com" },
-                                                { label: "Ir a n8n →", url: "https://n8n.io" },
-                                            ]}
-                                        />
-                                        <StepItem step={2} color="indigo"
-                                            title="Agrega un módulo HTTP POST"
-                                            desc="Añadí un paso 'HTTP Request' con método POST y la siguiente URL:"
-                                            extra={WEBHOOK_URL}
-                                        />
-                                        <StepItem step={3} color="indigo"
-                                            title="Mapeá el cuerpo del mensaje"
-                                            desc="En el body, mapeá: número de teléfono del remitente (phone), texto del mensaje (body) y si hay adjunto, su URL (mediaUrl / fileUrl)."
-                                        />
-                                        <StepItem step={4} color="indigo"
-                                            title="Activá y probá el flujo"
-                                            desc="Enviá un comprobante de prueba. Debería aparecer en esta bandeja en segundos con la clasificación automática de la IA."
-                                        />
-                                    </ol>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    <button onClick={onClose}
-                        className="w-full py-3.5 bg-gray-900 hover:bg-black text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg"
-                    >
-                        Entendido
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const MONTHS = [
-    { value: 'todos', label: 'Todos los Meses' },
-    { value: '1', label: 'Enero' },
-    { value: '2', label: 'Febrero' },
-    { value: '3', label: 'Marzo' },
-    { value: '4', label: 'Abril' },
-    { value: '5', label: 'Mayo' },
-    { value: '6', label: 'Junio' },
-    { value: '7', label: 'Julio' },
-    { value: '8', label: 'Agosto' },
-    { value: '9', label: 'Septiembre' },
-    { value: '10', label: 'Octubre' },
-    { value: '11', label: 'Noviembre' },
-    { value: '12', label: 'Diciembre' }
-];
+import WhatsAppConnectionModal from './Modals/WhatsAppConnectionModal';
+import CreateBillingRequestModal from './Modals/CreateBillingRequestModal';
+import EditBillingRequestModal from './Modals/EditBillingRequestModal';
+import AssignClientModal from './Modals/AssignClientModal';
+import {
+    MONTHS,
+    MAX_FILES,
+    MAX_FILE_SIZE,
+    MAX_TOTAL_SIZE,
+    SAFE_IMAGE_MIMES,
+    SAFE_IMAGE_EXTS,
+    parseAmount,
+    parseLocalDate,
+    checkSuspiciousDate,
+    cleanCuit,
+    formatCurrency
+} from '../../utils/billingUtils';
 
 const BillingRequestsPage = ({ navigate }) => {
     const { user, userData } = useAuth();
@@ -259,159 +51,6 @@ const BillingRequestsPage = ({ navigate }) => {
         targetUserId, 
         isViewingClient 
     } = useClientSelection();
-
-    // Helper robusto para parsear montos contables (soporta formato AR $ 150.000,50 / EN 150,000.50 y strings)
-    const parseAmount = (val) => {
-        if (typeof val === 'number') {
-            return isNaN(val) ? 0 : val;
-        }
-        if (!val) return 0;
-        let s = String(val).trim().replace(/[$\s]/g, '');
-        if (s.includes('.') && s.includes(',')) {
-            if (s.indexOf('.') < s.indexOf(',')) {
-                // Formato AR: 150.000,50 -> 150000.50
-                s = s.replace(/\./g, '').replace(',', '.');
-            } else {
-                // Formato EN: 150,000.50 -> 150000.50
-                s = s.replace(/,/g, '');
-            }
-        } else if (s.includes(',')) {
-            s = s.replace(',', '.');
-        } else if (s.includes('.')) {
-            const parts = s.split('.');
-            if (parts.length === 2 && parts[1].length === 3 && parseInt(parts[0], 10) > 0) {
-                // Caso común de miles sin decimales: 150.000
-                s = parts[0] + parts[1];
-            } else if (parts.length > 2) {
-                // Caso millones: 1.500.000
-                s = parts.join('');
-            }
-        }
-        const num = parseFloat(s);
-        return isNaN(num) ? 0 : num;
-    };
-
-    // Helper robusto para parsear fechas (soporta DD/MM/YYYY, DD/MM/YY, DD-MM-YYYY, YYYY-MM-DD, Firestore Timestamps y Date)
-    const parseLocalDate = (dateVal) => {
-        const currentYear = new Date().getFullYear();
-        let result = null;
-
-        if (!dateVal) {
-            result = new Date();
-        } else if (dateVal instanceof Date && !isNaN(dateVal.getTime())) {
-            result = new Date(dateVal);
-        } else if (dateVal?.toDate && typeof dateVal.toDate === 'function') {
-            try {
-                const d = dateVal.toDate();
-                if (!isNaN(d.getTime())) result = d;
-            } catch (e) {}
-        }
-
-        if (!result) {
-            const s = String(dateVal).trim();
-            // Soporta DD/MM/YYYY o DD/MM/YY (ej: 03/10/26)
-            const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-            if (dmyMatch) {
-                const day = parseInt(dmyMatch[1], 10);
-                const month = parseInt(dmyMatch[2], 10) - 1;
-                let year = parseInt(dmyMatch[3], 10);
-                if (year < 100) year += 2000; // Ej: 26 -> 2026
-                const d = new Date(year, month, day, 12, 0, 0);
-                if (!isNaN(d.getTime())) result = d;
-            } else {
-                const ymdMatch = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-                if (ymdMatch) {
-                    const year = parseInt(ymdMatch[1], 10);
-                    const month = parseInt(ymdMatch[2], 10) - 1;
-                    const day = parseInt(ymdMatch[3], 10);
-                    const d = new Date(year, month, day, 12, 0, 0);
-                    if (!isNaN(d.getTime())) result = d;
-                } else {
-                    const parsed = new Date(s);
-                    if (!isNaN(parsed.getTime())) result = parsed;
-                }
-            }
-        }
-
-        if (!result || isNaN(result.getTime())) {
-            result = new Date();
-        }
-
-        // Si la IA o comprobante antiguo leyó un año del pasado (ej. 2024 en lugar del año en curso 2026),
-        // ajustar defensivamente el año al corriente para asegurar que la operación contable impacte en el ejercicio actual
-        if (result.getFullYear() < currentYear) {
-            result.setFullYear(currentYear);
-        }
-
-        return result;
-    };
-
-    // Helper para detectar fechas dudosas o que no coinciden con el ejercicio fiscal corriente
-    const checkSuspiciousDate = (dateVal) => {
-        if (!dateVal) return null;
-        const currentYear = new Date().getFullYear();
-        const now = new Date();
-
-        let originalYear = null;
-        let originalMonth = null;
-        let originalDay = null;
-
-        const s = String(dateVal).trim();
-        const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-        if (dmyMatch) {
-            originalDay = parseInt(dmyMatch[1], 10);
-            originalMonth = parseInt(dmyMatch[2], 10);
-            let y = parseInt(dmyMatch[3], 10);
-            if (y < 100) y += 2000;
-            originalYear = y;
-        } else {
-            const ymdMatch = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-            if (ymdMatch) {
-                originalYear = parseInt(ymdMatch[1], 10);
-                originalMonth = parseInt(ymdMatch[2], 10);
-                originalDay = parseInt(ymdMatch[3], 10);
-            } else {
-                const parsed = new Date(s);
-                if (!isNaN(parsed.getTime())) {
-                    originalYear = parsed.getFullYear();
-                    originalMonth = parsed.getMonth() + 1;
-                    originalDay = parsed.getDate();
-                }
-            }
-        }
-
-        if (!originalYear || isNaN(originalYear)) return null;
-
-        const isPastYear = originalYear < currentYear;
-        const isFutureYear = originalYear > currentYear;
-
-        if (isPastYear || isFutureYear) {
-            const pad = (n) => String(n).padStart(2, '0');
-            const safeMonth = (originalMonth >= 1 && originalMonth <= 12) ? originalMonth : (now.getMonth() + 1);
-            const safeDay = (originalDay >= 1 && originalDay <= 31) ? originalDay : now.getDate();
-
-            const suggestedCorrectedDate = `${currentYear}-${pad(safeMonth)}-${pad(safeDay)}`;
-            const suggestedCorrectedDisplay = `${pad(safeDay)}/${pad(safeMonth)}/${currentYear}`;
-            const todayDate = `${currentYear}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-            const todayDisplay = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${currentYear}`;
-
-            return {
-                isSuspicious: true,
-                detectedYear: originalYear,
-                currentYear,
-                originalDateFormatted: `${pad(safeDay)}/${pad(safeMonth)}/${originalYear}`,
-                suggestedCorrectedDate,
-                suggestedCorrectedDisplay,
-                todayDate,
-                todayDisplay,
-                reason: isPastYear
-                    ? `La IA detectó el año ${originalYear}, pero el ejercicio actual de trabajo es ${currentYear}. Podría ser un comprobante antiguo subido por error o una lectura errónea de la IA (ej. interpretar el año '26' como '24').`
-                    : `La IA detectó una fecha en el año futuro ${originalYear}. Se recomienda verificar.`
-            };
-        }
-
-        return null;
-    };
 
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -437,8 +76,6 @@ const BillingRequestsPage = ({ navigate }) => {
     // Gestión de Terceros del estudio contable para matching y alta rápida
     const [tercerosList, setTercerosList] = useState([]);
     const [creatingTerceroCuit, setCreatingTerceroCuit] = useState(null);
-
-    const cleanCuit = (c) => (c ? String(c).replace(/\D/g, '') : '');
 
     useEffect(() => {
         if (!user?.uid) return;
@@ -698,6 +335,10 @@ const BillingRequestsPage = ({ navigate }) => {
     const [editingRequest, setEditingRequest] = useState(null);
     const [editFormData, setEditFormData] = useState({});
     const [autoRegisterInBook, setAutoRegisterInBook] = useState(true);
+    const [autoSyncCtaCte, setAutoSyncCtaCte] = useState(true);
+    const [ctaCteSyncMode, setCtaCteSyncMode] = useState('factura_y_pago'); // 'factura_y_pago' | 'solo_factura' | 'solo_pago'
+    const [autoSyncCashFlow, setAutoSyncCashFlow] = useState(true);
+    const [syncingCtaCteId, setSyncingCtaCteId] = useState(null);
 
     // Mapeo dinámico del teléfono desde los perfiles de usuario
     const [systemUsers, setSystemUsers] = useState([]);
@@ -1501,20 +1142,6 @@ const BillingRequestsPage = ({ navigate }) => {
     };
 
     // 5. Multi-file Handlers & Actions (Nivel Completo)
-    const MAX_FILES = 10;
-    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
-    const MAX_TOTAL_SIZE = 30 * 1024 * 1024; // 30 MB
-    const SAFE_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
-    const SAFE_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
-
-    const getSafePreviewUrl = (url) => {
-        if (!url || typeof url !== 'string') return '';
-        if (url.startsWith('blob:') || url.startsWith('https://') || url.startsWith('http://')) {
-            return url;
-        }
-        return '';
-    };
-
     const processFiles = (fileList) => {
         setFileError(null);
         const incomingFiles = Array.from(fileList || []);
@@ -1741,6 +1368,364 @@ const BillingRequestsPage = ({ navigate }) => {
         }
     };
 
+    /** Garantiza la existencia del cliente titular en Gestión de Terceros del estudio. */
+    const ensureStudioTercero = async (party) => {
+        const normCuit = cleanCuit(party.clienteCuit);
+        let terceroMatch = party.terceroMatch || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
+        if (!terceroMatch && normCuit && normCuit.length >= 10 && user?.uid && userData?.isAdmin) {
+            try {
+                const nuevoNombre = (party.clienteNombre && party.clienteNombre !== 'Cliente' && party.clienteNombre !== 'Desconocido')
+                    ? party.clienteNombre
+                    : `Cliente ${normCuit}`;
+                const nuevoTerceroRef = await addDoc(collection(db, 'users', user.uid, 'terceros'), {
+                    nombre: nuevoNombre.trim(),
+                    cuit: party.clienteCuit || normCuit,
+                    tipo: 'Cliente',
+                    email: '',
+                    telefono: '',
+                    categoriaTributaria: 'Monotributo',
+                    createdAt: Timestamp.now()
+                });
+                terceroMatch = {
+                    id: nuevoTerceroRef.id,
+                    nombre: nuevoNombre,
+                    cuit: party.clienteCuit || normCuit
+                };
+                party.terceroMatch = terceroMatch;
+            } catch (createErr) {
+                console.warn("No se pudo auto-crear tercero en estudio:", createErr);
+            }
+        }
+        return terceroMatch;
+    };
+
+    /** Busca o crea la contraparte comercial (Deudor o Proveedor) en la entidad contable destino. */
+    const upsertCounterpartyTercero = async (targetId, { isVenta, counterpartyName, counterpartyCuit }) => {
+        const desiredTipo = isVenta ? 'Cliente' : 'Proveedor';
+        const normCuit = cleanCuit(counterpartyCuit);
+        const safeName = (counterpartyName && !['Desconocido', 'null', 'S/D'].includes(String(counterpartyName).trim()))
+            ? String(counterpartyName).trim()
+            : (isVenta ? 'Comprador Eventual' : 'Proveedor Eventual');
+        const normName = safeName.toLowerCase();
+
+        const snap = await getDocs(collection(db, 'users', targetId, 'terceros'));
+        const matchedDoc = snap.docs.find(d => {
+            const data = d.data();
+            const dCuit = cleanCuit(data.cuit);
+            if (normCuit.length >= 10 && dCuit === normCuit) return true;
+            return (data.nombre || '').trim().toLowerCase() === normName;
+        });
+
+        if (matchedDoc) {
+            const currentTipo = matchedDoc.data().tipo;
+            if (currentTipo && currentTipo !== desiredTipo && currentTipo !== 'Ambos') {
+                await updateDoc(matchedDoc.ref, { tipo: 'Ambos' });
+            }
+            return matchedDoc.id;
+        }
+
+        const newRef = await addDoc(collection(db, 'users', targetId, 'terceros'), {
+            nombre: safeName,
+            cuit: normCuit.length >= 10 ? (counterpartyCuit || normCuit) : '',
+            tipo: desiredTipo,
+            email: '',
+            telefono: '',
+            createdAt: Timestamp.now(),
+            origen: 'facturacion_360'
+        });
+        return newRef.id;
+    };
+
+    /** Crea, actualiza o elimina documentos vinculados por billingRequestId garantizando idempotencia. */
+    const syncBillingLinkedDoc = async (colRef, billingRequestId, shouldCreate, payload) => {
+        const snap = await getDocs(query(colRef, where('billingRequestId', '==', billingRequestId)));
+        if (!shouldCreate) {
+            for (const d of snap.docs) {
+                await deleteDoc(d.ref);
+            }
+            return null;
+        }
+        if (!snap.empty) {
+            const primaryRef = snap.docs[0].ref;
+            await updateDoc(primaryRef, payload);
+            for (let i = 1; i < snap.docs.length; i++) {
+                await deleteDoc(snap.docs[i].ref);
+            }
+            return primaryRef.id;
+        }
+        const created = await addDoc(colRef, payload);
+        return created.id;
+    };
+
+    /** Concilia o registra un movimiento en Cash Flow (users/{targetId}/cashflow_items) de forma idempotente. */
+    const syncCashflowForBilling = async (targetId, req, cashflowPayload, partyDesc) => {
+        const cfCol = collection(db, 'users', targetId, 'cashflow_items');
+        const existingSnap = await getDocs(query(cfCol, where('billingRequestId', '==', req.id)));
+
+        if (!existingSnap.empty) {
+            const primaryDoc = existingSnap.docs[0];
+            const isReconciled = Boolean(primaryDoc.data()?.reconciledExistingForecast);
+            await updateDoc(primaryDoc.ref, isReconciled
+                ? {
+                    status: cashflowPayload.status,
+                    executedAmount: cashflowPayload.executedAmount,
+                    executedAt: cashflowPayload.executedAt,
+                    updatedAt: Timestamp.now()
+                }
+                : cashflowPayload
+            );
+            for (let i = 1; i < existingSnap.docs.length; i++) {
+                await deleteDoc(existingSnap.docs[i].ref);
+            }
+            return true;
+        }
+
+        const allCfSnap = await getDocs(cfCol);
+        const periodYM = cashflowPayload.date.slice(0, 7);
+        const normParty = String(partyDesc || '').trim().toLowerCase();
+        const tolerance = Math.max(100, cashflowPayload.amount * 0.05);
+
+        const pendingMatch = allCfSnap.docs.find(d => {
+            const cf = d.data();
+            if (cf.status === 'executed' || cf.type !== cashflowPayload.type) return false;
+            const amtDiff = Math.abs((Number(cf.amount) || 0) - cashflowPayload.amount);
+            if (amtDiff > tolerance) return false;
+            const sameMonth = String(cf.date || '').startsWith(periodYM);
+            const sameDesc = normParty.length >= 4 && String(cf.description || '').toLowerCase().includes(normParty);
+            return sameMonth || sameDesc;
+        });
+
+        if (pendingMatch) {
+            await updateDoc(pendingMatch.ref, {
+                status: cashflowPayload.status,
+                executedAmount: cashflowPayload.executedAmount,
+                executedAt: cashflowPayload.executedAt,
+                billingRequestId: req.id,
+                reconciledExistingForecast: true,
+                updatedAt: Timestamp.now()
+            });
+            return true;
+        }
+
+        await addDoc(cfCol, {
+            ...cashflowPayload,
+            reconciledExistingForecast: false,
+            createdAt: Timestamp.now()
+        });
+        return true;
+    };
+
+    /**
+     * Orquestador Contable 360° idempotente (Facturación -> Operaciones + Cta. Cte. + Cash Flow).
+     * Evita duplicados mediante `billingRequestId` y soporta re-sincronización segura.
+     */
+    const syncAccountingOrchestration = async (req, options = {}) => {
+        const {
+            party: providedParty,
+            syncOperations = true,
+            syncCtaCte = true,
+            syncCashFlow = true,
+            ctaCteMode = ctaCteSyncMode,
+            markCompleted = false
+        } = options;
+
+        const party = providedParty || getPartyDetails(req);
+        const terceroMatch = await ensureStudioTercero(party);
+        const enrichedParty = { ...party, terceroMatch };
+        const targetUids = resolveTargetClientUids(req, enrichedParty);
+
+        if (targetUids.length === 0) {
+            return { synced: false, reason: 'no_targets' };
+        }
+
+        const rawMonto = req.aiData?.monto_total ?? req.manualData?.monto ?? 0;
+        const parsedMonto = parseAmount(rawMonto);
+        if (!parsedMonto || parsedMonto <= 0) {
+            return { synced: false, reason: 'invalid_amount', targetUids };
+        }
+
+        const clasif = req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta';
+        const isVenta = clasif === 'venta';
+        const tipo = clasif === 'gasto' ? 'gasto' : (clasif === 'compra' ? 'compra' : 'venta');
+        const partyDesc = isVenta ? (party.contraparteNombre || 'Comprador') : (party.contraparteNombre || 'Proveedor');
+        const desc = req.aiData?.concepto_detectado
+            ? `[${tipo.toUpperCase()}] ${partyDesc} - ${req.aiData.concepto_detectado}`
+            : `${tipo.toUpperCase()} - ${partyDesc}`;
+
+        const fechaRaw = req.aiData?.fecha_pago || req.manualData?.fecha || req.timestamp || new Date();
+        const localDate = parseLocalDate(fechaRaw);
+        const fechaTimestamp = Timestamp.fromDate(localDate);
+        const pad2 = (n) => String(n).padStart(2, '0');
+        const dateISO = `${localDate.getFullYear()}-${pad2(localDate.getMonth() + 1)}-${pad2(localDate.getDate())}`;
+
+        const operationPayload = {
+            type: tipo,
+            amount: parsedMonto,
+            description: desc,
+            fechaEmision: fechaTimestamp,
+            year: localDate.getFullYear(),
+            month: localDate.getMonth() + 1,
+            day: localDate.getDate(),
+            billingRequestId: req.id,
+            terceroId: terceroMatch?.id || null,
+            clienteCuit: party.clienteCuit || null,
+            clienteNombre: party.clienteNombre || null,
+            bancoOrigen: req.aiData?.banco_origen || null,
+            bancoReceptor: req.aiData?.banco_receptor || null,
+            medioPago: req.aiData?.medio_pago_detalle || req.aiData?.aplicacion_pago || (req.aiData?.tipo_comprobante === 'Transferencia' ? 'Transferencia' : null),
+            cuotas: req.aiData?.cuotas || null,
+            aplicacionPago: req.aiData?.aplicacion_pago || null,
+            tipoTicketPos: req.aiData?.tipo_ticket_pos || null,
+            source: req.source || 'web'
+        };
+
+        let opsSynced = false;
+        let ctaCteSynced = false;
+        let cashFlowSynced = false;
+        let lastCtaCteTerceroId = req.lastCtaCteTerceroId || null;
+
+        for (const targetId of targetUids) {
+            let syncedOpId = null;
+            if (syncOperations) {
+                try {
+                    syncedOpId = await syncBillingLinkedDoc(
+                        collection(db, 'users', targetId, 'operations'),
+                        req.id,
+                        true,
+                        operationPayload
+                    );
+                    opsSynced = true;
+                } catch (errOp) {
+                    console.error(`Error al asentar operación en users/${targetId}/operations:`, errOp);
+                }
+            } else {
+                try {
+                    const existingOpSnap = await getDocs(
+                        query(collection(db, 'users', targetId, 'operations'), where('billingRequestId', '==', req.id))
+                    );
+                    if (!existingOpSnap.empty) {
+                        syncedOpId = existingOpSnap.docs[0].id;
+                    }
+                } catch (e) { /* Ignorar búsqueda auxiliar */ }
+            }
+
+            if (syncCtaCte) {
+                try {
+                    const counterpartyId = await upsertCounterpartyTercero(targetId, {
+                        isVenta,
+                        counterpartyName: partyDesc,
+                        counterpartyCuit: party.contraparteCuit
+                    });
+                    lastCtaCteTerceroId = counterpartyId;
+
+                    const invoiceCol = isVenta ? 'facturasVenta' : 'facturasCompra';
+                    const paymentCol = isVenta ? 'pagosRecibidos' : 'pagosRealizados';
+                    const shouldInvoice = ctaCteMode === 'factura_y_pago' || ctaCteMode === 'solo_factura';
+                    const shouldPay = ctaCteMode === 'factura_y_pago' || ctaCteMode === 'solo_pago';
+                    const compNumber = String(
+                        req.aiData?.numero_operacion || req.aiData?.codigo_identificacion || `CMP-${req.id.slice(0, 6).toUpperCase()}`
+                    );
+
+                    await syncBillingLinkedDoc(
+                        collection(db, 'users', targetId, invoiceCol),
+                        req.id,
+                        shouldInvoice,
+                        {
+                            terceroId: counterpartyId,
+                            numeroComprobante: compNumber,
+                            fechaEmision: fechaTimestamp,
+                            fechaVencimiento: fechaTimestamp,
+                            montoTotal: parsedMonto,
+                            saldoPendiente: shouldPay ? 0 : parsedMonto,
+                            estado: shouldPay ? 'Pagada' : 'Pendiente',
+                            billingRequestId: req.id,
+                            origen: 'facturacion_360',
+                            updatedAt: Timestamp.now()
+                        }
+                    );
+
+                    await syncBillingLinkedDoc(
+                        collection(db, 'users', targetId, paymentCol),
+                        req.id,
+                        shouldPay,
+                        {
+                            terceroId: counterpartyId,
+                            fechaPago: fechaTimestamp,
+                            montoPagado: parsedMonto,
+                            medioDePago: req.aiData?.medio_pago_detalle || req.aiData?.aplicacion_pago || req.aiData?.tipo_comprobante || 'Transferencia',
+                            referencia: compNumber,
+                            operationId: syncedOpId || null,
+                            billingRequestId: req.id,
+                            origen: 'facturacion_360',
+                            updatedAt: Timestamp.now()
+                        }
+                    );
+                    ctaCteSynced = true;
+                } catch (errCta) {
+                    console.error(`Error al sincronizar Cta. Cte. en users/${targetId}:`, errCta);
+                }
+            }
+
+            if (syncCashFlow) {
+                try {
+                    const isPaidInCash = syncCtaCte
+                        ? (ctaCteMode === 'factura_y_pago' || ctaCteMode === 'solo_pago')
+                        : true;
+                    const cfDescription = `${partyDesc} (${req.aiData?.tipo_comprobante || 'Comprobante'}${req.aiData?.numero_operacion ? ` #${req.aiData.numero_operacion}` : ''})`;
+                    await syncCashflowForBilling(
+                        targetId,
+                        req,
+                        {
+                            type: isVenta ? 'ingreso' : 'egreso',
+                            category: isVenta ? 'Ventas' : (tipo === 'compra' ? 'Proveedores' : 'Gastos Operativos'),
+                            description: cfDescription,
+                            amount: parsedMonto,
+                            date: dateISO,
+                            periodicity: 'once',
+                            status: isPaidInCash ? 'executed' : 'pending',
+                            executedAmount: isPaidInCash ? parsedMonto : null,
+                            executedAt: isPaidInCash ? dateISO : null,
+                            billingRequestId: req.id,
+                            source: 'facturacion_360',
+                            updatedAt: Timestamp.now()
+                        },
+                        partyDesc
+                    );
+                    cashFlowSynced = true;
+                } catch (errCf) {
+                    console.error(`Error al conciliar Cash Flow en users/${targetId}/cashflow_items:`, errCf);
+                }
+            }
+        }
+
+        const billingUpdates = {
+            ...(markCompleted ? { status: 'completed', completedAt: req.completedAt || Timestamp.now() } : {}),
+            ...(opsSynced ? { exportedToOperations: true } : {}),
+            ...(ctaCteSynced ? {
+                syncedToCtaCte: true,
+                ctaCteSyncMode: ctaCteMode,
+                lastCtaCteTerceroId,
+                lastCtaCteTipo: isVenta ? 'cliente' : 'proveedor'
+            } : {}),
+            ...(cashFlowSynced ? { syncedToCashFlow: true } : {})
+        };
+
+        if (Object.keys(billingUpdates).length > 0) {
+            await updateDoc(doc(db, 'billing_requests', req.id), billingUpdates);
+        }
+
+        return {
+            synced: opsSynced || ctaCteSynced || cashFlowSynced,
+            opsSynced,
+            ctaCteSynced,
+            cashFlowSynced,
+            lastCtaCteTerceroId,
+            tipo,
+            targetNombre: party.clienteNombre || terceroMatch?.nombre || 'el cliente',
+            parsedMonto
+        };
+    };
+
     const handleCompleteRequest = async (id, overrideFile = undefined) => { 
         const fileToUpload = overrideFile !== undefined ? overrideFile : invoiceFile;
         const req = requests.find(r => r.id === id); 
@@ -1762,106 +1747,23 @@ const BillingRequestsPage = ({ navigate }) => {
                 url = await getDownloadURL(fileRef); 
             }
 
-            // 1. Determinar entidad contable y contraparte
             const party = getPartyDetails(req);
-            let normCuit = cleanCuit(party.clienteCuit);
-
-            // 2. Si el cliente no existe aún como Tercero del estudio, darlo de alta automáticamente
-            let terceroMatch = party.terceroMatch || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
-            if (!terceroMatch && normCuit && normCuit.length >= 10 && user?.uid && userData?.isAdmin) {
-                try {
-                    const nuevoNombre = (party.clienteNombre && party.clienteNombre !== 'Cliente' && party.clienteNombre !== 'Desconocido') 
-                        ? party.clienteNombre 
-                        : `Cliente ${normCuit}`;
-                    const nuevoTerceroRef = await addDoc(collection(db, 'users', user.uid, 'terceros'), {
-                        nombre: nuevoNombre.trim(),
-                        cuit: party.clienteCuit || normCuit,
-                        tipo: 'Cliente',
-                        email: '',
-                        telefono: '',
-                        categoriaTributaria: 'Monotributo',
-                        createdAt: Timestamp.now()
-                    });
-                    terceroMatch = {
-                        id: nuevoTerceroRef.id,
-                        nombre: nuevoNombre,
-                        cuit: party.clienteCuit || normCuit
-                    };
-                    party.terceroMatch = terceroMatch;
-                } catch (createErr) {
-                    console.warn("No se pudo auto-crear tercero al completar factura:", createErr);
-                }
-            }
-
-            // 3. Resolver todos los UIDs contables destino donde debe impactar la operación
-            const targetUids = resolveTargetClientUids(req, party);
-
-            // 4. Determinar si se asienta en el Libro de Operaciones
-            const shouldExport = (autoRegisterInBook || !isVenta) && targetUids.length > 0;
 
             await updateDoc(doc(db, 'billing_requests', id), { 
                 status: 'completed', 
                 ...(url ? { invoiceUrl: url } : {}), 
-                completedAt: Timestamp.now(),
-                ...(shouldExport ? { exportedToOperations: true } : {})
+                completedAt: Timestamp.now()
             }); 
 
-            // 5. Asentar en el Libro de Operaciones de los UIDs correspondientes
-            if (shouldExport) {
-                try {
-                    const rawMonto = req.aiData?.monto_total ?? req.manualData?.monto ?? 0;
-                    const parsedMonto = parseAmount(rawMonto);
-                    const tipo = req.clasificacionContable === 'gasto' ? 'gasto' : (req.clasificacionContable === 'compra' ? 'compra' : 'venta');
-                    const partyDesc = isVenta ? (party.contraparteNombre || 'Comprador') : (party.contraparteNombre || 'Proveedor');
-                    const desc = req.aiData?.concepto_detectado 
-                        ? `[${tipo.toUpperCase()}] ${partyDesc} - ${req.aiData.concepto_detectado}`
-                        : `${tipo.toUpperCase()} - ${partyDesc}`;
-
-                    const fechaRaw = req.aiData?.fecha_pago || req.manualData?.fecha || req.timestamp || new Date();
-                    const localDate = parseLocalDate(fechaRaw);
-
-                    const operationPayload = {
-                        type: tipo,
-                        amount: parsedMonto,
-                        description: desc,
-                        fechaEmision: Timestamp.fromDate(localDate),
-                        year: localDate.getFullYear(),
-                        month: localDate.getMonth() + 1,
-                        day: localDate.getDate(),
-                        billingRequestId: req.id,
-                        terceroId: terceroMatch?.id || null,
-                        clienteCuit: party.clienteCuit || null,
-                        clienteNombre: party.clienteNombre || null,
-                        bancoOrigen: req.aiData?.banco_origen || null,
-                        bancoReceptor: req.aiData?.banco_receptor || null,
-                        medioPago: req.aiData?.medio_pago_detalle || req.aiData?.aplicacion_pago || (req.aiData?.tipo_comprobante === 'Transferencia' ? 'Transferencia' : null),
-                        cuotas: req.aiData?.cuotas || null,
-                        aplicacionPago: req.aiData?.aplicacion_pago || null,
-                        tipoTicketPos: req.aiData?.tipo_ticket_pos || null,
-                        source: req.source || 'web'
-                    };
-
-                    for (const targetId of targetUids) {
-                        try {
-                            const qExisting = query(
-                                collection(db, 'users', targetId, 'operations'),
-                                where('billingRequestId', '==', req.id)
-                            );
-                            const existingSnap = await getDocs(qExisting);
-                            if (!existingSnap.empty) {
-                                for (const docOp of existingSnap.docs) {
-                                    await updateDoc(docOp.ref, operationPayload);
-                                }
-                            } else {
-                                await addDoc(collection(db, 'users', targetId, 'operations'), operationPayload);
-                            }
-                        } catch (singleOpErr) {
-                            console.error(`Error al registrar operación en users/${targetId}/operations:`, singleOpErr);
-                        }
-                    }
-                } catch (opErr) {
-                    console.error("Error al auto-registrar en libro de operaciones:", opErr);
-                }
+            const shouldExportBook = autoRegisterInBook || !isVenta;
+            if (shouldExportBook || autoSyncCtaCte || autoSyncCashFlow) {
+                await syncAccountingOrchestration(req, {
+                    party,
+                    syncOperations: shouldExportBook,
+                    syncCtaCte: autoSyncCtaCte,
+                    syncCashFlow: autoSyncCashFlow,
+                    ctaCteMode: ctaCteSyncMode
+                });
             }
 
             setCompletingId(null); 
@@ -2133,7 +2035,7 @@ const BillingRequestsPage = ({ navigate }) => {
         try { 
             const req = requests.find(r => r.id === requestToDelete);
             
-            // 1. Si estaba asentado en el Libro de Operaciones, buscar y eliminar el asiento correspondiente
+            // 1. Limpiar impactos 360° en Operaciones, Cuentas Corrientes y Cash Flow
             if (req) {
                 const party = getPartyDetails(req);
                 const targetUids = resolveTargetClientUids(req, party);
@@ -2144,18 +2046,53 @@ const BillingRequestsPage = ({ navigate }) => {
                     party.terceroMatch?.id
                 ].filter(Boolean));
 
+                const billingLinkedCollections = [
+                    'operations',
+                    'facturasVenta',
+                    'pagosRecibidos',
+                    'facturasCompra',
+                    'pagosRealizados'
+                ];
+
                 for (const cUid of candidateUids) {
+                    for (const colName of billingLinkedCollections) {
+                        try {
+                            const qLinked = query(
+                                collection(db, 'users', cUid, colName),
+                                where('billingRequestId', '==', requestToDelete)
+                            );
+                            const qSnap = await getDocs(qLinked);
+                            for (const linkedDoc of qSnap.docs) {
+                                await deleteDoc(linkedDoc.ref);
+                            }
+                        } catch (errCol) {
+                            console.error(`Error al eliminar registros en ${colName} (${cUid}):`, errCol);
+                        }
+                    }
+
+                    // Cash Flow: revertir si conciliaba una estimación previa del usuario, o eliminar si fue auto-creado
                     try {
-                        const qOp = query(
-                            collection(db, 'users', cUid, 'operations'), 
+                        const qCf = query(
+                            collection(db, 'users', cUid, 'cashflow_items'),
                             where('billingRequestId', '==', requestToDelete)
                         );
-                        const qSnap = await getDocs(qOp);
-                        for (const opDoc of qSnap.docs) {
-                            await deleteDoc(opDoc.ref);
+                        const cfSnap = await getDocs(qCf);
+                        for (const cfDoc of cfSnap.docs) {
+                            if (cfDoc.data()?.reconciledExistingForecast) {
+                                await updateDoc(cfDoc.ref, {
+                                    status: 'pending',
+                                    executedAmount: null,
+                                    executedAt: null,
+                                    billingRequestId: null,
+                                    reconciledExistingForecast: false,
+                                    updatedAt: Timestamp.now()
+                                });
+                            } else {
+                                await deleteDoc(cfDoc.ref);
+                            }
                         }
-                    } catch (errOp) {
-                        console.error(`Error al eliminar operación vinculada en ${cUid}:`, errOp);
+                    } catch (errCf) {
+                        console.error(`Error al limpiar cashflow_items en ${cUid}:`, errCf);
                     }
                 }
             }
@@ -2245,35 +2182,10 @@ const BillingRequestsPage = ({ navigate }) => {
 
     const handleExportToOperations = async (req) => {
         const party = getPartyDetails(req);
-        let normCuit = cleanCuit(party.clienteCuit);
+        const terceroMatch = await ensureStudioTercero(party);
+        const enrichedParty = { ...party, terceroMatch };
 
-        let terceroMatch = party.terceroMatch || (normCuit && normCuit.length >= 10 ? tercerosByCuit[normCuit] : null);
-        if (!terceroMatch && normCuit && normCuit.length >= 10 && user?.uid && userData?.isAdmin) {
-            try {
-                const nuevoNombre = (party.clienteNombre && party.clienteNombre !== 'Cliente' && party.clienteNombre !== 'Desconocido') 
-                    ? party.clienteNombre 
-                    : `Cliente ${normCuit}`;
-                const nuevoTerceroRef = await addDoc(collection(db, 'users', user.uid, 'terceros'), {
-                    nombre: nuevoNombre.trim(),
-                    cuit: party.clienteCuit || normCuit,
-                    tipo: 'Cliente',
-                    email: '',
-                    telefono: '',
-                    categoriaTributaria: 'Monotributo',
-                    createdAt: Timestamp.now()
-                });
-                terceroMatch = {
-                    id: nuevoTerceroRef.id,
-                    nombre: nuevoNombre,
-                    cuit: party.clienteCuit || normCuit
-                };
-                party.terceroMatch = terceroMatch;
-            } catch (createErr) {
-                console.warn("No se pudo auto-crear tercero al exportar operación:", createErr);
-            }
-        }
-
-        const targetUids = resolveTargetClientUids(req, party);
+        const targetUids = resolveTargetClientUids(req, enrichedParty);
         if (targetUids.length === 0) {
             return alert("No se pudo determinar el cliente destino. Por favor asigna el comprobante a un cliente de la lista.");
         }
@@ -2282,18 +2194,14 @@ const BillingRequestsPage = ({ navigate }) => {
         const parsedMonto = parseAmount(rawMonto);
         if (!parsedMonto) return alert("El comprobante no tiene un monto válido registrado.");
 
-        const isVenta = (req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta') === 'venta';
-        const tipo = req.clasificacionContable === 'gasto' ? 'gasto' : (req.clasificacionContable === 'compra' ? 'compra' : 'venta');
-        const partyDesc = isVenta ? (party.contraparteNombre || 'Comprador') : (party.contraparteNombre || 'Proveedor');
-        const desc = req.aiData?.concepto_detectado 
-            ? `[${tipo.toUpperCase()}] ${partyDesc} - ${req.aiData.concepto_detectado}`
-            : `${tipo.toUpperCase()} - ${partyDesc}`;
+        const clasif = req.clasificacionContable || req.aiData?.clasificacion_contable || 'venta';
+        const tipo = clasif === 'gasto' ? 'gasto' : (clasif === 'compra' ? 'compra' : 'venta');
         const fechaRaw = req.aiData?.fecha_pago || req.manualData?.fecha || req.timestamp || new Date();
         const localDate = parseLocalDate(fechaRaw);
 
-        const targetNombre = party.clienteNombre || party.terceroMatch?.nombre || 'el cliente';
+        const targetNombre = party.clienteNombre || terceroMatch?.nombre || 'el cliente';
         const suspiciousInfo = checkSuspiciousDate(fechaRaw);
-        let confirmMsg = `¿Deseas asentar este registro de ${formatCurrency(parsedMonto)} como '${tipo.toUpperCase()}' en el Libro de Operaciones de ${targetNombre}?`;
+        let confirmMsg = `¿Deseas asentar este registro de ${formatCurrency(parsedMonto)} como '${tipo.toUpperCase()}' en el Libro de Operaciones${autoSyncCtaCte ? ' + Cta. Cte.' : ''}${autoSyncCashFlow ? ' + Cash Flow' : ''} de ${targetNombre}?`;
         if (suspiciousInfo) {
             confirmMsg = `⚠️ ATENCIÓN: VERIFICAR FECHA DEL COMPROBANTE\n\nEl comprobante detectado tiene fecha ${suspiciousInfo.originalDateFormatted} (año ${suspiciousInfo.detectedYear}), pero el ejercicio fiscal actual es ${suspiciousInfo.currentYear}.\n\nSi la IA leyó incorrectamente el año o se subió un comprobante de un año anterior, puedes cancelar y usar los botones de sugerencia rápida o 'Corregir' para modificarlo.\n\nFecha asignada a la operación: ${localDate.toLocaleDateString('es-AR')}\n\n¿Deseas continuar y registrar de todas formas?`;
         }
@@ -2302,53 +2210,235 @@ const BillingRequestsPage = ({ navigate }) => {
         }
 
         try {
-            const operationPayload = {
-                type: tipo,
-                amount: parsedMonto,
-                description: desc,
-                fechaEmision: Timestamp.fromDate(localDate),
-                year: localDate.getFullYear(),
-                month: localDate.getMonth() + 1,
-                day: localDate.getDate(),
-                billingRequestId: req.id,
-                terceroId: terceroMatch?.id || null,
-                clienteCuit: party.clienteCuit || null,
-                clienteNombre: party.clienteNombre || null,
-                bancoOrigen: req.aiData?.banco_origen || null,
-                bancoReceptor: req.aiData?.banco_receptor || null,
-                medioPago: req.aiData?.medio_pago_detalle || req.aiData?.aplicacion_pago || (req.aiData?.tipo_comprobante === 'Transferencia' ? 'Transferencia' : null),
-                cuotas: req.aiData?.cuotas || null,
-                aplicacionPago: req.aiData?.aplicacion_pago || null,
-                tipoTicketPos: req.aiData?.tipo_ticket_pos || null,
-                source: req.source || 'web'
-            };
-
-            for (const targetId of targetUids) {
-                const qExisting = query(
-                    collection(db, 'users', targetId, 'operations'),
-                    where('billingRequestId', '==', req.id)
-                );
-                const existingSnap = await getDocs(qExisting);
-                if (!existingSnap.empty) {
-                    for (const docOp of existingSnap.docs) {
-                        await updateDoc(docOp.ref, operationPayload);
-                    }
-                } else {
-                    await addDoc(collection(db, 'users', targetId, 'operations'), operationPayload);
-                }
-            }
-
-            await updateDoc(doc(db, 'billing_requests', req.id), {
-                exportedToOperations: true,
-                status: 'completed',
-                completedAt: Timestamp.now()
+            const res = await syncAccountingOrchestration(req, {
+                party: enrichedParty,
+                syncOperations: true,
+                syncCtaCte: autoSyncCtaCte,
+                syncCashFlow: autoSyncCashFlow,
+                ctaCteMode: ctaCteSyncMode,
+                markCompleted: true
             });
 
-            alert(`✅ Operación de ${tipo.toUpperCase()} asentada con éxito en el Libro de Operaciones de ${targetNombre}.`);
+            const syncedModules = [
+                res.opsSynced ? 'Libro de Operaciones' : null,
+                res.ctaCteSynced ? 'Cuenta Corriente' : null,
+                res.cashFlowSynced ? 'Cash Flow' : null
+            ].filter(Boolean).join(', ');
+
+            alert(`✅ Operación de ${tipo.toUpperCase()} asentada con éxito (${syncedModules}) para ${targetNombre}.`);
         } catch (err) {
             console.error("Error al exportar operación:", err);
             alert("Error al registrar la operación en el libro diario: " + (err.message || ''));
         }
+    };
+
+    /** Sincroniza bajo demanda un comprobante ya completado hacia Cuenta Corriente y Cash Flow */
+    const handleSyncCtaCteAndCashFlow = async (req) => {
+        if (!req || syncingCtaCteId) return;
+        const party = getPartyDetails(req);
+        const targetUids = resolveTargetClientUids(req, party);
+        if (targetUids.length === 0) {
+            return alert("No se pudo determinar el cliente destino. Por favor asigna el comprobante a un cliente de la lista.");
+        }
+        const parsedMonto = parseAmount(req.aiData?.monto_total ?? req.manualData?.monto ?? 0);
+        if (!parsedMonto || parsedMonto <= 0) {
+            return alert("El comprobante no tiene un monto válido para sincronizar.");
+        }
+
+        setSyncingCtaCteId(req.id);
+        try {
+            const res = await syncAccountingOrchestration(req, {
+                party,
+                syncOperations: !req.exportedToOperations && autoRegisterInBook,
+                syncCtaCte: true,
+                syncCashFlow: true,
+                ctaCteMode: ctaCteSyncMode
+            });
+            if (!res.synced) {
+                alert("No se pudieron sincronizar los módulos contables destino.");
+            }
+        } catch (err) {
+            console.error("Error al sincronizar Cta. Cte. y Cash Flow:", err);
+            alert("Error al sincronizar Cta. Cte. y Cash Flow: " + (err.message || ''));
+        } finally {
+            setSyncingCtaCteId(null);
+        }
+    };
+
+    /** Bloque compartido de controles 360° (Libro + Cuenta Corriente + Cash Flow) */
+    const renderOrchestrationControls = (isVenta) => (
+        <div className="space-y-2.5 bg-slate-50/90 p-3 rounded-2xl border border-slate-200/80">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-1 flex items-center gap-1.5">
+                <Icon name="Layers" size={11} className="text-indigo-500"/> Orquestación Contable 360°
+            </p>
+
+            {/* Toggle: Libro de Operaciones (en ventas; compras siempre imputa en libro) */}
+            {isVenta && (
+                <div
+                    className={`flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
+                        autoRegisterInBook
+                            ? 'bg-indigo-50 border-indigo-200'
+                            : 'bg-white border-gray-200'
+                    }`}
+                    onClick={() => setAutoRegisterInBook(!autoRegisterInBook)}
+                >
+                    <div className="flex items-center gap-2">
+                        <Icon name="BookOpen" size={14} className={autoRegisterInBook ? 'text-indigo-600' : 'text-gray-400'}/>
+                        <span className={`text-[10px] font-black uppercase tracking-wider ${autoRegisterInBook ? 'text-indigo-800' : 'text-gray-500'}`}>
+                            Libro de Operaciones
+                        </span>
+                    </div>
+                    <div className={`relative w-9 h-5 rounded-full transition-colors duration-200 shrink-0 ${autoRegisterInBook ? 'bg-indigo-500' : 'bg-gray-300'}`}>
+                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-200 ${autoRegisterInBook ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                    </div>
+                </div>
+            )}
+
+            {/* Toggle: Cuenta Corriente (Deudores / Proveedores) + Selector de Modo */}
+            <div className={`rounded-xl border transition-all ${autoSyncCtaCte ? 'bg-blue-50/70 border-blue-200' : 'bg-white border-gray-200'}`}>
+                <div
+                    className="flex items-center justify-between p-2.5 cursor-pointer select-none"
+                    onClick={() => setAutoSyncCtaCte(!autoSyncCtaCte)}
+                >
+                    <div className="flex items-center gap-2">
+                        <Icon name="Users" size={14} className={autoSyncCtaCte ? 'text-blue-600' : 'text-gray-400'}/>
+                        <span className={`text-[10px] font-black uppercase tracking-wider ${autoSyncCtaCte ? 'text-blue-800' : 'text-gray-500'}`}>
+                            Cta. Cte. ({isVenta ? 'Deudores' : 'Proveedores'})
+                        </span>
+                    </div>
+                    <div className={`relative w-9 h-5 rounded-full transition-colors duration-200 shrink-0 ${autoSyncCtaCte ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-200 ${autoSyncCtaCte ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                    </div>
+                </div>
+
+                {autoSyncCtaCte && (
+                    <div className="px-2.5 pb-2.5 flex gap-1">
+                        {[
+                            { id: 'factura_y_pago', label: 'Fact. + Pago' },
+                            { id: 'solo_factura', label: 'Solo Fact.' },
+                            { id: 'solo_pago', label: 'Solo Pago' }
+                        ].map((modeOpt) => (
+                            <button
+                                key={modeOpt.id}
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCtaCteSyncMode(modeOpt.id);
+                                }}
+                                className={`flex-1 py-1.5 px-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                    ctaCteSyncMode === modeOpt.id
+                                        ? 'bg-blue-600 text-white shadow-xs'
+                                        : 'bg-white text-gray-600 hover:bg-blue-100/60 border border-blue-100'
+                                }`}
+                            >
+                                {modeOpt.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Toggle: Cash Flow */}
+            <div
+                className={`flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
+                    autoSyncCashFlow
+                        ? 'bg-emerald-50 border-emerald-200'
+                        : 'bg-white border-gray-200'
+                }`}
+                onClick={() => setAutoSyncCashFlow(!autoSyncCashFlow)}
+            >
+                <div className="flex items-center gap-2">
+                    <Icon name="TrendingUp" size={14} className={autoSyncCashFlow ? 'text-emerald-600' : 'text-gray-400'}/>
+                    <span className={`text-[10px] font-black uppercase tracking-wider ${autoSyncCashFlow ? 'text-emerald-800' : 'text-gray-500'}`}>
+                        Conciliar Cash Flow ({isVenta ? 'Ingreso' : 'Egreso'})
+                    </span>
+                </div>
+                <div className={`relative w-9 h-5 rounded-full transition-colors duration-200 shrink-0 ${autoSyncCashFlow ? 'bg-emerald-600' : 'bg-gray-300'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-200 ${autoSyncCashFlow ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                </div>
+            </div>
+        </div>
+    );
+
+    /** Bloque compartido de estado post-imputación con accesos directos 360° */
+    const renderCompletedSyncStatus = (req, party) => {
+        const resolvedUid = resolveTargetClientUids(req, party)[0];
+        const inspectPayload = {
+            terceroId: party.terceroMatch?.id || resolvedUid,
+            userId: resolvedUid || (req.userId !== 'unassigned' ? req.userId : null),
+            cuit: party.clienteCuit,
+            name: party.clienteNombre
+        };
+        const ctaCteRoute = req.lastCtaCteTerceroId
+            ? `${party.isVenta ? 'gestion/deudores' : 'gestion/proveedores'}/${req.lastCtaCteTerceroId}`
+            : (party.isVenta ? 'gestion/deudores' : 'gestion/proveedores');
+
+        return (
+            <div className="space-y-2 mt-2">
+                {!req.exportedToOperations ? (
+                    <button
+                        onClick={() => handleExportToOperations(req)}
+                        className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2 cursor-pointer active:scale-95 shadow-xs"
+                    >
+                        <Icon name="BookOpen" size={14}/> Asentar en Libro y Cta. Cte.
+                    </button>
+                ) : (
+                    <div className="w-full bg-emerald-50 text-emerald-800 py-2.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-wider border border-emerald-200 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5"><Icon name="CheckCircle" size={14} className="text-emerald-600"/> Asentado en Libro Diario</span>
+                        <button
+                            onClick={() => handleInspectClient(inspectPayload, 'operations')}
+                            className="text-emerald-900 hover:underline font-extrabold flex items-center gap-1 cursor-pointer"
+                            title="Ver en Libro de Operaciones"
+                        >
+                            Ver Libro <Icon name="ArrowRight" size={12}/>
+                        </button>
+                    </div>
+                )}
+
+                {req.syncedToCtaCte && (
+                    <div className="w-full bg-blue-50 text-blue-800 py-2 px-3 rounded-xl font-bold text-[10px] uppercase tracking-wider border border-blue-200 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                            <Icon name="Users" size={13} className="text-blue-600"/>
+                            Cta. Cte. ({party.isVenta ? 'Deudores' : 'Proveedores'})
+                        </span>
+                        <button
+                            onClick={() => handleInspectClient(inspectPayload, ctaCteRoute)}
+                            className="text-blue-900 hover:underline font-extrabold flex items-center gap-1 cursor-pointer"
+                            title="Abrir Cuenta Corriente"
+                        >
+                            Ver Cta. Cte. <Icon name="ArrowRight" size={12}/>
+                        </button>
+                    </div>
+                )}
+
+                {req.syncedToCashFlow && (
+                    <div className="w-full bg-teal-50 text-teal-800 py-2 px-3 rounded-xl font-bold text-[10px] uppercase tracking-wider border border-teal-200 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                            <Icon name="TrendingUp" size={13} className="text-teal-600"/>
+                            Cash Flow Conciliado
+                        </span>
+                        <button
+                            onClick={() => handleInspectClient(inspectPayload, 'finances')}
+                            className="text-teal-900 hover:underline font-extrabold flex items-center gap-1 cursor-pointer"
+                            title="Abrir Módulo Financiero"
+                        >
+                            Ver Cash Flow <Icon name="ArrowRight" size={12}/>
+                        </button>
+                    </div>
+                )}
+
+                {(!req.syncedToCtaCte || !req.syncedToCashFlow) && (
+                    <button
+                        onClick={() => handleSyncCtaCteAndCashFlow(req)}
+                        disabled={syncingCtaCteId === req.id}
+                        className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 px-3 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all border border-slate-200 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                        <Icon name="RefreshCw" size={13} className={syncingCtaCteId === req.id ? 'animate-spin' : ''}/>
+                        {syncingCtaCteId === req.id ? 'Sincronizando...' : 'Sincronizar Cta. Cte. y Cash Flow'}
+                    </button>
+                )}
+            </div>
+        );
     };
 
     const toggleDetails = (id) => setExpandedRowId(expandedRowId === id ? null : id);
@@ -2377,8 +2467,6 @@ const BillingRequestsPage = ({ navigate }) => {
 
         openWhatsApp(phone, mensaje);
     };
-
-    const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
 
     return (
         <div className="p-6 space-y-8 animate-fade-in">
@@ -3115,25 +3203,8 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                                                         </button>
                                                                                                     </div>
                                                                                                 </div>
-                                                                                                {/* Toggle: Auto-registrar en Libro de Operaciones */}
-                                                                                                <div 
-                                                                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer select-none ${
-                                                                                                        autoRegisterInBook 
-                                                                                                            ? 'bg-indigo-50 border-indigo-200' 
-                                                                                                            : 'bg-gray-50 border-gray-200'
-                                                                                                    }`}
-                                                                                                    onClick={() => setAutoRegisterInBook(!autoRegisterInBook)}
-                                                                                                >
-                                                                                                    <div className="flex items-center gap-2">
-                                                                                                        <Icon name="BookOpen" size={14} className={autoRegisterInBook ? 'text-indigo-600' : 'text-gray-400'}/>
-                                                                                                        <span className={`text-[10px] font-black uppercase tracking-widest ${autoRegisterInBook ? 'text-indigo-700' : 'text-gray-500'}`}>
-                                                                                                            Registrar en Libro de Operaciones
-                                                                                                        </span>
-                                                                                                    </div>
-                                                                                                    <div className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${autoRegisterInBook ? 'bg-indigo-500' : 'bg-gray-300'}`}>
-                                                                                                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-200 ${autoRegisterInBook ? 'translate-x-4' : 'translate-x-0.5'}`}/>
-                                                                                                    </div>
-                                                                                                </div>
+                                                                                                {/* Orquestación Contable 360° */}
+                                                                                                {renderOrchestrationControls(true)}
                                                                                                 <div className="relative">
                                                                                                     <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
                                                                                                     <div className="relative flex justify-center text-[10px] font-black uppercase text-gray-400"><span className="bg-gray-100 px-3">O también</span></div>
@@ -3157,6 +3228,8 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                                                         Este comprobante corresponde a un gasto o compra del cliente. Al confirmarlo, se asentará directamente en su Libro de Operaciones contable.
                                                                                                     </p>
                                                                                                 </div>
+
+                                                                                                {renderOrchestrationControls(false)}
 
                                                                                                 <button 
                                                                                                     onClick={() => markAsDone(req.id)}
@@ -3224,25 +3297,7 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                                                     {!req.invoiceUrl && <span className="text-[10px] font-black uppercase tracking-widest">Notificar</span>}
                                                                                                 </button>
                                                                                             </div>
-                                                                                            {!req.exportedToOperations ? (
-                                                                                                <button 
-                                                                                                    onClick={() => handleExportToOperations(req)} 
-                                                                                                    className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2 mt-2 cursor-pointer active:scale-95 shadow-xs"
-                                                                                                >
-                                                                                                    <Icon name="BookOpen" size={14}/> Asentar en Libro de Operaciones
-                                                                                                </button>
-                                                                                            ) : (
-                                                                                                <div className="w-full bg-emerald-50 text-emerald-800 py-2.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-wider border border-emerald-200 flex items-center justify-between mt-2">
-                                                                                                    <span className="flex items-center gap-1.5"><Icon name="CheckCircle" size={14} className="text-emerald-600"/> Asentado en Libro Diario</span>
-                                                                                                    <button 
-                                                                                                        onClick={() => handleInspectClient({ terceroId: party.terceroMatch?.id, cuit: party.clienteCuit, name: party.clienteNombre }, 'operations')} 
-                                                                                                        className="text-emerald-900 hover:underline font-extrabold flex items-center gap-1 cursor-pointer"
-                                                                                                        title="Ver en Libro de Operaciones"
-                                                                                                    >
-                                                                                                        Ver Libro <Icon name="ArrowRight" size={12}/>
-                                                                                                    </button>
-                                                                                                </div>
-                                                                                            )}
+                                                                                            {renderCompletedSyncStatus(req, party)}
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
@@ -3912,25 +3967,8 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                                         {uploading ? '...' : 'Subir'}
                                                                                     </button>
                                                                                 </div>
-                                                                                {/* Toggle: Auto-registrar en Libro de Operaciones */}
-                                                                                <div 
-                                                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer select-none ${
-                                                                                        autoRegisterInBook 
-                                                                                            ? 'bg-indigo-50 border-indigo-200' 
-                                                                                            : 'bg-gray-50 border-gray-200'
-                                                                                    }`}
-                                                                                    onClick={() => setAutoRegisterInBook(!autoRegisterInBook)}
-                                                                                >
-                                                                                    <div className="flex items-center gap-2">
-                                                                                        <Icon name="BookOpen" size={14} className={autoRegisterInBook ? 'text-indigo-600' : 'text-gray-400'}/>
-                                                                                        <span className={`text-[10px] font-black uppercase tracking-widest ${autoRegisterInBook ? 'text-indigo-700' : 'text-gray-500'}`}>
-                                                                                            Registrar en Libro de Operaciones
-                                                                                        </span>
-                                                                                    </div>
-                                                                                    <div className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${autoRegisterInBook ? 'bg-indigo-500' : 'bg-gray-300'}`}>
-                                                                                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-200 ${autoRegisterInBook ? 'translate-x-4' : 'translate-x-0.5'}`}/>
-                                                                                    </div>
-                                                                                </div>
+                                                                                {/* Orquestación Contable 360° */}
+                                                                                {renderOrchestrationControls(true)}
                                                                             </div>
                                                                             <div className="relative">
                                                                                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
@@ -3968,6 +4006,8 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                                     Este comprobante corresponde a un gasto o compra del cliente. Al confirmarlo, se asentará directamente en su Libro de Operaciones contable.
                                                                                 </p>
                                                                             </div>
+
+                                                                            {renderOrchestrationControls(false)}
 
                                                                             <button 
                                                                                 onClick={() => markAsDone(req.id)}
@@ -4048,25 +4088,7 @@ const BillingRequestsPage = ({ navigate }) => {
                                                                             </div>
                                                                         )}
 
-                                                                        {!req.exportedToOperations ? (
-                                                                            <button 
-                                                                                onClick={() => handleExportToOperations(req)} 
-                                                                                className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all border border-indigo-200 flex items-center justify-center gap-2 mt-2 cursor-pointer active:scale-95 shadow-xs"
-                                                                            >
-                                                                                <Icon name="BookOpen" size={14}/> Asentar en Libro de Operaciones
-                                                                            </button>
-                                                                        ) : (
-                                                                            <div className="w-full bg-emerald-50 text-emerald-800 py-2.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-wider border border-emerald-200 flex items-center justify-between mt-2">
-                                                                                <span className="flex items-center gap-1.5"><Icon name="CheckCircle" size={14} className="text-emerald-600"/> Asentado en Libro Diario</span>
-                                                                                <button 
-                                                                                    onClick={() => handleInspectClient({ terceroId: party.terceroMatch?.id, cuit: party.clienteCuit, name: party.clienteNombre }, 'operations')} 
-                                                                                    className="text-emerald-900 hover:underline font-extrabold flex items-center gap-1 cursor-pointer"
-                                                                                    title="Ver en Libro de Operaciones"
-                                                                                >
-                                                                                    Ver Libro <Icon name="ArrowRight" size={12}/>
-                                                                                </button>
-                                                                            </div>
-                                                                        )}
+                                                                        {renderCompletedSyncStatus(req, party)}
                                                                     </div>
                                                                 )}
                                                             </div>
@@ -4110,717 +4132,50 @@ const BillingRequestsPage = ({ navigate }) => {
                 />
             )}
             
-            {/* Modal de Creación (Nivel Completo con Drag & Drop y Lightbox) */}
-            {showModal && (
-                <div 
-                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                >
-                    <div className="bg-white rounded-[32px] shadow-2xl max-w-lg w-full p-8 animate-in fade-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto relative">
-                        <div className="flex justify-between items-start mb-6">
-                            <div>
-                                <h3 className="text-2xl font-black text-gray-900 tracking-tight">Nueva Solicitud</h3>
-                                <p className="text-gray-500 text-sm font-medium mt-1">Sube uno o varios comprobantes para análisis IA o registra un pago manual.</p>
-                            </div>
-                            <button onClick={resetModalState} disabled={uploading} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl transition-all disabled:opacity-50">
-                                <Icon name="X" size={24}/>
-                            </button>
-                        </div>
-
-                        <div className="flex bg-gray-50 p-1.5 rounded-2xl mb-6 border border-gray-100">
-                            <button 
-                                onClick={() => setCreateMode('file')} 
-                                disabled={uploading}
-                                className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${createMode === 'file' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}
-                            >
-                                Adjuntar Archivos
-                            </button>
-                            <button 
-                                onClick={() => setCreateMode('manual')} 
-                                disabled={uploading}
-                                className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${createMode === 'manual' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}
-                            >
-                                Carga Manual
-                            </button>
-                        </div>
-
-                        <form onSubmit={handleCreateRequest} className="space-y-5">
-                            {createMode === 'file' ? (
-                                <div className="space-y-4">
-                                    {/* Zona de Drop / Selección con Drag & Drop Interactivo */}
-                                    {newRequestFiles.length === 0 ? (
-                                        <label 
-                                            className="group block"
-                                            onDragOver={handleDragOver}
-                                            onDragLeave={handleDragLeave}
-                                            onDrop={handleDrop}
-                                        >
-                                            <div className={`border-4 border-dashed rounded-3xl p-8 text-center transition-all cursor-pointer ${
-                                                isDragging 
-                                                    ? 'border-blue-500 bg-blue-50/80 ring-4 ring-blue-100 scale-[1.02]' 
-                                                    : 'border-gray-100 group-hover:border-blue-200 group-hover:bg-blue-50/30'
-                                            }`}>
-                                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 transition-transform shadow-sm ${
-                                                    isDragging ? 'bg-blue-600 text-white scale-125' : 'bg-blue-50 text-blue-600 group-hover:scale-110'
-                                                }`}>
-                                                    <Icon name={isDragging ? 'DownloadCloud' : 'Search'} size={26}/>
-                                                </div>
-                                                <p className="text-sm font-black text-gray-800">
-                                                    {isDragging ? '¡Suelta tus comprobantes aquí!' : 'Arrastra o Selecciona Comprobantes'}
-                                                </p>
-                                                <p className="text-xs text-gray-400 font-bold mt-1.5 uppercase tracking-wider">
-                                                    Hasta {MAX_FILES} archivos (JPG, PNG, WEBP o PDF)
-                                                </p>
-                                                <div className="flex justify-center gap-2 mt-3">
-                                                    <span className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-black rounded-lg uppercase tracking-widest">
-                                                        Máx. 5 MB c/u
-                                                    </span>
-                                                    <span className="px-3 py-1 bg-gray-100 text-gray-600 text-[10px] font-black rounded-lg uppercase tracking-widest">
-                                                        Arrastrar & Soltar
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <input 
-                                                type="file" 
-                                                className="hidden" 
-                                                multiple 
-                                                onChange={handleFileSelection} 
-                                                accept="image/jpeg,image/png,image/webp,application/pdf"
-                                                disabled={uploading}
-                                            />
-                                        </label>
-                                    ) : (
-                                        <div 
-                                            className="space-y-3"
-                                            onDragOver={handleDragOver}
-                                            onDragLeave={handleDragLeave}
-                                            onDrop={handleDrop}
-                                        >
-                                            {/* Header de archivos seleccionados */}
-                                            <div className={`flex justify-between items-center px-4 py-2.5 rounded-2xl border transition-all ${
-                                                isDragging ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-100' : 'bg-gray-50/80 border-gray-100'
-                                            }`}>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="px-2.5 py-0.5 bg-blue-600 text-white text-[10px] font-black rounded-lg">
-                                                        {newRequestFiles.length} / {MAX_FILES}
-                                                    </span>
-                                                    <span className="text-xs font-bold text-gray-600">
-                                                        Comprobantes ({ (newRequestFiles.reduce((sum, item) => sum + item.file.size, 0) / (1024 * 1024)).toFixed(2) } MB)
-                                                    </span>
-                                                </div>
-                                                {newRequestFiles.length < MAX_FILES && !uploading && (
-                                                    <label className="text-[11px] font-black text-blue-600 hover:text-blue-700 cursor-pointer flex items-center gap-1">
-                                                        <Icon name="PlusCircle" size={14}/> Agregar más
-                                                        <input 
-                                                            type="file" 
-                                                            className="hidden" 
-                                                            multiple 
-                                                            onChange={handleFileSelection} 
-                                                            accept="image/jpeg,image/png,image/webp,application/pdf"
-                                                        />
-                                                    </label>
-                                                )}
-                                            </div>
-
-                                            {/* Lista scrolleable de comprobantes con zoom preview */}
-                                            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                                                {newRequestFiles.map((item, index) => (
-                                                    <div 
-                                                        key={item.id} 
-                                                        className="flex items-center justify-between p-2.5 bg-white border border-gray-100 rounded-2xl shadow-sm hover:border-blue-100 transition-all group"
-                                                    >
-                                                        <div className="flex items-center gap-3 min-w-0 flex-1 mr-2">
-                                                            {/* Thumbnail / Icono con botón de zoom */}
-                                                            <div className="relative group/thumb shrink-0">
-                                                                {item.isPdf ? (
-                                                                    <div className="w-11 h-11 rounded-xl bg-red-50 text-red-600 flex flex-col items-center justify-center font-black text-[9px] border border-red-100">
-                                                                        <Icon name="FileText" size={16}/>
-                                                                        <span>PDF</span>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div 
-                                                                        onClick={() => setPreviewItem(item)} 
-                                                                        className="cursor-pointer relative overflow-hidden rounded-xl"
-                                                                        title="Ver imagen ampliada"
-                                                                    >
-                                                                        <img 
-                                                                            src={getSafePreviewUrl(item.previewUrl)} 
-                                                                            alt={item.name} 
-                                                                            className="w-11 h-11 rounded-xl object-cover border border-gray-100 bg-gray-50 group-hover/thumb:scale-105 transition-transform"
-                                                                        />
-                                                                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white">
-                                                                            <Icon name="Maximize2" size={14}/>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            <div className="min-w-0 flex-1">
-                                                                <p className="text-xs font-bold text-gray-800 truncate" title={item.name}>
-                                                                    {index + 1}. {item.name}
-                                                                </p>
-                                                                <div className="flex items-center gap-2 mt-0.5">
-                                                                    <span className="text-[10px] font-bold text-gray-400">
-                                                                        {item.sizeFormatted}
-                                                                    </span>
-                                                                    <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 bg-gray-100 text-gray-600 rounded">
-                                                                        {item.isPdf ? 'PDF' : item.name.split('.').pop()?.toUpperCase() || 'IMG'}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-1">
-                                                            {!item.isPdf && (
-                                                                <button 
-                                                                    type="button" 
-                                                                    onClick={() => setPreviewItem(item)} 
-                                                                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                                                                    title="Ver comprobante"
-                                                                >
-                                                                    <Icon name="Maximize2" size={16}/>
-                                                                </button>
-                                                            )}
-                                                            {!uploading && (
-                                                                <button 
-                                                                    type="button" 
-                                                                    onClick={() => handleRemoveFile(item.id)} 
-                                                                    className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                                                                    title="Eliminar archivo"
-                                                                >
-                                                                    <Icon name="Trash2" size={16}/>
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Feedback de error de archivos */}
-                                    {fileError && (
-                                        <div className="bg-amber-50 border border-amber-100 p-3 rounded-2xl flex items-start gap-2.5 text-amber-800 text-xs font-medium animate-fadeIn">
-                                            <Icon name="AlertTriangle" size={16} className="text-amber-500 shrink-0 mt-0.5" />
-                                            <span>{fileError}</span>
-                                        </div>
-                                    )}
-
-                                    {/* Progreso de subida en tiempo real */}
-                                    {uploading && (
-                                        <div className="bg-blue-50/80 border border-blue-100 p-4 rounded-2xl space-y-2 animate-pulse">
-                                            <div className="flex justify-between items-center text-xs font-bold text-blue-900">
-                                                <span className="flex items-center gap-2">
-                                                    <Icon name="Cpu" size={14} className="animate-spin text-blue-600"/>
-                                                    Subiendo comprobante {uploadProgress.current} de {uploadProgress.total}...
-                                                </span>
-                                                <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
-                                            </div>
-                                            <div className="w-full bg-blue-100 rounded-full h-2 overflow-hidden">
-                                                <div 
-                                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                                    style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
-                                                ></div>
-                                            </div>
-                                            <p className="text-[10px] text-blue-700 font-mono truncate">
-                                                {uploadProgress.fileName}
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Cliente (Receptor)</label>
-                                        <input type="text" placeholder="Nombre completo / Razón Social" value={manualData.nombreCliente} onChange={e => setManualData({...manualData, nombreCliente: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-bold text-gray-800"/>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">CUIT del Cliente</label>
-                                        <input type="text" placeholder="00-00000000-0" value={manualData.cuitCliente} onChange={e => setManualData({...manualData, cuitCliente: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-bold text-gray-800"/>
-                                    </div>
-                                    <div className="border-t border-gray-100/80 pt-4 mt-2 space-y-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-1 h-3.5 bg-blue-500 rounded-full"></div>
-                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Datos del Emisor (Pagador)</span>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Nombre / Razón Social del Emisor</label>
-                                            <input type="text" placeholder="Consumidor Final" value={manualData.nombreEmisor} onChange={e => setManualData({...manualData, nombreEmisor: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-bold text-gray-800"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">CUIT del Emisor</label>
-                                            <input type="text" placeholder="00-00000000-0" value={manualData.cuitEmisor} onChange={e => setManualData({...manualData, cuitEmisor: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-bold text-gray-800"/>
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Fecha de Pago</label>
-                                            <input type="date" value={manualData.fecha} onChange={e => setManualData({...manualData, fecha: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-bold text-gray-800"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Monto Total</label>
-                                            <input type="number" placeholder="$ 0.00" value={manualData.monto} onChange={e => setManualData({...manualData, monto: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-black text-gray-900"/>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">
-                                    {createMode === 'file' && newRequestFiles.length > 1
-                                        ? `Nota adicional compartida (${newRequestFiles.length} comprobantes - Opcional)`
-                                        : 'Nota adicional (Opcional)'}
-                                </label>
-                                <textarea 
-                                    placeholder={createMode === 'file' && newRequestFiles.length > 1 
-                                        ? "Esta nota se guardará en todas las solicitudes del lote..." 
-                                        : "¿Algún detalle que debamos saber?"} 
-                                    value={newRequestNote} 
-                                    onChange={e => setNewRequestNote(e.target.value)} 
-                                    disabled={uploading}
-                                    className="w-full px-5 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all outline-none font-medium text-gray-700 min-h-[80px] resize-none disabled:opacity-50"
-                                ></textarea>
-                            </div>
-
-                            <div className="flex gap-4 pt-2">
-                                <button 
-                                    type="button" 
-                                    onClick={resetModalState} 
-                                    disabled={uploading}
-                                    className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 rounded-2xl transition-all disabled:opacity-50"
-                                >
-                                    Cancelar
-                                </button>
-                                <button 
-                                    type="submit" 
-                                    disabled={uploading || (createMode === 'file' && newRequestFiles.length === 0)} 
-                                    className="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {uploading 
-                                        ? `Procesando (${uploadProgress.current}/${uploadProgress.total})...` 
-                                        : createMode === 'file' && newRequestFiles.length > 1
-                                            ? `Guardar ${newRequestFiles.length} Solicitudes`
-                                            : 'Guardar Solicitud'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Lightbox / Modal de Vista Previa Ampliada */}
-            {previewItem && (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[120] flex items-center justify-center p-6 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-[32px] overflow-hidden max-w-2xl w-full shadow-2xl flex flex-col max-h-[90vh]">
-                        <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                            <div>
-                                <h4 className="text-sm font-black text-gray-900 truncate max-w-md">{previewItem.name}</h4>
-                                <p className="text-[10px] font-bold text-gray-400">{previewItem.sizeFormatted}</p>
-                            </div>
-                            <button 
-                                onClick={() => setPreviewItem(null)} 
-                                className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
-                            >
-                                <Icon name="X" size={20}/>
-                            </button>
-                        </div>
-                        <div className="p-6 flex items-center justify-center overflow-auto bg-gray-950/5">
-                            {previewItem.isPdf ? (
-                                <div className="p-12 text-center">
-                                    <Icon name="FileText" size={64} className="text-red-500 mx-auto mb-4"/>
-                                    <p className="font-bold text-gray-800 text-sm">Archivo PDF seleccionado</p>
-                                    <p className="text-xs text-gray-400 mt-1">{previewItem.name}</p>
-                                </div>
-                            ) : (
-                                <img 
-                                    src={getSafePreviewUrl(previewItem.previewUrl)} 
-                                    alt={previewItem.name} 
-                                    className="max-h-[65vh] w-auto object-contain rounded-2xl shadow-md"
-                                />
-                            )}
-                        </div>
-                        <div className="p-4 border-t border-gray-100 bg-white flex justify-end">
-                            <button 
-                                onClick={() => setPreviewItem(null)} 
-                                className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-black transition-all"
-                            >
-                                Cerrar Vista Previa
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Modal de Creación (Multi-archivo Drag & Drop + Carga Manual + Lightbox) */}
+            <CreateBillingRequestModal
+                isOpen={showModal}
+                onClose={resetModalState}
+                createMode={createMode}
+                setCreateMode={setCreateMode}
+                manualData={manualData}
+                setManualData={setManualData}
+                newRequestFiles={newRequestFiles}
+                newRequestNote={newRequestNote}
+                setNewRequestNote={setNewRequestNote}
+                fileError={fileError}
+                uploadProgress={uploadProgress}
+                uploading={uploading}
+                isDragging={isDragging}
+                previewItem={previewItem}
+                setPreviewItem={setPreviewItem}
+                onSubmit={handleCreateRequest}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onFileSelection={handleFileSelection}
+                onRemoveFile={handleRemoveFile}
+            />
 
             {/* Modal de Edición Completo */}
-            {editingRequest && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[48px] shadow-2xl max-w-3xl w-full p-12 animate-in fade-in zoom-in-95 duration-500 overflow-y-auto max-h-[90vh]">
-                        <div className="flex justify-between items-start mb-10">
-                            <div>
-                                <h3 className="text-3xl font-black text-gray-900 tracking-tight">Corregir Datos Detectados</h3>
-                                <p className="text-gray-500 text-sm font-medium mt-1 uppercase tracking-widest">Ajusta la información extraída por la IA para asegurar precisión.</p>
-                            </div>
-                            <button onClick={() => setEditingRequest(null)} className="p-3 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-2xl transition-all">
-                                <Icon name="X" size={28}/>
-                            </button>
-                        </div>
-                        
-                        <form onSubmit={handleSaveEdits} className="space-y-10">
-                            {/* Operation Details Section */}
-                            <section>
-                                <div className="flex items-center gap-3 mb-6">
-                                    <div className="w-1.5 h-6 bg-yellow-400 rounded-full"></div>
-                                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Información General</h4>
-                                </div>
-                                <div className="space-y-6 bg-yellow-50/50 p-8 rounded-[32px] border border-yellow-100">
-                                    {/* Selector de Clasificación Contable */}
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-yellow-800 uppercase tracking-widest px-1 flex items-center gap-1.5">
-                                            <Icon name="Tag" size={13}/> Clasificación Contable
-                                        </label>
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                            <button
-                                                type="button"
-                                                onClick={() => setEditFormData({ ...editFormData, clasificacion_contable: 'venta' })}
-                                                className={`p-3.5 rounded-2xl border-2 text-left sm:text-center transition-all flex flex-col justify-center items-start sm:items-center gap-1 ${
-                                                    (editFormData.clasificacion_contable || 'venta') === 'venta'
-                                                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-sm font-black'
-                                                        : 'bg-white border-transparent text-gray-600 hover:bg-gray-50 font-bold'
-                                                }`}
-                                            >
-                                                <span className="text-xs uppercase tracking-wider flex items-center gap-1.5">
-                                                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Venta / Cobro
-                                                </span>
-                                                <span className="text-[10px] text-emerald-700 font-medium opacity-80">Ingreso comercial a facturar</span>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setEditFormData({ ...editFormData, clasificacion_contable: 'compra' })}
-                                                className={`p-3.5 rounded-2xl border-2 text-left sm:text-center transition-all flex flex-col justify-center items-start sm:items-center gap-1 ${
-                                                    editFormData.clasificacion_contable === 'compra'
-                                                        ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-sm font-black'
-                                                        : 'bg-white border-transparent text-gray-600 hover:bg-gray-50 font-bold'
-                                                }`}
-                                            >
-                                                <span className="text-xs uppercase tracking-wider flex items-center gap-1.5">
-                                                    <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span> Compra
-                                                </span>
-                                                <span className="text-[10px] text-blue-700 font-medium opacity-80">Factura de proveedor tercero</span>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setEditFormData({ ...editFormData, clasificacion_contable: 'gasto' })}
-                                                className={`p-3.5 rounded-2xl border-2 text-left sm:text-center transition-all flex flex-col justify-center items-start sm:items-center gap-1 ${
-                                                    editFormData.clasificacion_contable === 'gasto'
-                                                        ? 'bg-purple-50 border-purple-500 text-purple-900 shadow-sm font-black'
-                                                        : 'bg-white border-transparent text-gray-600 hover:bg-gray-50 font-bold'
-                                                }`}
-                                            >
-                                                <span className="text-xs uppercase tracking-wider flex items-center gap-1.5">
-                                                    <span className="w-2 h-2 rounded-full bg-purple-500 inline-block"></span> Gasto
-                                                </span>
-                                                <span className="text-[10px] text-purple-700 font-medium opacity-80">Servicio, impuesto o comercio</span>
-                                            </button>
-                                        </div>
-                                    </div>
+            <EditBillingRequestModal
+                editingRequest={editingRequest}
+                editFormData={editFormData}
+                setEditFormData={setEditFormData}
+                onClose={() => setEditingRequest(null)}
+                onSubmit={handleSaveEdits}
+            />
 
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Fecha</label>
-                                            <input type="date" value={editFormData.fecha_pago} onChange={e => setEditFormData({...editFormData, fecha_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
-                                            {(() => {
-                                                const susp = checkSuspiciousDate(editFormData.fecha_pago);
-                                                if (!susp) return null;
-                                                return (
-                                                    <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 text-xs mt-1 animate-in fade-in">
-                                                        <p className="font-bold flex items-center gap-1.5 text-amber-900">
-                                                            <Icon name="AlertTriangle" size={13} className="text-amber-600 shrink-0" />
-                                                            Año {susp.detectedYear} (Año actual: {susp.currentYear})
-                                                        </p>
-                                                        <p className="text-[10px] text-amber-800 mt-0.5 leading-snug">
-                                                            {susp.reason}
-                                                        </p>
-                                                        <div className="flex flex-wrap gap-1.5 mt-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setEditFormData({ ...editFormData, fecha_pago: susp.suggestedCorrectedDate })}
-                                                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] rounded-lg shadow-xs transition-all active:scale-95 cursor-pointer"
-                                                            >
-                                                                Cambiar a {susp.suggestedCorrectedDisplay}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setEditFormData({ ...editFormData, fecha_pago: susp.todayDate })}
-                                                                className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px] rounded-lg transition-all active:scale-95 cursor-pointer"
-                                                            >
-                                                                Usar Hoy ({susp.todayDisplay})
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })()}
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Hora</label>
-                                            <input type="time" value={editFormData.hora_pago} onChange={e => setEditFormData({...editFormData, hora_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Monto Total</label>
-                                            <input type="number" step="0.01" value={editFormData.monto_total} onChange={e => setEditFormData({...editFormData, monto_total: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-black text-lg text-gray-900 shadow-sm"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Tipo de Comprobante</label>
-                                            <input type="text" value={editFormData.tipo_comprobante} onChange={e => setEditFormData({...editFormData, tipo_comprobante: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: Transferencia"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Plataforma / App (Receptor)</label>
-                                            <input type="text" value={editFormData.aplicacion_pago} onChange={e => setEditFormData({...editFormData, aplicacion_pago: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: YPF, Mercado Pago, Cuenta DNI, BBVA"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Número de Operación</label>
-                                            <input type="text" value={editFormData.numero_operacion} onChange={e => setEditFormData({...editFormData, numero_operacion: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="ID de transacción / Referencia"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Nombre Fantasía / Local</label>
-                                            <input type="text" value={editFormData.nombre_fantasia} onChange={e => setEditFormData({...editFormData, nombre_fantasia: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: MINI MODA"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Medio de Pago / Tarjeta</label>
-                                            <input type="text" value={editFormData.medio_pago_detalle} onChange={e => setEditFormData({...editFormData, medio_pago_detalle: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: Naranja *6164, Mastercard *9020"/>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-yellow-700 uppercase tracking-widest px-1">Cuotas (si aplica)</label>
-                                            <input type="text" value={editFormData.cuotas} onChange={e => setEditFormData({...editFormData, cuotas: e.target.value})} className="w-full p-3 bg-white border-transparent focus:ring-2 focus:ring-yellow-200 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-sm" placeholder="Ej: 3 cuotas sin interés"/>
-                                        </div>
-                                        <div className="md:col-span-3 space-y-2">
-                                            <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest px-1 flex items-center gap-1.5">
-                                                <Icon name="Key" size={12}/> Código de Identificación Único
-                                            </label>
-                                            <input type="text" value={editFormData.codigo_identificacion} onChange={e => setEditFormData({...editFormData, codigo_identificacion: e.target.value})} className="w-full p-3 bg-amber-50/50 border border-amber-200/60 focus:ring-2 focus:ring-amber-300 rounded-xl transition-all outline-none font-mono text-xs font-bold text-amber-950 shadow-sm" placeholder="Código alfanumérico único COELSA / Transacción"/>
-                                        </div>
-                                    </div>
-                                </div>
-                            </section>
-
-                            {/* Parties Section */}
-                            {(() => {
-                                const isVenta = (editFormData.clasificacion_contable || 'venta') === 'venta';
-                                return (
-                                    <div className="space-y-4">
-                                        <div className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
-                                            isVenta 
-                                                ? 'bg-blue-50/70 border-blue-200 text-blue-900' 
-                                                : 'bg-purple-50/70 border-purple-200 text-purple-900'
-                                        }`}>
-                                            <Icon name="Info" size={16} className="shrink-0"/>
-                                            <span>
-                                                {isVenta 
-                                                    ? 'En Ventas: el Emisor es el Comprador y el Receptor es el Cliente del Estudio (quien factura).' 
-                                                    : 'En Compras/Gastos: el Emisor de fondos es el Cliente del Estudio (quien incurre en el egreso) y el Receptor es el Proveedor / Comercio.'}
-                                            </span>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                            {/* Columna 1: Emisor */}
-                                            <section>
-                                                <div className="flex items-center justify-between mb-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={`w-1.5 h-6 rounded-full ${isVenta ? 'bg-gray-400' : 'bg-purple-600'}`}></div>
-                                                        <h4 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isVenta ? 'text-gray-500' : 'text-purple-700'}`}>
-                                                            {isVenta ? 'Emisor Original (Comprador)' : 'Emisor de Fondos (Cliente Titular)'}
-                                                        </h4>
-                                                    </div>
-                                                    {!isVenta && (
-                                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 border border-purple-200">
-                                                            Cliente del Estudio
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className={`${isVenta ? 'bg-gray-50/60 border-gray-200/80' : 'bg-purple-50/40 border-purple-200'} p-7 rounded-[32px] border space-y-4`}>
-                                                    <div className="space-y-1.5">
-                                                        <label className="text-[10px] font-black text-gray-500 uppercase px-1">Nombre / Razón Social</label>
-                                                        <input value={editFormData.nombre_emisor} onChange={e => setEditFormData({...editFormData, nombre_emisor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-xs focus:border-purple-300"/>
-                                                    </div>
-
-                                                    {/* Teléfono en Emisor SOLO si es Compra/Gasto (Cliente Titular) */}
-                                                    {!isVenta && (
-                                                        <div className="space-y-1.5">
-                                                            <label className="text-[10px] font-black text-purple-700 uppercase px-1 flex items-center gap-1">
-                                                                <Icon name="Phone" size={11}/> Teléfono / WhatsApp de Contacto
-                                                            </label>
-                                                            <div className="relative">
-                                                                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base">📱</span>
-                                                                <input type="tel" placeholder="549..." value={editFormData.userPhone} onChange={e => setEditFormData({...editFormData, userPhone: e.target.value})} className="w-full pl-11 pr-4 py-2.5 bg-white border-2 border-purple-200 focus:border-purple-400 rounded-xl transition-all outline-none font-bold text-purple-900 shadow-xs"/>
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <div className="space-y-1.5">
-                                                            <label className="text-[10px] font-black text-gray-500 uppercase px-1">CUIT</label>
-                                                            <input value={editFormData.cuit_emisor} onChange={e => setEditFormData({...editFormData, cuit_emisor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-xs focus:border-purple-300 font-mono" placeholder="20-xxxxxxxx-x"/>
-                                                        </div>
-                                                        <div className="space-y-1.5">
-                                                            <label className="text-[10px] font-black text-gray-500 uppercase px-1">Banco / Billetera</label>
-                                                            <input value={editFormData.banco_origen} onChange={e => setEditFormData({...editFormData, banco_origen: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-800 shadow-xs focus:border-purple-300"/>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </section>
-
-                                            {/* Columna 2: Receptor */}
-                                            <section>
-                                                <div className="flex items-center justify-between mb-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={`w-1.5 h-6 rounded-full ${isVenta ? 'bg-blue-600' : 'bg-gray-400'}`}></div>
-                                                        <h4 className={`text-[10px] font-black uppercase tracking-[0.2em] ${isVenta ? 'text-blue-700' : 'text-gray-500'}`}>
-                                                            {isVenta ? 'Receptor (Cliente del Estudio)' : 'Receptor / Proveedor (Destino)'}
-                                                        </h4>
-                                                    </div>
-                                                    {isVenta && (
-                                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-200">
-                                                            Cliente del Estudio
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className={`${isVenta ? 'bg-blue-50/50 border-blue-200' : 'bg-gray-50/60 border-gray-200/80'} p-7 rounded-[32px] border space-y-4`}>
-                                                    <div className="space-y-1.5">
-                                                        <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-700' : 'text-gray-500'}`}>Nombre / Razón Social</label>
-                                                        <input value={editFormData.nombre_receptor} onChange={e => setEditFormData({...editFormData, nombre_receptor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-900 shadow-xs focus:border-blue-300"/>
-                                                    </div>
-
-                                                    {/* Teléfono en Receptor SOLO si es Venta (Cliente del Estudio) */}
-                                                    {isVenta && (
-                                                        <div className="space-y-1.5">
-                                                            <label className="text-[10px] font-black text-blue-700 uppercase px-1 flex items-center gap-1">
-                                                                <Icon name="Phone" size={11}/> Teléfono / WhatsApp de Contacto
-                                                            </label>
-                                                            <div className="relative">
-                                                                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base">📱</span>
-                                                                <input type="tel" placeholder="549..." value={editFormData.userPhone} onChange={e => setEditFormData({...editFormData, userPhone: e.target.value})} className="w-full pl-11 pr-4 py-2.5 bg-white border-2 border-blue-200 focus:border-blue-400 rounded-xl transition-all outline-none font-bold text-blue-900 shadow-xs"/>
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <div className="space-y-1.5">
-                                                            <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-700' : 'text-gray-500'}`}>CUIT</label>
-                                                            <input value={editFormData.cuit_receptor} onChange={e => setEditFormData({...editFormData, cuit_receptor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-900 shadow-xs focus:border-blue-300 font-mono" placeholder="20-xxxxxxxx-x"/>
-                                                        </div>
-                                                        <div className="space-y-1.5">
-                                                            <label className={`text-[10px] font-black uppercase px-1 ${isVenta ? 'text-blue-700' : 'text-gray-500'}`}>Banco / Billetera</label>
-                                                            <input value={editFormData.banco_receptor} onChange={e => setEditFormData({...editFormData, banco_receptor: e.target.value})} className="w-full p-3 bg-white border border-gray-200/60 rounded-xl transition-all outline-none font-bold text-gray-900 shadow-xs focus:border-blue-300"/>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </section>
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-
-                            <section>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Concepto Detectado / Detalle Adicional</label>
-                                    <textarea rows="3" value={editFormData.concepto_detectado} onChange={e => setEditFormData({...editFormData, concepto_detectado: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-[24px] transition-all outline-none font-medium text-gray-700 resize-none shadow-inner"></textarea>
-                                </div>
-                            </section>
-
-                            <section>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">Nota adicional (Cliente)</label>
-                                    <textarea rows="3" placeholder="Sin nota adicional" value={editFormData.note} onChange={e => setEditFormData({...editFormData, note: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-transparent focus:bg-white focus:ring-4 focus:ring-blue-100 rounded-[24px] transition-all outline-none font-medium text-gray-700 resize-none shadow-inner"></textarea>
-                                </div>
-                            </section>
-
-                            <div className="flex gap-6 pt-6 border-t border-gray-100">
-                                <button type="button" onClick={() => setEditingRequest(null)} className="flex-1 py-5 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 rounded-2xl transition-all">Descartar Cambios</button>
-                                <button 
-                                    type="submit" 
-                                    className="flex-[2] bg-gray-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl shadow-gray-200 hover:bg-black transition-all transform active:scale-95"
-                                >
-                                    Confirmar y Guardar
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Modal de Asignación de Cliente en 1 Clic (Para comprobantes WhatsApp unassigned) */}
-            {assigningRequest && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[32px] shadow-2xl max-w-md w-full p-8 animate-in fade-in zoom-in-95 duration-200">
-                        <div className="flex justify-between items-start mb-6">
-                            <div>
-                                <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[10px] font-black uppercase tracking-wider mb-2">
-                                    <Icon name="AlertCircle" size={12}/> Comprobante Sin Asignar
-                                </div>
-                                <h3 className="text-xl font-black text-gray-900">Vincular a un Cliente</h3>
-                                <p className="text-xs text-gray-500 mt-1">
-                                    Selecciona el cliente del estudio al que corresponde este comprobante.
-                                </p>
-                            </div>
-                            <button onClick={() => setAssigningRequest(null)} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-xl">
-                                <Icon name="X" size={20}/>
-                            </button>
-                        </div>
-
-                        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 mb-6 space-y-2 text-xs">
-                            <div className="flex justify-between text-gray-600">
-                                <span className="font-bold">Remitente WhatsApp:</span>
-                                <span className="font-mono">{assigningRequest.senderPhone || (!isAdminPhone(assigningRequest.userPhone) ? assigningRequest.userPhone : 'S/D')}</span>
-                            </div>
-                            <div className="flex justify-between text-gray-600">
-                                <span className="font-bold">Monto:</span>
-                                <span className="font-bold text-gray-900">{formatCurrency(assigningRequest.aiData?.monto_total || 0)}</span>
-                            </div>
-                            <div className="flex justify-between text-gray-600">
-                                <span className="font-bold">Emisor Detectado:</span>
-                                <span>{assigningRequest.aiData?.nombre_emisor || 'Desconocido'}</span>
-                            </div>
-                            <div className="flex justify-between text-gray-600">
-                                <span className="font-bold">Receptor Detectado:</span>
-                                <span>{assigningRequest.aiData?.nombre_receptor || 'Desconocido'}</span>
-                            </div>
-                        </div>
-
-                        <div className="space-y-4 mb-6">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 block px-1">
-                                Seleccionar Cliente del Estudio
-                            </label>
-                            <select 
-                                value={selectedAssignUserId} 
-                                onChange={(e) => setSelectedAssignUserId(e.target.value)}
-                                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold text-gray-800 outline-none focus:ring-4 focus:ring-blue-100 transition-all text-sm"
-                            >
-                                <option value="">-- Elige un cliente registrado --</option>
-                                {systemUsers.map(u => (
-                                    <option key={u.id} value={u.id}>
-                                        {u.nombre || u.email} {u.cuit ? `(CUIT: ${u.cuit})` : ''}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="flex gap-3">
-                            <button 
-                                onClick={() => setAssigningRequest(null)}
-                                className="flex-1 py-3 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 rounded-xl transition-all"
-                            >
-                                Cancelar
-                            </button>
-                            <button 
-                                onClick={handleAssignClient}
-                                disabled={!selectedAssignUserId}
-                                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 transition-all disabled:opacity-50"
-                            >
-                                Asignar Ahora
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Modal de Asignación de Cliente en 1 Clic */}
+            <AssignClientModal
+                assigningRequest={assigningRequest}
+                selectedAssignUserId={selectedAssignUserId}
+                setSelectedAssignUserId={setSelectedAssignUserId}
+                systemUsers={systemUsers}
+                isAdminPhone={isAdminPhone}
+                onClose={() => setAssigningRequest(null)}
+                onAssign={handleAssignClient}
+            />
 
             {/* Modal de Conexión y Vinculación WhatsApp */}
             {showWhatsAppModal && <WhatsAppConnectionModal onClose={() => setShowWhatsAppModal(false)} />}

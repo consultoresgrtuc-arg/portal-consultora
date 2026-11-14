@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { db } from '../../../firebase';
+import { db, functions } from '../../../firebase';
 import { addDoc, collection, Timestamp } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import Icon from '../../Common/Icon';
 import {
     TIPOS_DOCUMENTO,
@@ -44,6 +45,7 @@ const CargaChequesModal = ({
     onSuccess
 }) => {
     const fileInputRef = useRef(null);
+    const aiFileInputRef = useRef(null);
     const [modalTab, setModalTab] = useState('emision'); // 'emision' | 'recibido'
     const [showInstructions, setShowInstructions] = useState(false);
     const [formData, setFormData] = useState(createEmptyEmisionRow());
@@ -51,6 +53,8 @@ const CargaChequesModal = ({
     const [touched, setTouched] = useState({});
     const [submitError, setSubmitError] = useState('');
     const [importFeedback, setImportFeedback] = useState(null);
+    const [aiFeedback, setAiFeedback] = useState(null);
+    const [isAnalyzingAI, setIsAnalyzingAI] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
     // Estado para cheque recibido (Cartera)
@@ -98,7 +102,24 @@ const CargaChequesModal = ({
             setTouched({});
             setSubmitError('');
             setImportFeedback(null);
+            setAiFeedback(null);
+            setIsAnalyzingAI(false);
             setIsSaving(false);
+            setRecibidoData({
+                terceroId: '',
+                terceroNombre: '',
+                tipoDocumento: 'CUIT',
+                nroDocumento: '',
+                numero: '',
+                entidad: '',
+                fechaRecepcion: new Date().toISOString().split('T')[0],
+                fechaVencimiento: new Date().toISOString().split('T')[0],
+                monto: '',
+                clausula: 'A la orden',
+                motivoPago: 'Varios',
+                referenciaPago: '',
+                impactarOperaciones: false
+            });
         }
     }, [isOpen, initialCheque]);
 
@@ -275,6 +296,125 @@ const CargaChequesModal = ({
         }
     };
 
+    const handleAnalyzeChequeAI = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setSubmitError('');
+        setAiFeedback(null);
+
+        const MAX_AI_BYTES = 10 * 1024 * 1024; // 10 MB
+        if (file.size > MAX_AI_BYTES) {
+            setSubmitError('El archivo del cheque supera el límite máximo permitido de 10 MB.');
+            if (aiFileInputRef.current) aiFileInputRef.current.value = '';
+            return;
+        }
+
+        const fileName = (file.name || '').toLowerCase();
+        if (!/\.(pdf|jpg|jpeg|png|webp)$/i.test(fileName)) {
+            setSubmitError('Formato no permitido. Sube una imagen (JPG, PNG, WEBP) o un documento PDF válido.');
+            if (aiFileInputRef.current) aiFileInputRef.current.value = '';
+            return;
+        }
+
+        setIsAnalyzingAI(true);
+        try {
+            const fileBase64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const result = String(reader.result || '');
+                    const base64Part = result.includes(',') ? result.split(',')[1] : result;
+                    resolve(base64Part);
+                };
+                reader.onerror = () => reject(new Error('No se pudo leer el archivo seleccionado.'));
+                reader.readAsDataURL(file);
+            });
+
+            const analyzeFn = httpsCallable(functions, 'analyzeChequeDocument');
+            const response = await analyzeFn({
+                fileBase64,
+                mimeType: file.type || (fileName.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg')
+            });
+
+            const ai = response?.data?.data;
+            if (!ai) {
+                throw new Error('La IA no devolvió datos legibles del cheque.');
+            }
+
+            const isIsoDate = (val) => typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val.trim());
+            const validTipoDoc = TIPOS_DOCUMENTO.includes(String(ai.tipo_documento || '').toUpperCase())
+                ? String(ai.tipo_documento).toUpperCase()
+                : 'CUIT';
+            const validClausula = ai.clausula === 'No a la orden' ? 'No a la orden' : 'A la orden';
+            const validMotivo = MOTIVOS_PAGO.includes(ai.motivo_pago) ? ai.motivo_pago : 'Varios';
+            const montoStr = ai.monto ? formatMontoConComa(ai.monto) : '';
+
+            if (modalTab === 'emision') {
+                const rawDoc = sanitizeNroDocumento(ai.cuit_beneficiario || ai.nro_documento || ai.cuit_librador || '');
+                const matchedTercero = rawDoc.length === 11
+                    ? terceros.find(t => sanitizeNroDocumento(t.cuit) === rawDoc)
+                    : null;
+
+                setFormData(prev => ({
+                    ...prev,
+                    tipoDocumento: validTipoDoc,
+                    nroDocumento: rawDoc || prev.nroDocumento,
+                    terceroId: matchedTercero?.id || prev.terceroId,
+                    terceroNombre: matchedTercero?.nombre || ai.nombre_beneficiario || ai.nombre_librador || prev.terceroNombre,
+                    mail: matchedTercero?.email || prev.mail,
+                    monto: montoStr || prev.monto,
+                    fechaPago: isIsoDate(ai.fecha_pago) ? ai.fecha_pago.trim() : prev.fechaPago,
+                    numeroCheque: ai.numero_cheque ? String(ai.numero_cheque).trim() : prev.numeroCheque,
+                    entidadOrigen: ai.banco_entidad ? String(ai.banco_entidad).trim() : prev.entidadOrigen,
+                    clausula: validClausula,
+                    motivoPago: validMotivo,
+                    referenciaPago: ai.referencia_pago ? String(ai.referencia_pago).trim().slice(0, 100) : prev.referenciaPago,
+                    valorReferenciaPago: ai.valor_referencia_pago ? String(ai.valor_referencia_pago).trim().slice(0, 50) : prev.valorReferenciaPago
+                }));
+                setTouched(prev => ({
+                    ...prev,
+                    nroDocumento: true,
+                    monto: true,
+                    fechaPago: true
+                }));
+            } else {
+                const rawDoc = sanitizeNroDocumento(ai.cuit_librador || ai.nro_documento || ai.cuit_beneficiario || '');
+                const matchedTercero = rawDoc.length === 11
+                    ? terceros.find(t => sanitizeNroDocumento(t.cuit) === rawDoc)
+                    : null;
+                const refCombined = [ai.referencia_pago, ai.valor_referencia_pago].filter(Boolean).join(' ').trim();
+
+                setRecibidoData(prev => ({
+                    ...prev,
+                    tipoDocumento: validTipoDoc,
+                    nroDocumento: rawDoc || prev.nroDocumento,
+                    terceroId: matchedTercero?.id || prev.terceroId,
+                    terceroNombre: matchedTercero?.nombre || ai.nombre_librador || ai.nombre_beneficiario || prev.terceroNombre,
+                    monto: montoStr || prev.monto,
+                    fechaVencimiento: isIsoDate(ai.fecha_pago) ? ai.fecha_pago.trim() : prev.fechaVencimiento,
+                    fechaRecepcion: isIsoDate(ai.fecha_emision) ? ai.fecha_emision.trim() : prev.fechaRecepcion,
+                    numero: ai.numero_cheque ? String(ai.numero_cheque).trim() : prev.numero,
+                    entidad: ai.banco_entidad ? String(ai.banco_entidad).trim() : prev.entidad,
+                    clausula: validClausula,
+                    motivoPago: validMotivo,
+                    referenciaPago: refCombined || prev.referenciaPago
+                }));
+            }
+
+            setAiFeedback({
+                fileName: file.name,
+                numero: ai.numero_cheque || 'S/N',
+                banco: ai.banco_entidad || 'Detectado',
+                monto: montoStr || 'N/A'
+            });
+        } catch (err) {
+            console.error('Error analizando cheque con IA:', err);
+            setSubmitError(err?.message || 'No se pudo analizar la imagen/PDF del cheque con IA. Verifica e intenta nuevamente.');
+        } finally {
+            setIsAnalyzingAI(false);
+            if (aiFileInputRef.current) aiFileInputRef.current.value = '';
+        }
+    };
+
     const getEffectiveEmisionRows = () => {
         if (batchRows.length > 0) {
             // Si además hay un cheque válido cargado en el formulario actual, lo incluimos si el usuario quiere o solo el lote
@@ -437,7 +577,7 @@ const CargaChequesModal = ({
             const recepDate = new Date(`${recibidoData.fechaRecepcion}T00:00:00-03:00`);
             const vencDate = new Date(`${recibidoData.fechaVencimiento}T00:00:00-03:00`);
 
-            await addDoc(collection(db, 'users', targetUid, 'cheques'), {
+            const chequeRef = await addDoc(collection(db, 'users', targetUid, 'cheques'), {
                 terceroId: recibidoData.terceroId || null,
                 terceroNombre: recibidoData.terceroNombre.trim(),
                 tipo: 'recibido',
@@ -456,8 +596,23 @@ const CargaChequesModal = ({
                 clausula: recibidoData.clausula || 'A la orden'
             });
 
+            if (recibidoData.impactarOperaciones && recibidoData.terceroId) {
+                await addDoc(collection(db, 'users', targetUid, 'pagosRecibidos'), {
+                    terceroId: recibidoData.terceroId,
+                    fechaPago: Timestamp.fromDate(recepDate),
+                    montoPagado: montoNum,
+                    medioDePago: 'Cheque',
+                    referencia: `${recibidoData.motivoPago || 'Varios'}${recibidoData.referenciaPago ? ` - ${recibidoData.referenciaPago}` : ''}${recibidoData.numero ? ` (Chq N° ${recibidoData.numero})` : ''}`,
+                    chequeId: chequeRef.id
+                });
+            }
+
             if (onSuccess) {
-                onSuccess('Cheque recibido agregado a Cartera Activa');
+                onSuccess(
+                    recibidoData.impactarOperaciones && recibidoData.terceroId
+                        ? 'Cheque recibido agregado a Cartera Activa y registrado en Cuenta Corriente'
+                        : 'Cheque recibido agregado a Cartera Activa'
+                );
             }
             onClose();
         } catch (err) {
@@ -531,53 +686,90 @@ const CargaChequesModal = ({
                         </button>
                     </div>
 
-                    {modalTab === 'emision' && (
-                        <div className="flex flex-wrap items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setShowInstructions(prev => !prev)}
-                                className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                                    showInstructions
-                                        ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                                }`}
-                            >
-                                <Icon name="HelpCircle" size={15} />
-                                {showInstructions ? 'Ocultar Instrucciones de Plantilla' : 'Ver Instrucciones de Plantilla (9 Columnas)'}
-                            </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <input
+                            ref={aiFileInputRef}
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png,.webp"
+                            onChange={handleAnalyzeChequeAI}
+                            className="hidden"
+                        />
+                        <button
+                            type="button"
+                            disabled={isAnalyzingAI || isSaving}
+                            onClick={() => aiFileInputRef.current?.click()}
+                            className="px-3.5 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
+                            title="Sube una foto o PDF de cheque o eCheq para completar automáticamente con IA"
+                        >
+                            <Icon name={isAnalyzingAI ? "RefreshCw" : "Sparkles"} size={15} className={isAnalyzingAI ? "animate-spin" : ""} />
+                            {isAnalyzingAI ? 'Analizando cheque...' : 'Autocompletar con IA (Imagen / PDF de Cheque)'}
+                        </button>
 
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept=".xlsx,.csv"
-                                onChange={handleImportFile}
-                                className="hidden"
-                            />
-                            <button
-                                type="button"
-                                onClick={() => fileInputRef.current?.click()}
-                                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-all cursor-pointer flex items-center gap-1.5"
-                                title="Importar desde archivo Excel (.xlsx) o CSV con formato Plantilla para emisión"
-                            >
-                                <Icon name="Upload" size={15} />
-                                Importar Excel (.xlsx)
-                            </button>
+                        {modalTab === 'emision' && (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowInstructions(prev => !prev)}
+                                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                                        showInstructions
+                                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    <Icon name="HelpCircle" size={15} />
+                                    {showInstructions ? 'Ocultar Instrucciones de Plantilla' : 'Ver Instrucciones de Plantilla (9 Columnas)'}
+                                </button>
 
-                            <button
-                                type="button"
-                                onClick={handleDownloadTemplateOnly}
-                                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-all cursor-pointer flex items-center gap-1.5"
-                                title="Descargar archivo Excel con las 2 pestañas: Ayuda y Plantilla para emisión"
-                            >
-                                <Icon name="Download" size={15} />
-                                Descargar Plantilla (.xlsx)
-                            </button>
-                        </div>
-                    )}
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".xlsx,.csv"
+                                    onChange={handleImportFile}
+                                    className="hidden"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-all cursor-pointer flex items-center gap-1.5"
+                                    title="Importar desde archivo Excel (.xlsx) o CSV con formato Plantilla para emisión"
+                                >
+                                    <Icon name="Upload" size={15} />
+                                    Importar Excel (.xlsx)
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={handleDownloadTemplateOnly}
+                                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-all cursor-pointer flex items-center gap-1.5"
+                                    title="Descargar archivo Excel con las 2 pestañas: Ayuda y Plantilla para emisión"
+                                >
+                                    <Icon name="Download" size={15} />
+                                    Descargar Plantilla (.xlsx)
+                                </button>
+                            </>
+                        )}
+                    </div>
                 </div>
 
                 {/* CONTENIDO SCROLLABLE */}
                 <div className="p-6 sm:p-8 overflow-y-auto space-y-6 flex-1">
+                    {aiFeedback && (
+                        <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <Icon name="Sparkles" size={18} className="text-blue-600 shrink-0" />
+                                <div className="text-xs font-bold text-blue-900">
+                                    Datos extraídos con IA de <span className="underline">{aiFeedback.fileName}</span>: Banco {aiFeedback.banco} • N° {aiFeedback.numero} • Monto ${aiFeedback.monto}. Verifica antes de guardar.
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setAiFeedback(null)}
+                                className="text-blue-500 hover:text-blue-800 p-1 cursor-pointer"
+                            >
+                                <Icon name="X" size={16} />
+                            </button>
+                        </div>
+                    )}
                     {modalTab === 'emision' ? (
                         <>
                             {/* PANEL DESPLEGABLE DE INSTRUCCIONES OFICIALES (HOJA 1: AYUDA) */}
@@ -1260,6 +1452,22 @@ const CargaChequesModal = ({
                                         className="w-full px-4 py-3 bg-white border border-emerald-200 rounded-2xl text-xs font-bold text-slate-800 outline-none"
                                     />
                                 </div>
+
+                                {recibidoData.terceroId && (
+                                    <div className="sm:col-span-2 lg:col-span-3 pt-2 border-t border-emerald-200/70">
+                                        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={recibidoData.impactarOperaciones}
+                                                onChange={e => setRecibidoData(prev => ({ ...prev, impactarOperaciones: e.target.checked }))}
+                                                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                                            />
+                                            <span className="text-xs font-bold text-emerald-900">
+                                                Registrar también como Pago Recibido en la Cuenta Corriente de <strong>{recibidoData.terceroNombre}</strong>
+                                            </span>
+                                        </label>
+                                    </div>
+                                )}
                             </div>
                         </form>
                     )}

@@ -7,7 +7,9 @@ import {
   onSnapshot, 
   doc, 
   updateDoc,
-  deleteDoc
+  deleteDoc,
+  addDoc,
+  Timestamp
 } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
 import { useClientSelection } from '../../context/ClientSelectionContext';
@@ -34,6 +36,8 @@ const ChequesPage = ({ navigate }) => {
     const [showCargaModal, setShowCargaModal] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     const [toastMsg, setToastMsg] = useState(null);
+    const [autoConciliarOperaciones, setAutoConciliarOperaciones] = useState(true);
+    const [isSendingAlert, setIsSendingAlert] = useState(false);
 
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [confirmParams, setConfirmParams] = useState({ 
@@ -84,10 +88,39 @@ const ChequesPage = ({ navigate }) => {
     const handleUpdateEstado = async (chequeId, nuevoEstado) => {
         if (!currentUid) return;
         try {
-            await updateDoc(doc(db, 'users', currentUid, 'cheques', chequeId), { estado: nuevoEstado });
-            triggerToast(`Estado actualizado a "${nuevoEstado}"`);
+            const cheque = cheques.find(c => c.id === chequeId);
+            const debeConciliar =
+                autoConciliarOperaciones &&
+                (nuevoEstado === 'Cobrado' || nuevoEstado === 'Pagado') &&
+                !cheque?.conciliadoOperationId;
+
+            if (debeConciliar && cheque) {
+                const now = new Date();
+                const isCobro = nuevoEstado === 'Cobrado';
+                const opRef = await addDoc(collection(db, 'users', currentUid, 'operations'), {
+                    type: isCobro ? 'venta' : 'compra',
+                    amount: Number(cheque.monto) || 0,
+                    description: `${isCobro ? 'Acreditación' : 'Pago'} cheque ${cheque.banco || 'eCheq'} N° ${cheque.numero || 's/n'} - ${cheque.terceroNombre || 'Sin beneficiario'}`,
+                    fechaEmision: Timestamp.fromDate(now),
+                    year: now.getFullYear(),
+                    month: now.getMonth() + 1,
+                    day: now.getDate(),
+                    chequeId: cheque.id
+                });
+
+                await updateDoc(doc(db, 'users', currentUid, 'cheques', chequeId), {
+                    estado: nuevoEstado,
+                    conciliadoOperationId: opRef.id,
+                    fechaConciliacion: Timestamp.fromDate(now)
+                });
+                triggerToast(`Estado actualizado a "${nuevoEstado}" e imputado en Operaciones`);
+            } else {
+                await updateDoc(doc(db, 'users', currentUid, 'cheques', chequeId), { estado: nuevoEstado });
+                triggerToast(`Estado actualizado a "${nuevoEstado}"`);
+            }
         } catch (err) {
             console.error(err);
+            triggerToast('No se pudo actualizar el estado del cheque');
         }
     };
 
@@ -140,6 +173,79 @@ const ChequesPage = ({ navigate }) => {
         const emitidosCount = cheques.filter(c => c.estado === 'Emitido').length;
         return { enCartera, aDepositar, aCubrir, emitidosCount };
     }, [cheques]);
+
+    const parseChequeDueDate = (cheque) => {
+        if (cheque?.fechaVencimiento?.toDate) {
+            return cheque.fechaVencimiento.toDate();
+        }
+        if (cheque?.fechaVencimiento instanceof Date) {
+            return cheque.fechaVencimiento;
+        }
+        if (typeof cheque?.fechaPagoStr === 'string' && cheque.fechaPagoStr.includes('/')) {
+            const parts = cheque.fechaPagoStr.split('/');
+            if (parts.length === 3) {
+                const day = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10);
+                const year = parseInt(parts[2], 10);
+                if (!Number.isNaN(day) && !Number.isNaN(month) && !Number.isNaN(year)) {
+                    return new Date(year, month - 1, day);
+                }
+            }
+        }
+        return null;
+    };
+
+    const alertasVencimiento = useMemo(() => {
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const msPerDay = 1000 * 60 * 60 * 24;
+
+        return cheques
+            .filter(c => estadosActivos.includes(c.estado))
+            .map(c => {
+                const dueDate = parseChequeDueDate(c);
+                if (!dueDate || Number.isNaN(dueDate.getTime())) return null;
+                const startOfDue = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+                const diffDays = Math.round((startOfDue.getTime() - startOfToday.getTime()) / msPerDay);
+                if (diffDays <= 3) {
+                    return { ...c, diffDays, dueDate };
+                }
+                return null;
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.diffDays - b.diffDays);
+    }, [cheques]);
+
+    const montoTotalAlertas = useMemo(
+        () => alertasVencimiento.reduce((sum, c) => sum + (Number(c.monto) || 0), 0),
+        [alertasVencimiento]
+    );
+
+    const handleEnviarAlertaVencimientos = async () => {
+        if (!currentUid || alertasVencimiento.length === 0 || isSendingAlert) return;
+        setIsSendingAlert(true);
+        try {
+            const vencidosCount = alertasVencimiento.filter(c => c.diffDays < 0).length;
+            const resumenNumeros = alertasVencimiento
+                .slice(0, 3)
+                .map(c => `N° ${c.numero || 'eCheq'} (${c.terceroNombre || 'Sin nombre'})`)
+                .join(', ');
+
+            await addDoc(collection(db, 'users', currentUid, 'notifications'), {
+                title: `Alerta de Cheques: ${alertasVencimiento.length} vencimiento(s) próximo(s)`,
+                body: `${alertasVencimiento.length} cheque(s) activo(s) por ${formatCurrency(montoTotalAlertas)} vencen en <=72h o están vencidos (${vencidosCount} vencido(s)). Detalle: ${resumenNumeros}.`,
+                type: 'warning',
+                targetRoute: 'gestion/cheques',
+                timestamp: Timestamp.now()
+            });
+            triggerToast('Alerta enviada al panel de notificaciones');
+        } catch (err) {
+            console.error('Error enviando alerta de vencimientos:', err);
+            triggerToast('No se pudo enviar la alerta al panel');
+        } finally {
+            setIsSendingAlert(false);
+        }
+    };
 
     const toggleSelectCheque = (id) => {
         setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -265,7 +371,42 @@ const ChequesPage = ({ navigate }) => {
                 </div>
             </div>
 
-            <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+            {alertasVencimiento.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-xs">
+                    <div className="flex items-start gap-3">
+                        <div className="p-2.5 bg-amber-100 text-amber-700 rounded-xl shrink-0">
+                            <Icon name="AlertTriangle" size={20} />
+                        </div>
+                        <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="text-sm font-black text-amber-900">
+                                    Radar de Vencimientos (≤ 72 hs)
+                                </h3>
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-200 text-amber-900">
+                                    {alertasVencimiento.length} cheque{alertasVencimiento.length === 1 ? '' : 's'} • {formatCurrency(montoTotalAlertas)}
+                                </span>
+                            </div>
+                            <p className="text-xs font-medium text-amber-800 mt-1">
+                                {alertasVencimiento.slice(0, 3).map(c => (
+                                    `${c.terceroNombre || 'Sin beneficiario'} (N° ${c.numero || 'eCheq'}, ${c.diffDays < 0 ? `vencido hace ${Math.abs(c.diffDays)}d` : c.diffDays === 0 ? 'vence hoy' : `en ${c.diffDays}d`})`
+                                )).join(' • ')}
+                                {alertasVencimiento.length > 3 ? ` y ${alertasVencimiento.length - 3} más` : ''}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleEnviarAlertaVencimientos}
+                        disabled={isSendingAlert}
+                        className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-xs flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                    >
+                        <Icon name={isSendingAlert ? 'RefreshCw' : 'Clock'} size={15} className={isSendingAlert ? 'animate-spin' : ''} />
+                        {isSendingAlert ? 'Enviando...' : 'Enviar Alerta al Panel de Notificaciones'}
+                    </button>
+                </div>
+            )}
+
+            <div className="flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-4">
                 <div className="flex gap-1.5 p-1 bg-gray-100 rounded-2xl overflow-x-auto">
                     <button 
                         onClick={() => setActiveTab('activos')} 
@@ -287,15 +428,29 @@ const ChequesPage = ({ navigate }) => {
                     </button>
                 </div>
 
-                <div className="relative w-full md:w-80">
-                    <Icon name="Search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
-                    <input 
-                        type="text"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder="Buscar por Beneficiario, CUIT, Motivo o N°..."
-                        className="w-full pl-11 pr-4 py-2.5 bg-white border border-gray-100 rounded-2xl text-xs font-bold text-gray-800 focus:ring-2 focus:ring-blue-100 outline-none shadow-xs"
-                    />
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <label className="flex items-center gap-2.5 px-3.5 py-2.5 bg-white border border-gray-100 rounded-2xl shadow-xs cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={autoConciliarOperaciones}
+                            onChange={(e) => setAutoConciliarOperaciones(e.target.checked)}
+                            className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+                        />
+                        <span className="text-xs font-bold text-gray-700">
+                            Impactar cobros/pagos de cheques en Operaciones
+                        </span>
+                    </label>
+
+                    <div className="relative w-full md:w-80">
+                        <Icon name="Search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
+                        <input 
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            placeholder="Buscar por Beneficiario, CUIT, Motivo o N°..."
+                            className="w-full pl-11 pr-4 py-2.5 bg-white border border-gray-100 rounded-2xl text-xs font-bold text-gray-800 focus:ring-2 focus:ring-blue-100 outline-none shadow-xs"
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -508,21 +663,65 @@ const ChequesPage = ({ navigate }) => {
                                 <span className="text-xs font-bold text-gray-500">
                                     Fecha pago: {formatDate(c.fechaVencimiento, c.fechaPagoStr)}
                                 </span>
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex flex-wrap items-center gap-1.5">
                                     {c.clausula && (
                                         <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-600">
                                             {c.clausula}
+                                        </span>
+                                    )}
+                                    {c.conciliadoOperationId && (
+                                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                            Conciliado en Operaciones
                                         </span>
                                     )}
                                     <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border ${
                                         c.estado === 'En Cartera' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
                                         c.estado === 'Depositado' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' : 
                                         c.estado === 'Emitido' ? 'bg-red-50 text-red-600 border-red-100' : 
+                                        c.estado === 'Pagado' ? 'bg-purple-50 text-purple-600 border-purple-100' : 
                                         'bg-emerald-50 text-emerald-600 border-emerald-100'
                                     }`}>
                                         {c.estado}
                                     </span>
                                 </div>
+                            </div>
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-50">
+                                {c.estado === 'En Cartera' && (
+                                    <button 
+                                        type="button"
+                                        onClick={() => promptAction(`¿Depositar cheque N° ${c.numero}?`, () => handleUpdateEstado(c.id, 'Depositado'), 'Depositar', false)}
+                                        className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-blue-600 hover:text-white transition-all cursor-pointer"
+                                    >
+                                        Depositar
+                                    </button>
+                                )}
+                                {c.estado === 'Depositado' && (
+                                    <button 
+                                        type="button"
+                                        onClick={() => promptAction(`¿Confirmar acreditación del cheque N° ${c.numero}?`, () => handleUpdateEstado(c.id, 'Cobrado'), 'Confirmar Cobro', false)}
+                                        className="px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-emerald-600 hover:text-white transition-all cursor-pointer"
+                                    >
+                                        Cobrado
+                                    </button>
+                                )}
+                                {c.estado === 'Emitido' && (
+                                    <button 
+                                        type="button"
+                                        onClick={() => promptAction(`¿Confirmar débito del cheque N° ${c.numero}?`, () => handleUpdateEstado(c.id, 'Pagado'), 'Confirmar Pago', false)}
+                                        className="px-3 py-1.5 bg-orange-50 text-orange-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-orange-600 hover:text-white transition-all cursor-pointer"
+                                    >
+                                        Pagado
+                                    </button>
+                                )}
+                                <button 
+                                    type="button"
+                                    onClick={() => promptAction(`¿Eliminar o anular el registro de este cheque N° ${c.numero || ''}?`, () => handleDeleteCheque(c.id), 'Eliminar', true)}
+                                    className="px-3 py-1.5 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-red-600 hover:text-white transition-all flex items-center gap-1 cursor-pointer"
+                                    title="Eliminar / Anular Cheque"
+                                >
+                                    <Icon name="Trash2" size={12} />
+                                    Eliminar
+                                </button>
                             </div>
                         </div>
                     )) : (

@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../../../firebase';
 import { addDoc, collection, doc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../../../context/AuthContext';
+import { useClientSelection } from '../../../context/ClientSelectionContext';
 import Icon from '../../Common/Icon';
 
-const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimiento }) => {
+const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimiento, targetUid }) => {
     const { user } = useAuth();
+    const { targetUserId } = useClientSelection();
+    const effectiveUid = targetUid || targetUserId || user?.uid;
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [message, setMessage] = useState('');
     const isEditMode = movimiento && movimiento.id;
@@ -48,6 +51,10 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!effectiveUid) {
+            setMessage('Error: Entidad contable no identificada.');
+            return;
+        }
         if (formData.montoPagado <= 0) {
             setMessage('Error: El monto pagado debe ser mayor a cero.');
             return;
@@ -92,15 +99,15 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                 };
 
                 if (operationId) {
-                    await updateDoc(doc(db, 'users', user.uid, 'operations', operationId), opData);
+                    await updateDoc(doc(db, 'users', effectiveUid, 'operations', operationId), opData);
                 } else {
-                    const opRef = await addDoc(collection(db, 'users', user.uid, 'operations'), opData);
+                    const opRef = await addDoc(collection(db, 'users', effectiveUid, 'operations'), opData);
                     operationId = opRef.id;
                 }
             } else if (operationId) {
                 // Si desmarcó el switch en modo edición, eliminar la operación previa
                 try {
-                    await deleteDoc(doc(db, 'users', user.uid, 'operations', operationId));
+                    await deleteDoc(doc(db, 'users', effectiveUid, 'operations', operationId));
                 } catch (delOpErr) {
                     console.warn("No se pudo eliminar la operación desvinculada:", delOpErr);
                 }
@@ -110,9 +117,9 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
             dataToSave.operationId = operationId;
 
             if (isEditMode) {
-                await updateDoc(doc(db, 'users', user.uid, 'pagosRecibidos', movimiento.id), dataToSave);
+                await updateDoc(doc(db, 'users', effectiveUid, 'pagosRecibidos', movimiento.id), dataToSave);
             } else {
-                const docRef = await addDoc(collection(db, 'users', user.uid, 'pagosRecibidos'), dataToSave); 
+                const docRef = await addDoc(collection(db, 'users', effectiveUid, 'pagosRecibidos'), dataToSave); 
 
                 if (formData.medioDePago === 'Cheque') {
                     const chequeData = {
@@ -127,7 +134,7 @@ const PagoRecibidoModal = ({ isOpen, onClose, clienteId, clienteNombre, movimien
                         monto: formData.montoPagado,
                         pagoId: docRef.id 
                     };
-                    await addDoc(collection(db, 'users', user.uid, 'cheques'), chequeData);
+                    await addDoc(collection(db, 'users', effectiveUid, 'cheques'), chequeData);
                 }
             }
             onClose();

@@ -1,24 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ClientSelectionProvider } from './context/ClientSelectionContext';
 import AppLayout from './components/Layout/AppLayout';
-import MicrocreditsPanel from './components/Microcredits/MicrocreditsPanel';
 import DashboardPage from './components/Dashboard/DashboardPage';
-import OperationsPage from './components/Operations/OperationsPage';
-import FinancesPage from './components/Finances/FinancesPage';
-import ClientCenterPage from './components/ClientCenter/ClientCenterPage';
-import ProfilePage from './components/Profile/ProfilePage';
-import ReportsPage from './components/Reports/ReportsPage';
-import GestionPage from './components/Gestion/GestionPage';
-import TercerosPage from './components/Gestion/TercerosPage';
-import AdminPage from './components/Admin/AdminPage';
-import AdminClientManagementPage from './components/Admin/AdminClientManagementPage';
-import BillingRequestsPage from './components/Billing/BillingRequestsPage';
-import DeudoresPage from './components/Gestion/DeudoresPage';
-import ProveedoresPage from './components/Gestion/ProveedoresPage';
-import CuentaCorrienteClientePage from './components/Gestion/CuentaCorrienteClientePage';
-import CuentaCorrienteProveedorPage from './components/Gestion/CuentaCorrienteProveedorPage';
-import ChequesPage from './components/Gestion/ChequesPage';
+
+const MicrocreditsPanel = lazy(() => import('./components/Microcredits/MicrocreditsPanel'));
+const OperationsPage = lazy(() => import('./components/Operations/OperationsPage'));
+const FinancesPage = lazy(() => import('./components/Finances/FinancesPage'));
+const ClientCenterPage = lazy(() => import('./components/ClientCenter/ClientCenterPage'));
+const ProfilePage = lazy(() => import('./components/Profile/ProfilePage'));
+const ReportsPage = lazy(() => import('./components/Reports/ReportsPage'));
+const GestionPage = lazy(() => import('./components/Gestion/GestionPage'));
+const TercerosPage = lazy(() => import('./components/Gestion/TercerosPage'));
+const AdminPage = lazy(() => import('./components/Admin/AdminPage'));
+const AdminClientManagementPage = lazy(() => import('./components/Admin/AdminClientManagementPage'));
+const BillingRequestsPage = lazy(() => import('./components/Billing/BillingRequestsPage'));
+const DeudoresPage = lazy(() => import('./components/Gestion/DeudoresPage'));
+const ProveedoresPage = lazy(() => import('./components/Gestion/ProveedoresPage'));
+const CuentaCorrienteClientePage = lazy(() => import('./components/Gestion/CuentaCorrienteClientePage'));
+const CuentaCorrienteProveedorPage = lazy(() => import('./components/Gestion/CuentaCorrienteProveedorPage'));
+const ChequesPage = lazy(() => import('./components/Gestion/ChequesPage'));
 
 import { 
   BarChart3, 
@@ -588,7 +589,14 @@ const AppContent = () => {
 
     return (
         <AppLayout currentRoute={currentRoute} navigate={setCurrentRoute}>
-            {renderContent()}
+            <Suspense fallback={
+                <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+                    <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest">Cargando módulo...</p>
+                </div>
+            }>
+                {renderContent()}
+            </Suspense>
         </AppLayout>
     );
 };

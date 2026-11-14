@@ -9,12 +9,15 @@ import {
   deleteDoc 
 } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { useClientSelection } from '../../context/ClientSelectionContext';
 import Icon from '../Common/Icon';
 import ConfirmModal from '../Common/ConfirmModal';
 import TerceroModal from './TerceroModal';
 
 const TercerosPage = ({ navigate }) => {
     const { user } = useAuth();
+    const { targetUserId } = useClientSelection();
+    const currentUid = targetUserId || user?.uid;
     const [terceros, setTerceros] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -25,9 +28,9 @@ const TercerosPage = ({ navigate }) => {
     const [categoriaFilter, setCategoriaFilter] = useState('Todos');
 
     useEffect(() => {
-        if (!user) return;
+        if (!currentUid) return;
         setLoading(true);
-        const q = query(collection(db, 'users', user.uid, 'terceros'), orderBy("nombre", "asc"));
+        const q = query(collection(db, 'users', currentUid, 'terceros'), orderBy("nombre", "asc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setTerceros(items);
@@ -37,7 +40,7 @@ const TercerosPage = ({ navigate }) => {
             setLoading(false);
         });
         return () => unsubscribe();
-    }, [user]);
+    }, [currentUid]);
 
     const handleNewTercero = () => {
         setEditingTercero(null);
@@ -55,9 +58,9 @@ const TercerosPage = ({ navigate }) => {
     };
 
     const handleDelete = async () => {
-        if (!terceroToDelete) return;
+        if (!terceroToDelete || !currentUid) return;
         try {
-            await deleteDoc(doc(db, 'users', user.uid, 'terceros', terceroToDelete));
+            await deleteDoc(doc(db, 'users', currentUid, 'terceros', terceroToDelete));
         } catch (error) {
             console.error("Error deleting tercero:", error);
         } finally {
@@ -81,7 +84,7 @@ const TercerosPage = ({ navigate }) => {
 
     return (
         <div className="p-2 sm:p-6 space-y-6 sm:space-y-8 animate-fade-in">
-            {showModal && <TerceroModal tercero={editingTercero} onClose={() => setShowModal(false)} />}
+            {showModal && <TerceroModal tercero={editingTercero} targetUid={currentUid} onClose={() => setShowModal(false)} />}
             {showConfirmDelete && (
                 <ConfirmModal
                     message="¿Estás seguro de que quieres eliminar este tercero? Esto no borrará sus facturas asociadas."

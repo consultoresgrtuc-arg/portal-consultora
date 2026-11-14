@@ -2,8 +2,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useClientSelection } from '../../context/ClientSelectionContext';
 import { useYearlyCollection } from '../../hooks/useCollections';
-import { db } from '../../firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db, functions } from '../../firebase';
+import { collection, query, where, onSnapshot, doc, setDoc, addDoc, Timestamp } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import Icon from '../Common/Icon';
 import {
   Chart as ChartJS,
@@ -34,24 +35,47 @@ ChartJS.register(
 );
 
 const ReportsPage = () => {
-    const { userData } = useAuth();
-    const { targetUserId } = useClientSelection();
+    const { user, userData } = useAuth();
+    const { targetUserId, activeEntity } = useClientSelection();
     const currentYear = new Date().getFullYear();
     const [selectedYear, setSelectedYear] = useState(currentYear);
     const [periodFilter, setPeriodFilter] = useState('anual'); // 'anual', 'q1', 'q2', 'q3', 'q4', 's1', 's2'
     const [chartMode, setChartMode] = useState('bars'); // 'bars', 'trend', 'distribution'
     const [compareWithPrevious, setCompareWithPrevious] = useState(false);
     const [selectedMonthDetail, setSelectedMonthDetail] = useState(null);
+    const [closingMonth, setClosingMonth] = useState(() => new Date().getMonth() + 1);
+    const [monthlyClosings, setMonthlyClosings] = useState([]);
+    const [isConsolidating, setIsConsolidating] = useState(false);
+    const [closingFeedback, setClosingFeedback] = useState(null);
+
+    const effectiveUid = targetUserId || userData?.uid || user?.uid;
 
     // Carga de operaciones del año seleccionado y año anterior (para comparativa)
     const { data: operations, loading } = useYearlyCollection('operations', selectedYear);
     const { data: prevOperations, loading: prevLoading } = useYearlyCollection('operations', compareWithPrevious ? selectedYear - 1 : null);
 
+    // Carga de cierres mensuales consolidados del usuario/cliente activo
+    useEffect(() => {
+        if (!effectiveUid) {
+            setMonthlyClosings([]);
+            return;
+        }
+        const qClosings = collection(db, 'users', effectiveUid, 'monthly_closings');
+        const unsub = onSnapshot(qClosings, (snap) => {
+            const list = snap.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .sort((a, b) => String(b.periodo || b.id).localeCompare(String(a.periodo || a.id)));
+            setMonthlyClosings(list);
+        }, (err) => {
+            console.warn("Aviso al cargar cierres mensuales:", err);
+            setMonthlyClosings([]);
+        });
+        return () => unsub();
+    }, [effectiveUid]);
+
     // Carga de billing_requests para análisis histórico enriquecido de medios de pago
     const [billingRequests, setBillingRequests] = useState([]);
     useEffect(() => {
-        const effectiveUid = targetUserId || userData?.uid;
-
         let q;
         if (userData?.isAdmin && !targetUserId) {
             q = collection(db, 'billing_requests');
@@ -67,7 +91,7 @@ const ReportsPage = () => {
             console.warn("Aviso al cargar billing_requests para análisis de medios de pago:", err);
         });
         return () => unsub();
-    }, [userData, targetUserId]);
+    }, [userData?.isAdmin, targetUserId, effectiveUid]);
 
     const years = Array.from({ length: 10 }, (_, i) => currentYear - i);
     const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value || 0);
@@ -630,6 +654,160 @@ const ReportsPage = () => {
         document.body.removeChild(link);
     };
 
+    const closingsForYear = useMemo(() => {
+        return monthlyClosings.filter(c =>
+            Number(c.year) === Number(selectedYear) ||
+            String(c.periodo || c.id || '').startsWith(`${selectedYear}-`)
+        );
+    }, [monthlyClosings, selectedYear]);
+
+    const handleConsolidateMonth = async (monthIndex) => {
+        if (!effectiveUid || isConsolidating) return;
+        const targetMonth = monthIndex + 1;
+        const periodoId = `${selectedYear}-${String(targetMonth).padStart(2, '0')}`;
+        const m = monthlyBreakdown[monthIndex] || { ventas: 0, compras: 0, otrosIngresos: 0, otrosGastos: 0, count: 0 };
+
+        setIsConsolidating(true);
+        setClosingFeedback(null);
+
+        try {
+            const totalVentas = Number(m.ventas) || 0;
+            const totalCompras = Number(m.compras) || 0;
+            const totalOtrosIngresos = Number(m.otrosIngresos) || 0;
+            const totalOtrosGastos = Number(m.otrosGastos) || 0;
+            const totalIngresos = totalVentas + totalOtrosIngresos;
+            const totalEgresos = totalCompras + totalOtrosGastos;
+            const resultadoNeto = totalIngresos - totalEgresos;
+            const margenRentabilidad = totalIngresos > 0
+                ? Number(((resultadoNeto / totalIngresos) * 100).toFixed(2))
+                : 0;
+
+            let comprobantesFacturacionCount = 0;
+            let montoComprobantesIA = 0;
+            billingRequests.forEach(req => {
+                if (req.userId && req.userId !== effectiveUid) return;
+                if (!['analyzed', 'completed'].includes(req.status)) return;
+                let reqYear = null;
+                let reqMonth = null;
+                const fechaRaw = req.aiData?.fecha_pago || req.manualData?.fecha;
+                if (typeof fechaRaw === 'string' && fechaRaw.trim()) {
+                    const matchIso = fechaRaw.trim().match(/^(\d{4})-(\d{1,2})/);
+                    if (matchIso) {
+                        reqYear = parseInt(matchIso[1], 10);
+                        reqMonth = parseInt(matchIso[2], 10);
+                    }
+                } else if (req.timestamp?.toDate) {
+                    const d = req.timestamp.toDate();
+                    reqYear = d.getFullYear();
+                    reqMonth = d.getMonth() + 1;
+                }
+                if (reqYear === Number(selectedYear) && reqMonth === targetMonth) {
+                    comprobantesFacturacionCount += 1;
+                    montoComprobantesIA += Number(req.aiData?.monto_total ?? req.manualData?.monto) || 0;
+                }
+            });
+
+            const summaryPayload = {
+                periodo: periodoId,
+                year: Number(selectedYear),
+                month: targetMonth,
+                totalVentas,
+                totalCompras,
+                totalOtrosIngresos,
+                totalOtrosGastos,
+                totalIngresos,
+                totalEgresos,
+                resultadoNeto,
+                margenRentabilidad,
+                cantidadOperaciones: Number(m.count) || 0,
+                comprobantesFacturacionCount,
+                montoComprobantesIA,
+                cerradoEn: Timestamp.now()
+            };
+
+            await setDoc(doc(db, 'users', effectiveUid, 'monthly_closings', periodoId), summaryPayload, { merge: true });
+
+            await addDoc(collection(db, 'users', effectiveUid, 'notifications'), {
+                title: `Cierre Mensual Consolidado (${periodoId})`,
+                body: `Ingresos: $${totalIngresos.toLocaleString('es-AR')} | Egresos: $${totalEgresos.toLocaleString('es-AR')} | Resultado Neto: $${resultadoNeto.toLocaleString('es-AR')}`,
+                type: 'info',
+                targetRoute: 'reports',
+                timestamp: Timestamp.now()
+            });
+
+            // Sincronización en segundo plano con Cloud Function si está disponible
+            try {
+                const generateFn = httpsCallable(functions, 'generateMonthlyClose');
+                generateFn({
+                    year: Number(selectedYear),
+                    month: targetMonth,
+                    targetUserId: effectiveUid,
+                    skipNotification: true
+                }).catch(() => {});
+            } catch (_) {
+                // Silencioso si no está disponible en entorno local
+            }
+
+            setClosingFeedback({
+                type: 'success',
+                text: `Cierre de ${monthNames[monthIndex]} ${selectedYear} (${periodoId}) consolidado con éxito.`
+            });
+            setTimeout(() => setClosingFeedback(null), 5000);
+        } catch (err) {
+            console.error("Error consolidando cierre mensual:", err);
+            setClosingFeedback({
+                type: 'error',
+                text: 'No se pudo consolidar el cierre mensual. Verifica los permisos e intenta nuevamente.'
+            });
+        } finally {
+            setIsConsolidating(false);
+        }
+    };
+
+    const handleExportClosingCSV = (closing) => {
+        const periodo = closing.periodo || closing.id;
+        let csvContent = "\uFEFF";
+        const headers = [
+            "Periodo",
+            "Ventas",
+            "Otros Ingresos",
+            "Total Ingresos",
+            "Compras",
+            "Otros Gastos",
+            "Total Egresos",
+            "Resultado Neto",
+            "Rentabilidad %",
+            "Cant. Operaciones",
+            "Comprobantes IA"
+        ];
+        csvContent += headers.map(sanitizeCsvCell).join(";") + "\n";
+
+        const row = [
+            periodo,
+            Number(closing.totalVentas) || 0,
+            Number(closing.totalOtrosIngresos) || 0,
+            Number(closing.totalIngresos) || 0,
+            Number(closing.totalCompras) || 0,
+            Number(closing.totalOtrosGastos) || 0,
+            Number(closing.totalEgresos) || 0,
+            Number(closing.resultadoNeto) || 0,
+            `${Number(closing.margenRentabilidad || 0).toFixed(2)}%`,
+            Number(closing.cantidadOperaciones) || 0,
+            Number(closing.comprobantesFacturacionCount) || 0
+        ];
+        csvContent += row.map(sanitizeCsvCell).join(";") + "\n";
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `cierre_mensual_${periodo}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
     const periodLabels = {
         anual: 'Año Completo',
         q1: '1° Trimestre (Ene - Mar)',
@@ -805,6 +983,30 @@ const ReportsPage = () => {
                         <Icon name="Activity" size={14}/>
                         <span>vs {selectedYear - 1}</span>
                     </button>
+
+                    {/* Selector de Mes y Botón Consolidar Cierre Mensual */}
+                    <div className="flex items-center gap-2 bg-indigo-50/70 p-1 rounded-2xl border border-indigo-100">
+                        <select
+                            value={closingMonth}
+                            onChange={(e) => setClosingMonth(parseInt(e.target.value, 10))}
+                            aria-label="Mes a consolidar"
+                            className="px-3 py-1.5 bg-white border border-indigo-100 rounded-xl text-xs font-bold text-gray-800 outline-none cursor-pointer"
+                        >
+                            {monthNames.map((name, idx) => (
+                                <option key={idx + 1} value={idx + 1}>{name}</option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            onClick={() => handleConsolidateMonth(closingMonth - 1)}
+                            disabled={isConsolidating || loading}
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer"
+                            title={`Consolidar cierre de ${monthNames[closingMonth - 1]} ${selectedYear}`}
+                        >
+                            <Icon name={isConsolidating ? "RefreshCw" : "CheckCircle2"} size={14} className={isConsolidating ? "animate-spin" : ""} />
+                            <span>{isConsolidating ? 'Consolidando...' : 'Consolidar Cierre Mensual'}</span>
+                        </button>
+                    </div>
 
                     {/* Botones de Acción */}
                     <div className="flex items-center gap-2 ml-auto xl:ml-0">
@@ -1246,6 +1448,112 @@ const ReportsPage = () => {
                                     </tfoot>
                                 </table>
                             </div>
+                        </div>
+
+                        {closingFeedback && (
+                            <div className={`mt-6 p-4 rounded-2xl border text-xs font-bold flex items-center gap-2.5 no-print ${
+                                closingFeedback.type === 'success'
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                            }`}>
+                                <Icon name={closingFeedback.type === 'success' ? 'CheckCircle2' : 'AlertTriangle'} size={16} />
+                                <span>{closingFeedback.text}</span>
+                            </div>
+                        )}
+
+                        {/* Panel: Cierres Mensuales Consolidados (Histórico Auditado) */}
+                        <div className="mt-8 pt-8 border-t border-gray-100 print-avoid-break">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
+                                <div>
+                                    <h4 className="text-sm font-black text-gray-900 uppercase tracking-wider flex items-center gap-2">
+                                        <Icon name="Archive" size={16} className="text-indigo-600" />
+                                        Cierres Mensuales Consolidados (Histórico Auditado)
+                                    </h4>
+                                    <p className="text-xs text-gray-400 font-medium mt-0.5">
+                                        Snapshots auditados de {activeEntity?.name || userData?.nombre || 'tu entidad'} para el ejercicio {selectedYear}.
+                                    </p>
+                                </div>
+                                <span className="text-[11px] font-bold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100 self-start">
+                                    {closingsForYear.length} {closingsForYear.length === 1 ? 'período cerrado' : 'períodos cerrados'}
+                                </span>
+                            </div>
+
+                            {closingsForYear.length === 0 ? (
+                                <div className="bg-gray-50/70 border border-dashed border-gray-200 rounded-3xl p-8 text-center">
+                                    <Icon name="Calendar" size={28} className="text-gray-300 mx-auto mb-2" />
+                                    <p className="text-sm font-bold text-gray-600">Aún no hay cierres mensuales consolidados en {selectedYear}</p>
+                                    <p className="text-xs text-gray-400 mt-1">
+                                        Selecciona un mes arriba y haz clic en &quot;Consolidar Cierre Mensual&quot; para generar el primer snapshot auditado.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                    {closingsForYear.map(closing => {
+                                        const periodo = closing.periodo || closing.id;
+                                        const monthIdx = (Number(closing.month) || parseInt(String(periodo).split('-')[1], 10) || 1) - 1;
+                                        const monthLabel = monthNames[monthIdx] || periodo;
+                                        const net = Number(closing.resultadoNeto) || 0;
+                                        const margen = Number(closing.margenRentabilidad || 0);
+                                        const closedDateStr = closing.cerradoEn?.toDate
+                                            ? closing.cerradoEn.toDate().toLocaleDateString('es-AR')
+                                            : '';
+
+                                        return (
+                                            <div key={periodo} className="bg-gray-50/70 hover:bg-white rounded-3xl border border-gray-200/80 p-5 transition-all hover:shadow-md flex flex-col justify-between gap-4">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                                                            {periodo}
+                                                        </span>
+                                                        <h5 className="text-base font-black text-gray-900 mt-1.5 capitalize">
+                                                            {monthLabel} {closing.year || selectedYear}
+                                                        </h5>
+                                                        {closedDateStr && (
+                                                            <p className="text-[10px] font-semibold text-gray-400 mt-0.5">
+                                                                Consolidado el {closedDateStr}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleExportClosingCSV(closing)}
+                                                        className="p-2 bg-white hover:bg-emerald-50 text-emerald-600 border border-gray-200 hover:border-emerald-200 rounded-xl transition-all cursor-pointer no-print"
+                                                        title={`Exportar cierre ${periodo} a CSV`}
+                                                    >
+                                                        <Icon name="Download" size={15} />
+                                                    </button>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-2.5 text-xs">
+                                                    <div className="bg-white p-3 rounded-2xl border border-gray-100">
+                                                        <span className="text-[10px] font-black uppercase text-gray-400 block">Ingresos</span>
+                                                        <span className="text-sm font-black text-emerald-600">{formatCurrency(closing.totalIngresos)}</span>
+                                                    </div>
+                                                    <div className="bg-white p-3 rounded-2xl border border-gray-100">
+                                                        <span className="text-[10px] font-black uppercase text-gray-400 block">Egresos</span>
+                                                        <span className="text-sm font-black text-rose-600">{formatCurrency(closing.totalEgresos)}</span>
+                                                    </div>
+                                                    <div className="bg-white p-3 rounded-2xl border border-gray-100">
+                                                        <span className="text-[10px] font-black uppercase text-gray-400 block">Resultado Neto</span>
+                                                        <span className={`text-sm font-black ${net >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>
+                                                            {formatCurrency(net)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="bg-white p-3 rounded-2xl border border-gray-100">
+                                                        <span className="text-[10px] font-black uppercase text-gray-400 block">Rentabilidad</span>
+                                                        <span className="text-sm font-black text-indigo-600">{margen.toFixed(1)}%</span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between text-[11px] font-bold text-gray-500 pt-2 border-t border-gray-200/60">
+                                                    <span>{Number(closing.cantidadOperaciones) || 0} operaciones</span>
+                                                    <span>{Number(closing.comprobantesFacturacionCount) || 0} comp. IA</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     </>
                 )}
