@@ -568,19 +568,19 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                         </div>
                     </div>
 
-                    {/* KPI 2: Ganancia Neta Limpia y Retornos (ROS y ROI) */}
+                    {/* KPI 2: Ganancia Neta Limpia y Retornos (ROI y ROS) */}
                     <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between">
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-500">Ganancia Neta Unitaria</span>
-                            <span className="text-[10px] md:text-xs font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200" title="Incidencia de la ganancia limpia sobre el precio de venta neto">
-                                ROS {formatPercentage(result.rentabilidad_real_lograda)}
+                            <span className="text-[10px] md:text-xs font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200" title="Rentabilidad neta lograda sobre el costo una vez pagados todos los gastos e impuestos">
+                                Rent. {formatPercentage(result.roi_sobre_costo)}
                             </span>
                         </div>
                         <p className="text-2xl sm:text-3xl xl:text-4xl font-black text-emerald-600 mt-2.5 font-mono">
                             +{displayVal(result.ganancia_neta_obtenida)}
                         </p>
                         <p className="text-[11px] md:text-xs lg:text-sm text-slate-500 font-medium mt-2">
-                            Retorno s/Reposición: <strong className="text-slate-800">+{formatPercentage(result.roi_sobre_reposicion)}</strong> • s/Costo: <strong className="text-slate-800">+{formatPercentage(result.roi_sobre_costo)}</strong>
+                            Margen Real s/Venta (ROS): <strong className="text-slate-800">{formatPercentage(result.rentabilidad_real_lograda)}</strong>
                         </p>
                     </div>
 
@@ -705,7 +705,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                             </h4>
                             {result && (
                                 <span className="text-xs md:text-sm font-bold text-slate-500">
-                                    Suma de cargos s/Precio s/IVA: <strong className="text-indigo-700 font-mono">{(result.suma_porcentajes * 100).toFixed(2)}%</strong>
+                                    Gastos + Impuestos trasladados: <strong className="text-indigo-700 font-mono">{(result.gastos_variables_pct * 100).toFixed(2)}%</strong>
                                 </span>
                             )}
                         </div>
@@ -714,7 +714,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                             {/* Rentabilidad Esperada */}
                             <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 transition-all">
                                 <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                                    Margen de Rentabilidad Deseado
+                                    Rentabilidad Neta Deseada (s/Costo)
                                 </label>
                                 <div className="flex items-center">
                                     <input

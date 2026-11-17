@@ -6,7 +6,7 @@
  * @property {number} alicuota_tem - Porcentaje de Tasa Municipal en tanto por uno (ej. 0.90% es 0.009).
  * @property {number} comisiones_venta - Porcentaje de costo por cobro y cuotas de pasarela en tanto por uno (ej. 15.00% es 0.15).
  * @property {number} inflacion_estimada - Porcentaje de inflación estimada en tanto por uno (ej. 1.50% es 0.015).
- * @property {number} rentabilidad_esperada - Margen de rentabilidad deseado en tanto por uno (ej. 15.00% es 0.15).
+ * @property {number} rentabilidad_esperada - Porcentaje de rentabilidad deseada sobre el costo en tanto por uno (ej. 20.00% es 0.20).
  * @property {number} [alicuota_iva] - Porcentaje de IVA en tanto por uno (ej. 21.00% es 0.21).
  * @property {number} [porcentaje_descuento] - Porcentaje de descuento a simular en tanto por uno (ej. 5.00% es 0.05).
  * @property {number} [cantidad_unidades] - Cantidad de unidades del lote para proyectar totales (default 1).
@@ -17,9 +17,12 @@
  * y el desglose financiero/contable completo.
  *
  * Ecuación central:
- * 1) Precio de Venta sin IVA (precio_neto) = Costo Total / (1 - (IIBB + TEM + Comisiones + Inflación + Rentabilidad))
- * 2) Precio Final con IVA (precio_venta_sugerido) = precio_neto * (1 + alicuota_iva)
- * 3) Verificación inversa desde Precio con IVA: precio_neto = precio_venta_sugerido / (1 + alicuota_iva)
+ * 1) Ganancia Limpia Objetivo = Costo Total * rentabilidad_esperada (no aplica ganancia sobre impuestos ni pasarela)
+ * 2) Precio de Venta sin IVA (precio_neto) = (Costo Total + Ganancia Limpia Objetivo) / (1 - (IIBB + TEM + Comisiones + Inflación))
+ *    -> Traslada todos los costos y gastos al precio para que, una vez pagado todo, se obtenga exactamente el % de rentabilidad deseado s/costo,
+ *       mientras que el Margen Real sobre Venta (Ganancia / Precio) disminuye cuando suben IIBB, TEM o Comisiones.
+ * 3) Precio Final con IVA (precio_venta_sugerido) = precio_neto * (1 + alicuota_iva)
+ * 4) Verificación inversa desde Precio con IVA: precio_neto = precio_venta_sugerido / (1 + alicuota_iva)
  *
  * @param {PricingInputs} inputs
  * @returns {Object}
@@ -71,30 +74,31 @@ export function calcularPrecioVenta(inputs) {
     // 1. Costo Total Unitario de Adquisición / Producción
     const recupero_costo = costo_adquisicion + costos_adicionales;
 
-    // 2. Suma de todos los porcentajes que integran la formación del Precio de Venta (sin IVA)
+    // 2. Ganancia Limpia Objetivo sobre el Costo (no se infla cuando suben impuestos o comisiones)
+    const ganancia_objetivo = recupero_costo * rentabilidad_esperada;
+
+    // 3. Suma de Gastos Variables, Impuestos e Inflación a trasladar a precio (Grossing-Up)
     const gastos_variables_pct = alicuota_iibb + alicuota_tem + comisiones_venta + inflacion_estimada;
-    const sumaPorcentajes = gastos_variables_pct + rentabilidad_esperada;
-    const denominador = 1 - sumaPorcentajes;
+    const sumaPorcentajes = gastos_variables_pct;
+    const denominador = 1 - gastos_variables_pct;
 
     if (denominador <= 0) {
         throw new Error(
-            `La suma de los porcentajes de costos, inflación, impuestos y rentabilidad (${(sumaPorcentajes * 100).toFixed(2)}%) no puede ser igual o mayor al 100%.`
+            `La suma de los porcentajes de gastos, inflación e impuestos (${(gastos_variables_pct * 100).toFixed(2)}%) no puede ser igual o mayor al 100%.`
         );
     }
 
-    // 3. Precio de Venta Fijado (sin IVA) - Independiente de la alícuota de IVA
-    const precio_neto = recupero_costo / denominador;
+    // 4. Precio de Venta Fijado (sin IVA) - Independiente de la alícuota de IVA
+    const precio_neto = (recupero_costo + ganancia_objetivo) / denominador;
 
-    // 4. Incorporación del IVA directamente sobre el Precio de Venta Fijado
-    // Factura A: precio_neto (discriminado) + pago_iva = precio_venta_sugerido
-    // Factura B: precio_venta_sugerido (IVA incluido sin discriminar), donde precio_venta_sugerido / (1 + alicuota_iva) = precio_neto
+    // 5. Incorporación del IVA directamente sobre el Precio de Venta Fijado (Pasamanos fiscal)
     const factor_iva = 1 + alicuota_iva;
     const pago_iva = precio_neto * alicuota_iva;
     const precio_venta_sugerido = precio_neto * factor_iva;
     const total_cobrado = precio_venta_sugerido;
     const precio_sin_iva_verificado = factor_iva > 0 ? precio_venta_sugerido / factor_iva : precio_neto;
 
-    // 5. Cuadro de Control (Desglose sobre el Precio de Venta fijado sin IVA)
+    // 6. Cuadro de Control (Desglose en cascada sobre el Precio de Venta fijado sin IVA)
     const pago_iibb = precio_neto * alicuota_iibb;
     const pago_tem = precio_neto * alicuota_tem;
     const pago_comisiones = precio_neto * comisiones_venta;
@@ -109,22 +113,22 @@ export function calcularPrecioVenta(inputs) {
         recupero_costo
     );
 
+    // Indicadores de rentabilidad:
+    // - roi_sobre_costo: % de rentabilidad neta lograda sobre el costo invertido (coincide con rentabilidad_esperada una vez pagados todos los gastos)
+    // - rentabilidad_real_lograda (ROS): incidencia de la ganancia limpia sobre el precio de venta s/IVA (disminuye cuando suben los gastos/impuestos)
     const rentabilidad_real_lograda = precio_neto > 0 ? ganancia_neta_obtenida / precio_neto : 0;
     const rentabilidad_sobre_total = precio_venta_sugerido > 0 ? ganancia_neta_obtenida / precio_venta_sugerido : 0;
     const roi_sobre_costo = recupero_costo > 0 ? ganancia_neta_obtenida / recupero_costo : 0;
     const roi_sobre_reposicion = costo_reposicion_total > 0 ? ganancia_neta_obtenida / costo_reposicion_total : 0;
 
-    // 6. Recargos (Markup) y Multiplicadores (diferenciando Neto Comercial vs. Final con IVA)
+    // 7. Recargos (Markup) y Multiplicadores (diferenciando Neto Comercial vs. Final con IVA)
     const markup_neto = recupero_costo > 0 ? (precio_neto / recupero_costo) - 1 : 0;
     const markup_final = recupero_costo > 0 ? (precio_venta_sugerido / recupero_costo) - 1 : 0;
     const multiplicador_neto = recupero_costo > 0 ? precio_neto / recupero_costo : 0;
     const multiplicador_final = recupero_costo > 0 ? precio_venta_sugerido / recupero_costo : 0;
 
-    // 7. Punto de Equilibrio Unitario (Precio mínimo para Ganancia Neta = $0 cubriendo costo, inflación, comisiones e impuestos)
-    const denominador_equilibrio = 1 - gastos_variables_pct;
-    const precio_equilibrio_neto = denominador_equilibrio > 0
-        ? recupero_costo / denominador_equilibrio
-        : precio_neto;
+    // 8. Punto de Equilibrio Unitario (Precio mínimo para Ganancia Neta = $0 cubriendo costo, inflación, comisiones e impuestos)
+    const precio_equilibrio_neto = recupero_costo / denominador;
     const precio_equilibrio_final = precio_equilibrio_neto * factor_iva;
     const descuento_maximo_equilibrio = precio_neto > 0
         ? Math.max(0, 1 - (precio_equilibrio_neto / precio_neto))
@@ -178,7 +182,7 @@ export function calcularPrecioVenta(inputs) {
         }
     };
 
-    // 8. Simulador de Descuentos Comerciales
+    // 9. Simulador de Descuentos Comerciales
     if (porcentaje_descuento !== undefined && porcentaje_descuento !== null) {
         if (typeof porcentaje_descuento !== 'number' || isNaN(porcentaje_descuento) || porcentaje_descuento < 0 || porcentaje_descuento > 1) {
             throw new Error("El porcentaje de descuento debe ser un número entre 0 y 1 (ej: 0.05 para 5%).");
