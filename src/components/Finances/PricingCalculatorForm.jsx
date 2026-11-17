@@ -23,8 +23,6 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
     const [costo, setCosto] = useState('10000');
     const [costosAdicionales, setCostosAdicionales] = useState('0');
     const [inflacion, setInflacion] = useState('2.1');
-    const [diasReposicion, setDiasReposicion] = useState('30');
-    const [modoInflacion, setModoInflacion] = useState('costo'); // 'costo' | 'precio'
 
     // Parámetros Comerciales e Impositivos
     const [iibb, setIibb] = useState('3.5');
@@ -34,7 +32,6 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
 
     // Parámetros de Rentabilidad y Volumen
     const [rentabilidad, setRentabilidad] = useState('15');
-    const [modoRentabilidad, setModoRentabilidad] = useState('margen_venta'); // 'margen_venta' (ROS) | 'markup_costo' (ROI)
     const [cantidadUnidades, setCantidadUnidades] = useState('1');
 
     // Divisas
@@ -133,7 +130,6 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
         const numTem = parseFloat(tem) / 100;
         const numComisiones = parseFloat(comisiones) / 100;
         const numInflacion = parseFloat(inflacion) / 100;
-        const numDiasReposicion = Math.max(0, parseFloat(diasReposicion) || 0);
         const numRentabilidad = parseFloat(rentabilidad) / 100;
         const numIva = parseFloat(iva) / 100;
         const numUnidades = Math.max(1, parseInt(cantidadUnidades, 10) || 1);
@@ -156,12 +152,8 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                     alicuota_iibb: numIibb,
                     alicuota_tem: numTem,
                     comisiones_venta: numComisiones,
-                    base_comision: 'bruto',
                     inflacion_estimada: numInflacion,
-                    dias_reposicion: numDiasReposicion,
-                    modo_inflacion: modoInflacion,
                     rentabilidad_esperada: numRentabilidad,
-                    modo_rentabilidad: modoRentabilidad,
                     alicuota_iva: numIva,
                     porcentaje_descuento: numDescuento,
                     cantidad_unidades: numUnidades
@@ -183,10 +175,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
         tem,
         comisiones,
         inflacion,
-        diasReposicion,
-        modoInflacion,
         rentabilidad,
-        modoRentabilidad,
         iva,
         cantidadUnidades,
         descuentoActivo,
@@ -223,12 +212,8 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
             iibb,
             tem,
             comisiones,
-            baseComision: 'bruto',
             inflacion,
-            diasReposicion,
-            modoInflacion,
             rentabilidad,
-            modoRentabilidad,
             cantidadUnidades,
             descuento,
             descuentoActivo,
@@ -258,10 +243,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
         setTem(sim.tem ?? '0.9');
         setComisiones(sim.comisiones ?? '15');
         setInflacion(sim.inflacion ?? '2.1');
-        setDiasReposicion(sim.diasReposicion ?? '30');
-        setModoInflacion(sim.modoInflacion || 'costo');
         setRentabilidad(sim.rentabilidad ?? '15');
-        setModoRentabilidad(sim.modoRentabilidad || 'margen_venta');
         setCantidadUnidades(sim.cantidadUnidades ?? '1');
         setDescuento(sim.descuento || '5');
         setDescuentoActivo(!!sim.descuentoActivo);
@@ -303,15 +285,15 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
             csvContent += `Costos Directos Adicionales (Flete/Pack),${result.costos_adicionales.toFixed(2)},${getVal(result.costos_adicionales)},${pctNeto(result.costos_adicionales)},${pctFinal(result.costos_adicionales)}\r\n`;
         }
         csvContent += `Costo Total Unitario (Recupero),${result.recupero_costo.toFixed(2)},${getVal(result.recupero_costo)},${pctNeto(result.recupero_costo)},${pctFinal(result.recupero_costo)}\r\n`;
-        csvContent += `Resguardo Inflacionario (${inflacion}% mensual / ${diasReposicion}d),${result.cobertura_inflacion.toFixed(2)},${getVal(result.cobertura_inflacion)},${pctNeto(result.cobertura_inflacion)},${pctFinal(result.cobertura_inflacion)}\r\n`;
+        csvContent += `Resguardo Inflacionario (${inflacion}%),${result.cobertura_inflacion.toFixed(2)},${getVal(result.cobertura_inflacion)},${pctNeto(result.cobertura_inflacion)},${pctFinal(result.cobertura_inflacion)}\r\n`;
         csvContent += `Costo de Reposición Total,${result.costo_reposicion_total.toFixed(2)},${getVal(result.costo_reposicion_total)},${pctNeto(result.costo_reposicion_total)},${pctFinal(result.costo_reposicion_total)}\r\n`;
-        csvContent += `Impuesto IIBB (${iibb}% s/${Number(iva) > 0 ? 'Precio sin IVA' : 'Monto Total Venta'}),${result.pago_iibb.toFixed(2)},${getVal(result.pago_iibb)},${pctNeto(result.pago_iibb)},${pctFinal(result.pago_iibb)}\r\n`;
-        csvContent += `Tasa Municipal TEM (${tem}% s/${Number(iva) > 0 ? 'Precio sin IVA' : 'Monto Total Venta'}),${result.pago_tem.toFixed(2)},${getVal(result.pago_tem)},${pctNeto(result.pago_tem)},${pctFinal(result.pago_tem)}\r\n`;
-        csvContent += `Costo por Cobro y Cuotas (${comisiones}% s/${Number(iva) > 0 ? 'Precio con IVA' : 'Precio Final'}),${result.pago_comisiones.toFixed(2)},${getVal(result.pago_comisiones)},${pctNeto(result.pago_comisiones)},${pctFinal(result.pago_comisiones)}\r\n`;
-        csvContent += `Ganancia Neta Limpia,${result.ganancia_neta_obtenida.toFixed(2)},${getVal(result.ganancia_neta_obtenida)},${pctNeto(result.ganancia_neta_obtenida)},${pctFinal(result.ganancia_neta_obtenida)}\r\n`;
-        csvContent += `Precio Neto (Base Imponible),${result.precio_neto.toFixed(2)},${getVal(result.precio_neto)},100.00%,${pctFinal(result.precio_neto)}\r\n`;
-        csvContent += `IVA Débito Fiscal (${iva}%),${result.pago_iva.toFixed(2)},${getVal(result.pago_iva)},${iva}%,${pctFinal(result.pago_iva)}\r\n`;
-        csvContent += `Precio Final de Venta Sugerido,${result.precio_venta_sugerido.toFixed(2)},${getVal(result.precio_venta_sugerido)},-,100.00%\r\n`;
+        csvContent += `Impuesto IIBB (${iibb}%),${result.pago_iibb.toFixed(2)},${getVal(result.pago_iibb)},${pctNeto(result.pago_iibb)},${pctFinal(result.pago_iibb)}\r\n`;
+        csvContent += `Tasa Municipal TEM (${tem}%),${result.pago_tem.toFixed(2)},${getVal(result.pago_tem)},${pctNeto(result.pago_tem)},${pctFinal(result.pago_tem)}\r\n`;
+        csvContent += `Costo por Cobro y Cuotas (${comisiones}%),${result.pago_comisiones.toFixed(2)},${getVal(result.pago_comisiones)},${pctNeto(result.pago_comisiones)},${pctFinal(result.pago_comisiones)}\r\n`;
+        csvContent += `Ganancia Neta Limpia (${rentabilidad}%),${result.ganancia_neta_obtenida.toFixed(2)},${getVal(result.ganancia_neta_obtenida)},${pctNeto(result.ganancia_neta_obtenida)},${pctFinal(result.ganancia_neta_obtenida)}\r\n`;
+        csvContent += `Precio de Venta Fijado sin IVA,${result.precio_neto.toFixed(2)},${getVal(result.precio_neto)},100.00%,${pctFinal(result.precio_neto)}\r\n`;
+        csvContent += `IVA (${iva}% s/Precio de Venta),${result.pago_iva.toFixed(2)},${getVal(result.pago_iva)},${iva}%,${pctFinal(result.pago_iva)}\r\n`;
+        csvContent += `Precio Final con IVA Incluido,${result.precio_venta_sugerido.toFixed(2)},${getVal(result.precio_venta_sugerido)},-,100.00%\r\n`;
         csvContent += `Precio de Equilibrio Final (Ganancia $0),${result.precio_equilibrio_final.toFixed(2)},${getVal(result.precio_equilibrio_final)},-,-\r\n`;
         csvContent += `ROI s/Costo Invertido,${(result.roi_sobre_costo * 100).toFixed(2)}%,-,-,-\r\n`;
         csvContent += `Recargo Comercial Neto (Markup),+${(result.markup_neto * 100).toFixed(2)}%,-,-,-\r\n`;
@@ -331,33 +313,25 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
         saveAs(blob, `estructura_costos_precio_${nombreSimulacion || 'sugerido'}_${Date.now()}.csv`);
     };
 
-    // Configuración del gráfico Doughnut con paleta ejecutiva
+    // Configuración del gráfico Doughnut con paleta ejecutiva (100% sobre Precio de Venta sin IVA; el IVA es pasamanos fiscal)
     const getChartData = () => {
         if (!result) return null;
 
-        const labels = ['Costo Unitario', 'Resguardo Inflación', 'IIBB + TEM', 'Costo Cobro/Cuotas'];
+        const labels = ['Costo Unitario', 'Resguardo Inflación', 'IIBB + TEM', 'Costo Cobro/Cuotas', 'Ganancia Neta'];
         const data = [
             result.recupero_costo,
             result.cobertura_inflacion,
             result.pago_iibb + result.pago_tem,
-            result.pago_comisiones
+            result.pago_comisiones,
+            Math.max(0, result.ganancia_neta_obtenida)
         ];
         const backgroundColor = [
             '#3b82f6', // Blue - Costo
             '#f59e0b', // Amber - Inflación
             '#f97316', // Orange - Impuestos locales
-            '#8b5cf6'  // Violet - Comisiones
+            '#8b5cf6', // Violet - Comisiones
+            '#10b981'  // Emerald - Ganancia
         ];
-
-        if (result.pago_iva > 0) {
-            labels.push('IVA Débito');
-            data.push(result.pago_iva);
-            backgroundColor.push('#06b6d4'); // Cyan - IVA
-        }
-
-        labels.push('Ganancia Neta');
-        data.push(Math.max(0, result.ganancia_neta_obtenida));
-        backgroundColor.push('#10b981'); // Emerald - Ganancia
 
         return {
             labels,
@@ -396,16 +370,16 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                 callbacks: {
                     label: (context) => {
                         const val = context.raw || 0;
-                        const total = result?.precio_venta_sugerido || 1;
-                        const pct = ((val / total) * 100).toFixed(1);
-                        return ` ${context.label}: ${displayVal(val)} (${pct}% del total)`;
+                        const baseNeto = result?.precio_neto || 1;
+                        const pct = ((val / baseNeto) * 100).toFixed(2);
+                        return ` ${context.label}: ${displayVal(val)} (${pct}% s/Venta sin IVA)`;
                     }
                 }
             }
         }
     };
 
-    // Desglose estructurado para barras de composición
+    // Desglose estructurado para barras de composición (100% sobre Precio de Venta sin IVA)
     const breakdownRows = result ? [
         {
             label: 'Costo Directo Total (Recupero)',
@@ -414,56 +388,38 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                 : 'Costo de compra o producción',
             amount: result.recupero_costo,
             pctNeto: result.precio_neto > 0 ? (result.recupero_costo / result.precio_neto) * 100 : 0,
-            pctTotal: result.precio_venta_sugerido > 0 ? (result.recupero_costo / result.precio_venta_sugerido) * 100 : 0,
             color: 'bg-blue-500',
             badge: 'bg-blue-50 text-blue-700 border-blue-200'
         },
         {
-            label: `Resguardo Inflacionario (${ (result.inflacion_periodo * 100).toFixed(2) }%)`,
-            sub: `${inflacion}% mensual • Ciclo ${diasReposicion}d (${modoInflacion === 'costo' ? 's/Costo Reposición' : 's/Precio Neto'})`,
+            label: `Resguardo Inflacionario (${inflacion}%)`,
+            sub: 'Cobertura de reposición incorporada al precio de venta',
             amount: result.cobertura_inflacion,
             pctNeto: result.precio_neto > 0 ? (result.cobertura_inflacion / result.precio_neto) * 100 : 0,
-            pctTotal: result.precio_venta_sugerido > 0 ? (result.cobertura_inflacion / result.precio_venta_sugerido) * 100 : 0,
             color: 'bg-amber-500',
             badge: 'bg-amber-50 text-amber-700 border-amber-200'
         },
         {
             label: `Costo por Cobro y Cuotas (${comisiones}%)`,
-            sub: Number(iva) > 0
-                ? `Pasarela + cuotas s/Precio CON IVA (${(result.comision_efectiva_neto * 100).toFixed(2)}% ef. s/Neto)`
-                : 'Pasarela + cuotas calculado sobre Precio Final de Venta',
+            sub: 'Método de cobro y financiación en pasarela de pagos',
             amount: result.pago_comisiones,
             pctNeto: result.precio_neto > 0 ? (result.pago_comisiones / result.precio_neto) * 100 : 0,
-            pctTotal: result.precio_venta_sugerido > 0 ? (result.pago_comisiones / result.precio_venta_sugerido) * 100 : 0,
             color: 'bg-violet-500',
             badge: 'bg-violet-50 text-violet-700 border-violet-200'
         },
         {
             label: `Impuestos Locales (IIBB ${iibb}% + TEM ${tem}%)`,
-            sub: Number(iva) > 0
-                ? 'Resp. Inscripto: calculados sobre Precio SIN IVA'
-                : 'Monotributo: calculados sobre Monto Total de la Venta',
+            sub: 'Ingresos Brutos y Tasa Municipal sobre precio de venta s/IVA',
             amount: result.pago_iibb + result.pago_tem,
             pctNeto: result.precio_neto > 0 ? ((result.pago_iibb + result.pago_tem) / result.precio_neto) * 100 : 0,
-            pctTotal: result.precio_venta_sugerido > 0 ? ((result.pago_iibb + result.pago_tem) / result.precio_venta_sugerido) * 100 : 0,
             color: 'bg-orange-500',
             badge: 'bg-orange-50 text-orange-700 border-orange-200'
         },
-        ...(result.pago_iva > 0 ? [{
-            label: `IVA Débito Fiscal (${iva}%)`,
-            sub: 'Impuesto trasladado al precio final',
-            amount: result.pago_iva,
-            pctNeto: Number(iva),
-            pctTotal: result.precio_venta_sugerido > 0 ? (result.pago_iva / result.precio_venta_sugerido) * 100 : 0,
-            color: 'bg-cyan-500',
-            badge: 'bg-cyan-50 text-cyan-700 border-cyan-200'
-        }] : []),
         {
             label: 'Ganancia Neta Limpia (Utilidad Real)',
-            sub: `ROS: ${formatPercentage(result.rentabilidad_real_lograda)} s/Neto • ROI: ${formatPercentage(result.roi_sobre_costo)} s/Costo`,
+            sub: `ROS: ${formatPercentage(result.rentabilidad_real_lograda)} s/Venta s/IVA • ROI: ${formatPercentage(result.roi_sobre_costo)} s/Costo`,
             amount: result.ganancia_neta_obtenida,
             pctNeto: result.precio_neto > 0 ? (result.ganancia_neta_obtenida / result.precio_neto) * 100 : 0,
-            pctTotal: result.precio_venta_sugerido > 0 ? (result.ganancia_neta_obtenida / result.precio_venta_sugerido) * 100 : 0,
             color: 'bg-emerald-500',
             badge: 'bg-emerald-50 text-emerald-700 border-emerald-200'
         }
@@ -673,12 +629,12 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                             </h4>
                             {result && (
                                 <span className="text-xs md:text-sm font-bold text-slate-500">
-                                    Costo Reposición: <strong className="text-slate-800 font-mono">{displayVal(result.costo_reposicion_total)}</strong>
+                                    Costo + Resguardo Inflación: <strong className="text-slate-800 font-mono">{displayVal(result.costo_reposicion_total)}</strong>
                                 </span>
                             )}
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5">
                             {/* Costo de Adquisición */}
                             <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-blue-500 transition-all">
                                 <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
@@ -718,10 +674,8 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                     />
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Inflación y Ciclo de Reposición */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5 pt-1">
+                            {/* Inflación Mensual Estimada */}
                             <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-amber-500 transition-all">
                                 <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                                     Inflación Mensual Est.
@@ -739,48 +693,6 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                     <span className="text-amber-600 font-black text-sm md:text-lg">%</span>
                                 </div>
                             </div>
-
-                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-amber-500 transition-all">
-                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                                    Ciclo Reposición / Cobro
-                                </label>
-                                <div className="flex items-center">
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="1"
-                                        value={diasReposicion}
-                                        onChange={e => setDiasReposicion(e.target.value)}
-                                        onFocus={e => e.target.select()}
-                                        className="w-full bg-transparent border-none text-slate-800 font-black text-base md:text-xl lg:text-2xl outline-none font-mono"
-                                    />
-                                    <span className="text-slate-400 font-bold text-xs md:text-sm">días</span>
-                                </div>
-                            </div>
-
-                            <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80">
-                                <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                                    Base Resguardo Inflación
-                                </label>
-                                <div className="grid grid-cols-2 gap-1.5 bg-white p-1 rounded-xl border border-slate-200">
-                                    <button
-                                        type="button"
-                                        onClick={() => setModoInflacion('costo')}
-                                        className={`py-1.5 px-2 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoInflacion === 'costo' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
-                                        title="Indexa el costo de reposición del producto según los días de rotación"
-                                    >
-                                        s/Costo
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setModoInflacion('precio')}
-                                        className={`py-1.5 px-2 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoInflacion === 'precio' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
-                                        title="Calcula el resguardo como porcentaje sobre el precio de venta neto"
-                                    >
-                                        s/Precio
-                                    </button>
-                                </div>
-                            </div>
                         </div>
                     </div>
 
@@ -791,31 +703,18 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                 <Icon name="Target" size={18} className="text-emerald-600" />
                                 2. Objetivo de Rentabilidad y Volumen
                             </h4>
-                            <div className="flex items-center bg-slate-100 p-1 md:p-1.5 rounded-xl">
-                                <button
-                                    type="button"
-                                    onClick={() => setModoRentabilidad('margen_venta')}
-                                    className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoRentabilidad === 'margen_venta' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
-                                    title="Calcula el margen sobre el valor del producto (sin inflar la ganancia cuando suben las comisiones de pasarela)"
-                                >
-                                    Margen Comercial
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setModoRentabilidad('markup_costo')}
-                                    className={`px-2.5 md:px-3.5 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-extrabold transition-all cursor-pointer ${modoRentabilidad === 'markup_costo' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
-                                    title="Aplica el porcentaje directamente sobre el Costo de Reposición"
-                                >
-                                    Retorno s/Costo (ROI)
-                                </button>
-                            </div>
+                            {result && (
+                                <span className="text-xs md:text-sm font-bold text-slate-500">
+                                    Suma de cargos s/Precio s/IVA: <strong className="text-indigo-700 font-mono">{(result.suma_porcentajes * 100).toFixed(2)}%</strong>
+                                </span>
+                            )}
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
                             {/* Rentabilidad Esperada */}
                             <div className="bg-slate-50 p-3.5 md:p-4 rounded-2xl border border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 transition-all">
                                 <label className="block text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                                    {modoRentabilidad === 'margen_venta' ? 'Margen Limpio Deseado (s/Producto)' : 'Retorno Limpio s/Costo Deseado'}
+                                    Margen de Rentabilidad Deseado
                                 </label>
                                 <div className="flex items-center">
                                     <input
@@ -932,11 +831,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                     </div>
                                 </div>
                                 <p className="text-[11px] md:text-xs text-slate-500 font-medium mt-2.5 pt-2 border-t border-slate-200/60">
-                                    {Number(iva) > 0 ? (
-                                        <>Calculado <strong>s/Precio con IVA</strong>: <strong className="text-violet-700 font-mono">{result ? displayVal(result.pago_comisiones) : '$0,00'}</strong></>
-                                    ) : (
-                                        <>Calculado <strong>s/Precio Final</strong>: <strong className="text-violet-700 font-mono">{result ? displayVal(result.pago_comisiones) : '$0,00'}</strong></>
-                                    )}
+                                    Calculado <strong>s/Precio de Venta s/IVA</strong>: <strong className="text-violet-700 font-mono">{result ? displayVal(result.pago_comisiones) : '$0,00'}</strong>
                                 </p>
                             </div>
 
@@ -960,11 +855,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                     </div>
                                 </div>
                                 <p className="text-[11px] md:text-xs text-slate-500 font-medium mt-2.5 pt-2 border-t border-slate-200/60">
-                                    {Number(iva) > 0 ? (
-                                        <>Calculado <strong>s/Precio sin IVA</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_iibb) : '$0,00'}</strong></>
-                                    ) : (
-                                        <>Calculado <strong>s/Total de la Venta</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_iibb) : '$0,00'}</strong></>
-                                    )}
+                                    Calculado <strong>s/Precio de Venta s/IVA</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_iibb) : '$0,00'}</strong>
                                 </p>
                             </div>
 
@@ -988,27 +879,29 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                     </div>
                                 </div>
                                 <p className="text-[11px] md:text-xs text-slate-500 font-medium mt-2.5 pt-2 border-t border-slate-200/60">
-                                    {Number(iva) > 0 ? (
-                                        <>Calculado <strong>s/Precio sin IVA</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_tem) : '$0,00'}</strong></>
-                                    ) : (
-                                        <>Calculado <strong>s/Total de la Venta</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_tem) : '$0,00'}</strong></>
-                                    )}
+                                    Calculado <strong>s/Precio de Venta s/IVA</strong>: <strong className="text-orange-700 font-mono">{result ? displayVal(result.pago_tem) : '$0,00'}</strong>
                                 </p>
                             </div>
                         </div>
 
                         {result && (
-                            <div className="bg-violet-50/70 border border-violet-200/80 rounded-2xl px-4 py-3 text-xs md:text-sm text-violet-900 flex items-start gap-2.5">
-                                <Icon name="Info" size={17} className="text-violet-600 shrink-0 mt-0.5" />
-                                <div>
+                            <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-2xl px-4 py-3.5 text-xs md:text-sm text-indigo-950 space-y-2">
+                                <div className="flex items-start gap-2.5">
+                                    <Icon name="Info" size={17} className="text-indigo-600 shrink-0 mt-0.5" />
                                     {Number(iva) > 0 ? (
-                                        <span>
-                                            <strong>Criterio Contable Responsable Inscripto (IVA {iva}%):</strong> El <strong>Costo por Cobro y Cuotas ({comisiones}%)</strong> se aplica sobre el <strong>Precio con IVA ({displayVal(result.precio_venta_sugerido)})</strong>, representando un <strong>{(result.comision_efectiva_neto * 100).toFixed(2)}%</strong> efectivo sobre el Precio sin IVA. En cambio, <strong>Ingresos Brutos ({iibb}%) y TEM ({tem}%)</strong> se liquidan exclusivamente sobre el <strong>Precio sin IVA ({displayVal(result.precio_neto)})</strong>.
-                                        </span>
+                                        <div className="space-y-1.5">
+                                            <p>
+                                                <strong>Fijación del Precio e Incorporación de IVA ({iva}%):</strong> Primero se determina el <strong>Precio de Venta sin IVA ({displayVal(result.precio_neto)})</strong> con todos sus costos, gastos e impuestos agregados. Luego se multiplica por <strong>{result.factor_iva.toFixed(2).replace('.', ',')}</strong> para obtener el <strong>Precio Final con IVA ({displayVal(result.precio_venta_sugerido)})</strong>.
+                                            </p>
+                                            <p className="text-[11px] md:text-xs text-indigo-900/90">
+                                                • <strong>Factura A:</strong> Neto discriminado <strong>{displayVal(result.precio_neto)}</strong> + IVA ({iva}%) <strong>{displayVal(result.pago_iva)}</strong> = Total <strong>{displayVal(result.precio_venta_sugerido)}</strong>.<br />
+                                                • <strong>Factura B:</strong> Total final con IVA incluido sin discriminar <strong>{displayVal(result.precio_venta_sugerido)}</strong> (Precio de venta sin IVA: <strong>{displayVal(result.precio_venta_sugerido)} ÷ {result.factor_iva.toFixed(2).replace('.', ',')} = {displayVal(result.precio_sin_iva_verificado)}</strong>).
+                                            </p>
+                                        </div>
                                     ) : (
-                                        <span>
-                                            <strong>Criterio Contable Monotributista / Exento (0% IVA):</strong> Tanto el <strong>Costo por Cobro y Cuotas ({comisiones}%)</strong> como <strong>Ingresos Brutos ({iibb}%) y TEM ({tem}%)</strong> se calculan directamente sobre el <strong>Monto Total de la Venta / Precio Final ({displayVal(result.precio_venta_sugerido)})</strong>.
-                                        </span>
+                                        <p>
+                                            <strong>Monotributista / Exento (0% IVA - Factura C):</strong> El precio de venta fijado con todos sus costos, gastos e impuestos agregados es directamente el <strong>Precio Final ({displayVal(result.precio_venta_sugerido)})</strong>.
+                                        </p>
                                     )}
                                 </div>
                             </div>
@@ -1023,8 +916,8 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                         <div className="bg-white p-6 sm:p-7 rounded-3xl shadow-sm border border-slate-100 space-y-6">
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <div>
-                                    <h4 className="text-base md:text-lg lg:text-xl font-black text-slate-800 tracking-tight">Estructura del Precio Final</h4>
-                                    <p className="text-xs md:text-sm text-slate-500 font-medium">Distribución de cada peso cobrado al cliente</p>
+                                    <h4 className="text-base md:text-lg lg:text-xl font-black text-slate-800 tracking-tight">Estructura del Precio de Venta</h4>
+                                    <p className="text-xs md:text-sm text-slate-500 font-medium">Composición 100% sobre el Precio sin IVA (el IVA es pasamanos fiscal)</p>
                                 </div>
                                 {onScheduleInCashFlow && (
                                     <button
@@ -1049,7 +942,7 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                 <Doughnut data={chartData} options={chartOptions} />
                             </div>
 
-                            {/* Lista de Rubros con Barras de Participación */}
+                            {/* Lista de Rubros con Barras de Participación sobre el Precio sin IVA */}
                             <div className="space-y-3.5 md:space-y-4 pt-3 border-t border-slate-100">
                                 {breakdownRows.map((row, idx) => (
                                     <div key={idx} className="space-y-1.5">
@@ -1061,18 +954,41 @@ const PricingCalculatorForm = ({ dollarRates = [], targetUserId, onScheduleInCas
                                             <div className="text-right shrink-0">
                                                 <span className="font-black text-slate-800 font-mono text-xs md:text-sm lg:text-base block">{displayVal(row.amount)}</span>
                                                 <span className="text-[10px] md:text-xs font-bold text-slate-400">
-                                                    {row.pctTotal.toFixed(1)}% del total
+                                                    {row.pctNeto.toFixed(1)}% s/Venta s/IVA
                                                 </span>
                                             </div>
                                         </div>
                                         <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                                             <div
                                                 className={`h-full rounded-full ${row.color}`}
-                                                style={{ width: `${Math.min(100, Math.max(2, row.pctTotal))}%` }}
+                                                style={{ width: `${Math.min(100, Math.max(2, row.pctNeto))}%` }}
                                             />
                                         </div>
                                     </div>
                                 ))}
+
+                                {/* Resumen de Precio sin IVA + Pasamanos Fiscal IVA */}
+                                <div className="pt-3 border-t border-slate-200/80 space-y-2">
+                                    <div className="flex items-center justify-between text-xs md:text-sm">
+                                        <span className="font-extrabold text-slate-700">Precio de Venta Fijado (sin IVA)</span>
+                                        <span className="font-black text-slate-900 font-mono">{displayVal(result.precio_neto)} (100%)</span>
+                                    </div>
+                                    {result.pago_iva > 0 && (
+                                        <>
+                                            <div className="flex items-center justify-between text-xs md:text-sm text-cyan-800 bg-cyan-50/80 px-3 py-2 rounded-xl border border-cyan-200/70">
+                                                <div>
+                                                    <span className="font-bold block">+ IVA Débito Fiscal ({iva}%) — Pasamanos al Fisco</span>
+                                                    <span className="text-[10px] md:text-xs text-cyan-700 block">Impuesto neutro: no integra tus ingresos ni altera tu rentabilidad</span>
+                                                </div>
+                                                <span className="font-black font-mono shrink-0 ml-2">+{displayVal(result.pago_iva)}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between text-xs md:text-sm pt-1">
+                                                <span className="font-black text-indigo-950">Precio Final Facturado (con IVA)</span>
+                                                <span className="font-black text-indigo-700 font-mono text-sm md:text-base">{displayVal(result.precio_venta_sugerido)}</span>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Resumen Lote si cantidad > 1 */}
